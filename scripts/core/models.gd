@@ -500,7 +500,7 @@ static func _m_shard() -> ArrayMesh:
 
 # ---------------------------------------------------------------- cars
 
-const WIN := "3c4f6e"
+const WIN := "4d6890"
 const BUMPER := "c9cfd8"
 const DARK := "3a3540"
 

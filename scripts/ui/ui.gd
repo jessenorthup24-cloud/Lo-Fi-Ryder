@@ -745,7 +745,7 @@ func _build_garage() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-50, 35, 0)
 	sun.light_color = Color("fff1dc")
-	sun.light_energy = 0.8
+	sun.light_energy = 0.62
 	sun.shadow_enabled = true
 	g_world_root.add_child(sun)
 	var cam := Camera3D.new()
