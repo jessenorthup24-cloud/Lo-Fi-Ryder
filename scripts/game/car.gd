@@ -202,6 +202,11 @@ func _move(dt: float) -> void:
 	if grounded:
 		var lip: bool = not ramp_before.is_empty() and world.ramp_at(np).is_empty()
 		if lip:
+			# only a launch if we left over the top edge, not off the side
+			var rel: Vector3 = np - ramp_before["origin"]
+			var along: float = rel.x * ramp_before["fwd"].x + rel.z * ramp_before["fwd"].z
+			lip = along >= float(ramp_before["len"]) - 0.1
+		if lip:
 			# off the end of a kicker: launch
 			var sp := speed()
 			vel.y = float(ramp_before["launch"])

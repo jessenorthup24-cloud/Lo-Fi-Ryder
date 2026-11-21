@@ -399,7 +399,7 @@ func car_event(kind: String, d: Dictionary) -> void:
 			var t: float = d["time"]
 			if t > 0.45:
 				var c: int = d["chain"]
-				_style(int(t * 20.0 * (1.0 + c * 0.25)), "Drift" if c == 0 else "Drift chain x%d" % (c + 1), car.position, K.SUN, "%.1fs" % t)
+				_style(int(t * 12.0 * (1.0 + c * 0.25)), "Drift" if c == 0 else "Drift chain x%d" % (c + 1), car.position, K.SUN, "%.1fs" % t)
 		"off_edge":
 			pass
 		"dead":
@@ -932,7 +932,7 @@ func _harness() -> void:
 			print("shot saved ", args["shot"], " hour=", atmos.hour, " night=", atmos.night, " state=", state, " v=", world.v_of(car.position), " tiles=", world.tiles.size(), " fuel=", car.fuel)
 			if not args.has("keep"):
 				get_tree().quit()
-	if args.has("quit_after") and run_t > float(args["quit_after"]):
+	if args.has("quit_after") and (run_t > float(args["quit_after"]) or (state == OVER and ui.over.visible)):
 		print("RESULT t=%.1f dist=%d style=%d coins=%d dead=%s why=%s state=%d tiles=%d" % [run_t, int(max_v), style, run_coins, car.dead, death, state, world.tiles.size()])
 		get_tree().quit()
 	if args.has("over") and frames == 40 and state == RUN:

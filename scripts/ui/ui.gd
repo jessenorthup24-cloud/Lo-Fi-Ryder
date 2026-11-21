@@ -56,6 +56,15 @@ var g_drag := 0.0
 var g_spin := 0.0
 var g_dots: HBoxContainer
 
+## Extra top padding (in UI units) so nothing sits under a camera hole or notch.
+func safe_top() -> int:
+	var safe := DisplayServer.get_display_safe_area()
+	var screen := DisplayServer.screen_get_size()
+	if screen.y <= 0 or safe.size.y <= 0:
+		return 0
+	var vs := get_viewport().get_visible_rect().size
+	return clampi(int(float(safe.position.y) * vs.y / float(screen.y)), 0, 90)
+
 func setup(g: Node) -> void:
 	game = g
 	layer = 10
@@ -100,6 +109,7 @@ var hit_controls: Array = []
 
 ## True if a screen point is on a button or a sheet, so the game ignores that touch.
 func blocks(pos: Vector2) -> bool:
+	hit_controls = hit_controls.filter(func(c): return is_instance_valid(c))
 	if overlay.visible or garage.visible or (over.visible and over.mouse_filter == Control.MOUSE_FILTER_STOP):
 		return true
 	for c in hit_controls:
@@ -137,7 +147,7 @@ func _build_title() -> void:
 	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	top.add_theme_constant_override("margin_left", 28)
 	top.add_theme_constant_override("margin_right", 28)
-	top.add_theme_constant_override("margin_top", 40)
+	top.add_theme_constant_override("margin_top", 40 + safe_top())
 	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	title.add_child(top)
 	var tb := HBoxContainer.new()
@@ -264,7 +274,7 @@ func _build_hud() -> void:
 	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	top.add_theme_constant_override("margin_left", 26)
 	top.add_theme_constant_override("margin_right", 26)
-	top.add_theme_constant_override("margin_top", 40)
+	top.add_theme_constant_override("margin_top", 40 + safe_top())
 	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(top)
 	var row := HBoxContainer.new()
@@ -324,7 +334,14 @@ func hud_update(dt: float, dist: int, fuel: float, coins: int, best: int, combo:
 	if fuel > 0.6:
 		fill.bg_color = Color("ffb85c").lerp(Color("8fd19e"), (fuel - 0.6) / 0.4)
 	hud_fuel_icon.scale = Vector2.ONE * (1.0 + (0.12 * maxf(0.0, sin(_fuel_flash)) if low else 0.0))
-	hud_coins.get_meta("label").text = K.fmt(coins)
+	var cl: Label = hud_coins.get_meta("label")
+	var ct := K.fmt(coins)
+	if cl.text != ct:
+		cl.text = ct
+		hud_coins.pivot_offset = hud_coins.size * 0.5
+		var t := hud_coins.create_tween()
+		t.tween_property(hud_coins, "scale", Vector2(1.15, 1.15), 0.06)
+		t.tween_property(hud_coins, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	if best > 0 and not _passed_best:
 		hud_best.text = "Best %s" % K.fmt(best)
 	hud_combo.text = ""
@@ -761,7 +778,7 @@ func _build_garage() -> void:
 	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	top.add_theme_constant_override("margin_left", 26)
 	top.add_theme_constant_override("margin_right", 26)
-	top.add_theme_constant_override("margin_top", 40)
+	top.add_theme_constant_override("margin_top", 40 + safe_top())
 	garage.add_child(top)
 	var tb := HBoxContainer.new()
 	tb.add_theme_constant_override("separation", 16)
