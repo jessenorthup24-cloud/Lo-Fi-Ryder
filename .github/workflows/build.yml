@@ -1,0 +1,144 @@
+# Every push to main:
+#   1. builds a debug-signed APK and attaches it to a GitHub release (Releases > Latest > lofi-ryder.apk)
+#   2. publishes an over-the-air content pack to the `ota` branch, so phones that already have the
+#      APK pick up the new version on their next launch without reinstalling.
+name: build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: 4.7.2
+  GODOT_BIN: Godot_v4.7.2-stable_linux.x86_64
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the build number is the commit count
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Godot and export templates
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}
+
+      - name: Install Godot and export templates
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          cd ~/godot
+          curl -sSL -o godot.zip https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/${GODOT_BIN}.zip
+          unzip -q godot.zip && rm godot.zip
+          curl -sSL -o templates.tpz https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          unzip -q templates.tpz && mv templates/* ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/ && rm -rf templates templates.tpz
+
+      - name: Point Godot at the Android SDK and the debug keystore
+        run: |
+          # the same debug key every build, so a new APK installs over the old one
+          cp tools/android/debug.keystore ~/debug.keystore
+          mkdir -p ~/.config/godot
+          for f in editor_settings-4.tres editor_settings-4.7.tres; do
+          cat > ~/.config/godot/$f <<EOS
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_SDK_ROOT"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOS
+          sed -i 's/^          //' ~/.config/godot/$f
+          done
+
+      - name: Stamp the build number
+        run: |
+          N=$(git rev-list --count HEAD)
+          echo "BUILD=$N" >> $GITHUB_ENV
+          printf '{"build": %s, "label": "b%s %s"}\n' "$N" "$N" "$(git rev-parse --short HEAD)" > version.json
+          sed -i "s/^version\/code=.*/version\/code=$N/; s/^version\/name=.*/version\/name=\"1.0.$N\"/" export_presets.cfg
+          cat version.json
+
+      - name: Import assets
+        run: ~/godot/${GODOT_BIN} --headless --path . --import
+
+      - name: Smoke test (20 s of autopilot driving, any script error fails the build)
+        run: |
+          timeout 120 ~/godot/${GODOT_BIN} --headless --path . res://scenes/main.tscn -- --auto --fresh --quit_after=20 2>&1 | tee smoke.txt
+          grep -q "RESULT" smoke.txt
+          if grep -q "SCRIPT ERROR" smoke.txt; then echo "script errors"; exit 1; fi
+
+      - name: Export Android (debug APK)
+        env:
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /home/runner/debug.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+        run: |
+          mkdir -p build
+          ~/godot/${GODOT_BIN} --headless --path . --export-debug "Android" build/lofi-ryder.apk
+          ls -la build
+          test -s build/lofi-ryder.apk
+
+      - name: Export the over-the-air content pack
+        run: |
+          mkdir -p build/ota
+          ~/godot/${GODOT_BIN} --headless --path . --export-pack "Android" build/ota/content-${BUILD}.pck
+          ENGINE=$(~/godot/${GODOT_BIN} --version | python3 -c "import sys,re; m=re.match(r'(\d+)\.(\d+)(?:\.(\d+))?',sys.stdin.read()); print(int(m[1])*10000+int(m[2])*100+int(m[3] or 0))")
+          python3 - "$BUILD" "$ENGINE" <<'PY'
+          import hashlib, json, os, sys
+          build, engine = int(sys.argv[1]), int(sys.argv[2])
+          name = f"content-{build}.pck"
+          b = open(os.path.join("build/ota", name), "rb").read()
+          label = json.load(open("version.json"))["label"]
+          json.dump({"build": build, "label": label, "engine": engine, "pack": name, "size": len(b),
+                     "sha256": hashlib.sha256(b).hexdigest()}, open("build/ota/manifest.json", "w"), indent=1)
+          print(f"{name}: {len(b)/1048576:.1f} MB")
+          PY
+          cat build/ota/manifest.json
+
+      - name: Publish the update to the ota branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd build/ota
+          git init -q -b ota
+          git add manifest.json content-${BUILD}.pck
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "Lo-Fi Ryder content b${BUILD}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ota
+          echo "published b${BUILD}"
+
+      - name: Release the APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "b${BUILD}" build/lofi-ryder.apk \
+            --title "Lo-Fi Ryder b${BUILD}" \
+            --notes "Debug APK for Android. Install it once; later builds arrive as in-app updates on launch. Commit: ${GITHUB_SHA::7}" \
+            --latest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lofi-ryder-apk
+          path: build/lofi-ryder.apk
+          if-no-files-found: error
