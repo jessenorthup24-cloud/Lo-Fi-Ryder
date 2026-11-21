@@ -96,7 +96,19 @@ func _full(filter: int) -> Control:
 	root.add_child(c)
 	return c
 
+var hit_controls: Array = []
+
+## True if a screen point is on a button or a sheet, so the game ignores that touch.
+func blocks(pos: Vector2) -> bool:
+	if overlay.visible or garage.visible or (over.visible and over.mouse_filter == Control.MOUSE_FILTER_STOP):
+		return true
+	for c in hit_controls:
+		if is_instance_valid(c) and c.is_visible_in_tree() and c.get_global_rect().grow(8).has_point(pos):
+			return true
+	return false
+
 func _tap(b: BaseButton, f: Callable) -> void:
+	hit_controls.append(b)
 	b.pressed.connect(func():
 		game.ui_tap()
 		f.call())
@@ -212,7 +224,7 @@ func _build_title() -> void:
 			daily_dot.position = Vector2(84, 0)
 			daily_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			b.add_child(daily_dot)
-	title_tap = K.outlined(K.label("Tap anywhere to drive", 40, Color.WHITE, 650), Color(0.29, 0.23, 0.2, 0.9), 12)
+	title_tap = K.outlined(K.label("Tap to drive · slide to steer", 38, Color.WHITE, 650), Color(0.29, 0.23, 0.2, 0.9), 12)
 	bottom.add_child(K.spacer(10))
 	bottom.add_child(title_tap)
 
@@ -683,6 +695,7 @@ func _build_garage() -> void:
 	garage.add_child(bg)
 	# soft stripes
 	var stripes := ColorRect.new()
+	stripes.name = "Stripes"
 	stripes.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	stripes.offset_bottom = 780
 	stripes.color = Color("ffe9d1")
@@ -852,6 +865,7 @@ func _garage_tab(cars: bool) -> void:
 		for st in ["font_color", "font_hover_color", "font_pressed_color"]:
 			b.add_theme_color_override(st, Color.WHITE if on else K.INK)
 	g_view.get_parent().visible = true
+	garage.get_node("Stripes").visible = cars
 	if not cars:
 		_build_upgrades()
 		g_view.get_parent().visible = false
@@ -976,7 +990,9 @@ func _build_upgrades() -> void:
 		card.add_child(hb)
 		var badge := PanelContainer.new()
 		badge.add_theme_stylebox_override("panel", K.box(cols[u], 26, 0, Color.TRANSPARENT, 14))
-		badge.add_child(Icon.new(icons[u], Color.WHITE, 56))
+		var bic := Icon.new(icons[u], Color.WHITE, 56)
+		bic.color2 = cols[u]
+		badge.add_child(bic)
 		badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		hb.add_child(badge)
 		var vb := VBoxContainer.new()

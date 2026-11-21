@@ -14,8 +14,8 @@ const SEASON_NAMES := ["Spring", "Summer", "Autumn", "Winter"]
 
 # slot: [spring, summer, autumn, winter]
 const COLORS := {
-	GRASS: ["9ad96b", "86cc5c", "e2b052", "f1f5f8"],
-	GRASS_FOREST: ["74c46a", "62b35c", "cf8f40", "e9f0f5"],
+	GRASS: ["9ad96b", "86cc5c", "d6b562", "f1f5f8"],
+	GRASS_FOREST: ["74c46a", "62b35c", "c99a4c", "e9f0f5"],
 	SAND: ["f4dca2", "f6d68e", "eccd94", "ece7df"],
 	STONE: ["d3cdc4", "d8d0c4", "cfc5b8", "dfe3e8"],
 	DIRT: ["b9835a", "b27b52", "a46f4a", "a07a63"],
@@ -42,7 +42,7 @@ const COLORS := {
 	ROOF_BLUE: ["6797dd", "5d8fda", "5f86c4", "f3f5f8"],
 	STONE_SIDE: ["c2b2d6", "bcabd2", "c7a9c2", "c9c2dc"],
 	SAND_SIDE: ["dfae7c", "dba873", "d29f6e", "cfae94"],
-	TUFT: ["7fca5c", "6dba4f", "cf9a45", "e3eaf0"],
+	TUFT: ["7fca5c", "6dba4f", "b98f45", "e3eaf0"],
 	CORAL: ["ff9478", "ff8a6b", "f0805f", "f2b3a6"],
 	PUMPKIN: ["f6b44a", "f4a43a", "f08a24", "f2c29a"],
 	METAL: ["a6afb9", "a3acb6", "a0a8b0", "b8c0c9"],

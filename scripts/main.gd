@@ -137,12 +137,16 @@ func _ready() -> void:
 	_new_world(_random_seed(), false)
 	if args.has("garage"):
 		open_garage(true)
+		if String(args["garage"]) == "up":
+			ui._garage_tab(false)
 	elif args.has("run") or args.has("auto"):
 		autopilot = args.has("auto")
 		_start_run()
 	else:
 		state = TITLE
 		ui.show_title()
+	if args.has("warp"):
+		_warp(float(args["warp"]))
 	sound.start_music()
 
 func _parse_args() -> void:
@@ -480,7 +484,7 @@ func _sim(dt: float) -> void:
 	var cv := world.v_of(car.position)
 	var crumble_on := state == RUN and crumble_delay <= 0.0
 	var gap := cv - world.crumble_v
-	var cspeed := lerpf(6.0, 7.4, world.difficulty) + clampf((gap - 40.0) * 0.25, 0.0, 6.0)
+	var cspeed := lerpf(6.0, 7.4, world.difficulty) + clampf((gap - 32.0) * 0.3, 0.0, 6.0)
 	world.tick(dt, maxf(cv, max_v), cspeed, crumble_on, time)
 	if state == DYING:
 		dying_t += dt
@@ -710,7 +714,7 @@ func _cam_update(dt: float, snap: bool) -> void:
 	var target := car.position
 	if car.dead and car.falling:
 		target = Vector3(car.position.x, maxf(car.position.y, -1.5), car.position.z)
-	var lead := world.F * 3.2 + Vector3(car.vel.x, 0, car.vel.z) * 0.18
+	var lead := world.F * 4.4 + Vector3(car.vel.x, 0, car.vel.z) * 0.16
 	if state == TITLE or state == GARAGE:
 		lead = world.F * 2.0
 	var want := Vector3(target.x, maxf(target.y * 0.6, -1.0), target.z) + lead
@@ -831,6 +835,8 @@ func _steer_input() -> float:
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventScreenTouch:
 		if e.pressed:
+			if ui.blocks(e.position):
+				return
 			if touch_id == -1:
 				touch_id = e.index
 				anchor_x = e.position.x
@@ -902,6 +908,20 @@ func _auto_steer() -> float:
 	if args.has("wiggle"):
 		s = clampf(s + sin(run_t * 1.3) * 0.7, -1.0, 1.0)
 	return s
+
+## Testing: jump the car (and the crumble) ahead along the road.
+func _warp(v: float) -> void:
+	world.gen_s = int(floor((v - 24.0) / World.D))
+	world._plan_until(v + 120.0)
+	world.update_gen(v)
+	var p := world.pos_at(v, 0.0)
+	p.y = maxf(0.0, world.ground_at(p))
+	var t := world.tangent(v)
+	car.place(p, atan2(-t.x, -t.z))
+	car.active = state == RUN
+	world.crumble_v = v - 30.0
+	world.crumble_s = int(floor(world.crumble_v / World.D))
+	_cam_update(1.0, true)
 
 func _harness() -> void:
 	if args.has("shot"):
