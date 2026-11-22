@@ -35,11 +35,17 @@ func release(i: int) -> void:
 	if i < 0:
 		return
 	multimesh.set_instance_transform(i, HIDDEN)
+	multimesh.set_instance_color(i, Color.WHITE)
 	_free.push_back(i)
 
 func put(i: int, xf: Transform3D) -> void:
 	if i >= 0:
 		multimesh.set_instance_transform(i, xf)
+
+## Tints a whole instance (for meshes built white on purpose: towels, tents, canoes…).
+func tint(i: int, c: Color) -> void:
+	if i >= 0:
+		multimesh.set_instance_color(i, c)
 
 func custom(i: int, c: Color) -> void:
 	if i >= 0:

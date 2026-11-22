@@ -61,6 +61,9 @@ var particle_root: Node3D
 var far_root: Node3D
 var leaf_mat: StandardMaterial3D
 var far_mat: ShaderMaterial
+var ground_mat: ShaderMaterial
+var ground_plane: MeshInstance3D
+var biome_w := Vector4(1, 0, 0, 0)
 var far_items: Array = []
 var last_target := Vector3.ZERO
 
@@ -109,6 +112,16 @@ func setup(w: Node, g: Node, camera: Camera3D, toon_mat: ShaderMaterial) -> void
 	# far layer
 	far_root = Node3D.new()
 	add_child(far_root)
+	ground_plane = MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(280, 280)
+	ground_plane.mesh = pm
+	ground_mat = ShaderMaterial.new()
+	ground_mat.shader = load("res://shaders/far_ground.gdshader")
+	ground_mat.set_shader_parameter("palette", toon_mat.get_shader_parameter("palette"))
+	ground_plane.material_override = ground_mat
+	ground_plane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(ground_plane)
 	far_mat = ShaderMaterial.new()
 	far_mat.shader = load("res://shaders/far.gdshader")
 	far_mat.set_shader_parameter("palette", toon_mat.get_shader_parameter("palette"))
@@ -376,6 +389,17 @@ func apply(target: Vector3, dt: float) -> void:
 	far_mat.set_shader_parameter("night", night)
 	far_mat.set_shader_parameter("haze_color", bot.lerp(top, 0.35))
 	far_mat.set_shader_parameter("haze", 0.5 + wet * 0.3)
+	# the land far below: follows the camera, its pattern drifts slower (depth without perspective)
+	var b: String = world.biome_at(prog)
+	var want := Vector4(1, 0, 0, 0) if b == "countryside" else (Vector4(0, 1, 0, 0) if b == "seaside" else (Vector4(0, 0, 1, 0) if b == "forest" else Vector4(0, 0, 0, 1)))
+	biome_w = biome_w.lerp(want, clampf(dt * 0.6, 0.0, 1.0)) if dt > 0.0 else want
+	ground_plane.position = Vector3(target.x, -38.0, target.z)
+	ground_mat.set_shader_parameter("offset", Vector2(target.x, target.z) * 0.8)
+	ground_mat.set_shader_parameter("biome_w", biome_w)
+	ground_mat.set_shader_parameter("season", season)
+	ground_mat.set_shader_parameter("night", night)
+	ground_mat.set_shader_parameter("haze_color", bot.lerp(top, 0.3))
+	ground_mat.set_shader_parameter("haze", 0.46 + wet * 0.35)
 	_particles_update()
 
 func _particles_update() -> void:

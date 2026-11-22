@@ -8,6 +8,8 @@ extends Node3D
 const M := preload("res://scripts/core/models.gd")
 const P := preload("res://scripts/core/palette.gd")
 const Pool := preload("res://scripts/game/pool.gd")
+const People := preload("res://scripts/game/people.gd")
+const CARS := preload("res://scripts/game/cars.gd")
 
 const T := M.T
 const D := T * 0.70710678          # stripe spacing in v
@@ -15,7 +17,7 @@ const F := Vector3(-0.70710678, 0, -0.70710678)
 const S := Vector3(0.70710678, 0, -0.70710678)
 const NO_GROUND := -1000.0
 const AHEAD := 72.0
-const U_MAX := 12.5
+const U_MAX := 16.5
 
 const BIOMES := ["countryside", "seaside", "forest", "sky"]
 const BIOME_NAMES := {"countryside": "Countryside", "seaside": "Seaside", "forest": "Forest & Mountains", "sky": "Sky Islands"}
@@ -88,6 +90,19 @@ var last_biome_reported := ""
 var amp_phase := Vector3.ZERO
 var label_font: Font
 var winter_ice := false     # set by atmos: lay ice patches while it's snowing
+var people: People
+var places: Array = []
+var anims: Array = []
+var fx: Node                # set by main, for chimney smoke and puffs
+
+# Places beside the road, per region: [type, weight]
+const PLACE_TYPES := {
+	"countryside": [["farm", 3.0], ["village", 3.0], ["pond", 2.0], ["orchard", 1.5]],
+	"seaside": [["beach", 3.0], ["pier", 2.0], ["cafe", 1.5]],
+	"forest": [["campsite", 3.0], ["mountain", 3.0], ["cabin", 1.5]],
+	"sky": [["ruins", 3.0], ["balloons", 2.5], ["garden", 1.5]],
+}
+const TILE_POOLS := {"tile_field": 260, "tile_cobble": 260, "tile_plank": 160, "tile_pier": 60, "tile_rock": 360}
 
 func setup(g: Node, material: ShaderMaterial, font: Font) -> void:
 	game = g
@@ -104,6 +119,12 @@ func setup(g: Node, material: ShaderMaterial, font: Font) -> void:
 		if not pools.has(nm):
 			var cap := {"coin": 260, "fuel": 24, "ramp": 24, "bridge": 80, "station": 6, "arch": 2, "marker": 6, "lamp": 60, "windmill_blades": 24, "pad": 30}[nm] as int
 			pools[nm] = _pool(nm, cap, false, nm != "coin")
+	for nm in TILE_POOLS:
+		pools[nm] = _pool(nm, TILE_POOLS[nm], true)
+	pools["ground_bits"] = _pool("ground_bits", 1400, false, false, 1.0)
+	people = People.new()
+	add_child(people)
+	people.setup(self, mat)
 	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	noise.frequency = 0.16
 
@@ -141,6 +162,8 @@ func reset(seed_in: int, force_biome := "") -> void:
 	tiles.clear(); stripes.clear(); stripe_items.clear(); falling.clear(); knocked.clear()
 	props_hash.clear(); coins.clear(); fuels.clear(); surfaces.clear(); stations.clear()
 	pads.clear(); chases.clear()
+	places.clear(); anims.clear()
+	people.clear()
 	markers.clear(); lamps.clear(); windmills.clear(); segments.clear()
 	amp_phase = Vector3(rng.randf() * TAU, rng.randf() * TAU, rng.randf() * TAU)
 	gen_s = int(floor(-16.0 / D))
@@ -266,11 +289,11 @@ func _plan_next() -> void:
 			_add_land(v0, len, d, kind)
 
 func _add_land(v0: float, len: float, d: float, kind: String, narrow_end := false) -> void:
-	var w := rng.randf_range(5.2, 7.0) * lerpf(1.0, 0.66, d)
+	var w := rng.randf_range(3.9, 4.9) * lerpf(1.0, 0.8, d)
 	if kind == "narrow":
-		w = lerpf(3.0, 2.4, d)
+		w = lerpf(2.8, 2.3, d)
 	if kind == "split":
-		w = maxf(w, 5.6)
+		w = maxf(w, 5.0)
 	var seg := {"v0": v0, "v1": v0 + len, "type": "land", "biome": cur_biome, "w": w, "holes": [], "narrow_end": narrow_end,
 		"density": lerpf(0.035, 0.11, d), "kind": kind}
 	match kind:
@@ -400,6 +423,7 @@ func _add_pad(v: float, off: float) -> void:
 func _plan_items(seg: Dictionary) -> void:
 	var v0: float = seg["v0"]
 	var v1: float = seg["v1"]
+	_maybe_place(seg)
 	if v0 >= next_chase_v and seg.get("kind", "") in ["plain", "holes", "stunt"] and not seg["narrow_end"]:
 		_plan_chase(seg)
 	elif v0 > 120.0 and rng.randf() < 0.18:
@@ -436,6 +460,427 @@ func _plan_items(seg: Dictionary) -> void:
 			var prop := _add_item_prop("lamp", lp, 0.0, 1.0, 0.18, "metal", _stripe_of(lv))
 			lamps.append(prop)
 			lv += 16.0
+
+# ------------------------------------------------------------------ places beside the road
+
+## Rocky ridges along the forest's outer rim (they act like walls).
+func _ridge(u: float, v: float, _i: int, _j: int) -> bool:
+	var seg := segment_at(v)
+	var w := _width_at(v, seg)
+	var d := absf(u - center(v))
+	return d > w - 0.7 + noise.get_noise_2d(u * 2.0 + 30.0, v * 0.5) * 0.6 and noise.get_noise_2d(u * 0.3 + 90.0, v * 0.22) > 0.05
+
+func _place_at(u: float, v: float) -> Dictionary:
+	for pl in places:
+		if v < pl["va"] - 0.6 or v > pl["vb"] + 0.6:
+			continue
+		var d: float = (u - center(v)) * pl["side"]
+		if d < pl["d_in"] - 0.6 or d > pl["d_out"] + 0.6:
+			continue
+		var a: float = v - pl["va"]
+		var L: float = pl["vb"] - pl["va"]
+		var r := 1.7
+		var ca := clampf(a, r, L - r)
+		var cd := minf(d, pl["d_out"] - r)
+		if Vector2(a - ca, maxf(0.0, d - cd)).length() > r + 0.35:
+			continue
+		return {"place": pl, "a": a, "d": d}
+	return {}
+
+func _place_tile(pl: Dictionary, a: float, d: float) -> Dictionary:
+	var L: float = pl["vb"] - pl["va"]
+	var din: float = pl["d_in"]
+	var dout: float = pl["d_out"]
+	match String(pl["type"]):
+		"farm":
+			if a > 3.4 and a < L - 1.2 and d > din + 1.2 and d < dout - 1.0:
+				return {"kind": "ground", "pool": "tile_field", "top": P.SOIL}
+		"village":
+			if d < din + 3.8:
+				return {"kind": "ground", "pool": "tile_cobble", "top": P.COBBLE}
+		"pond":
+			var e := Vector2((a - L * 0.5) / (L * 0.34), (d - (din + dout) * 0.5 - 0.6) / ((dout - din) * 0.3))
+			if e.length() < 1.0:
+				return {"kind": "water"}
+		"beach":
+			if d > dout - 1.5:
+				return {"kind": "water"}
+			return {"kind": "ground", "top": P.SAND}
+		"pier":
+			if d > din + 2.4:
+				if absf(a - L * 0.5) < 0.95:
+					return {"kind": "pier"}
+				return {"kind": "water"}
+			return {"kind": "ground", "top": P.SAND}
+		"cafe":
+			if d < din + 3.8:
+				return {"kind": "ground", "pool": "tile_plank", "top": P.PLANK}
+			return {"kind": "ground", "top": P.SAND}
+		"campsite":
+			if Vector2(a - L * 0.5, d - (din + dout) * 0.5).length() < 2.7:
+				return {"kind": "ground", "top": P.PATH}
+		"mountain":
+			if d > din + 1.7:
+				return {"kind": "rock", "h": 0.8 + (d - din - 1.7) * 0.5 + noise.get_noise_2d(a * 0.9 + pl["va"], d) * 0.35}
+		"ruins":
+			if noise.get_noise_2d(a * 0.6 + pl["va"] * 0.1, d * 0.6) > -0.05:
+				return {"kind": "ground", "pool": "tile_cobble", "top": P.COBBLE}
+		"balloons":
+			if absf(a - L * 0.5) < 3.2 and d > din + 0.8 and d < dout - 0.6:
+				return {"kind": "ground", "pool": "tile_plank", "top": P.PLANK}
+	return {"kind": "ground"}
+
+func _maybe_place(seg: Dictionary) -> void:
+	var len: float = seg["v1"] - seg["v0"]
+
+	var first: bool = seg["v0"] < 60.0
+	if len < 20.0 or seg["type"] != "land" or (rng.randf() > 0.9 and not first):
+		return
+	var biome: String = seg["biome"]
+	var types: Array = PLACE_TYPES[biome]
+	var total := 0.0
+	for t in types:
+		total += float(t[1])
+	var x := rng.randf() * total
+	var typ: String = types[0][0]
+	for t in types:
+		x -= float(t[1])
+		if x <= 0.0:
+			typ = t[0]
+			break
+	if game and game.args.has("place"):
+		typ = String(game.args["place"])
+	var sides := [1.0, -1.0]
+	if rng.randf() < 0.5:
+		sides.reverse()
+	var placed := 0
+	for side in sides:
+		if placed > 0 and rng.randf() > 0.7 and not first:
+			break
+		var L := minf(rng.randf_range(11.0, 16.0), len - 8.0)
+		var room := len - L - 8.0 - (10.0 if seg["narrow_end"] else 0.0)
+		if room < 0.0:
+			return
+		var va: float = seg["v0"] + 4.0 + rng.randf() * room
+		var w := float(seg["w"])
+		var pl := {"type": typ, "biome": biome, "side": side, "va": va, "vb": va + L,
+			"d_in": w - 0.6, "d_out": w - 0.6 + rng.randf_range(4.8, 6.0)}
+		places.append(pl)
+		_place_props(pl)
+		placed += 1
+		# the other side gets its own kind of place
+		var x2 := rng.randf() * total
+		for t in types:
+			x2 -= float(t[1])
+			if x2 <= 0.0:
+				typ = t[0]
+				break
+		if game and game.args.has("place"):
+			typ = String(game.args["place"])
+
+func _ensure_pool(nm: String, cap := 40) -> void:
+	if pools.has(nm):
+		return
+	var mesh: Mesh = M.parked(CARS.by_id(nm.substr(7))) if nm.begins_with("parked_") else M.get_mesh(nm)
+	var p: Pool = Pool.new()
+	p.setup(mesh, cap, mat, false, true)
+	p.name = nm
+	add_child(p)
+	pools[nm] = p
+
+func _pl_pos(pl: Dictionary, a: float, d: float) -> Vector3:
+	return pos_at(pl["va"] + a, pl["side"] * d)
+
+## Yaw that turns a model's front toward the road (or away with face = -1).
+func _pl_yaw(pl: Dictionary, face := 1.0) -> float:
+	var dir: Vector3 = -S * pl["side"] * face
+	return atan2(-dir.x, -dir.z)
+
+func _pl_prop(pl: Dictionary, nm: String, a: float, d: float, yaw: float, sc := 1.0, r := 0.4, kind := "wood", y := 0.0) -> Dictionary:
+	_ensure_pool(nm)
+	if pools[nm].used() >= 39:
+		return {}
+	return _add_item_prop(nm, _pl_pos(pl, a, d) + Vector3(0, y, 0), yaw, sc, r, kind, _stripe_of(pl["va"] + a))
+
+func _pl_person(pl: Dictionary, a: float, d: float, pose := "stand", yaw := INF, y := 0.0) -> void:
+	var p := _pl_pos(pl, a, d) + Vector3(0, y, 0)
+	var pr := people.spawn(rng.randi_range(0, 99), pose, p, _pl_yaw(pl) if yaw == INF else yaw, _stripe_of(pl["va"] + a))
+	if not pr.is_empty():
+		_stripe_add(pr["s"], {"kind": "person", "p": pr})
+
+func _pl_anim(kind: String, prop: Dictionary, extra := {}) -> void:
+	if prop.is_empty():
+		return
+	var an := {"kind": kind, "prop": prop, "base": prop["pos"], "ph": rng.randf() * TAU, "t": 0.0}
+	an.merge(extra)
+	anims.append(an)
+
+func _place_props(pl: Dictionary) -> void:
+	var L: float = pl["vb"] - pl["va"]
+	var din: float = pl["d_in"]
+	var dout: float = pl["d_out"]
+	var mid := (din + dout) * 0.5
+	var face := _pl_yaw(pl)
+	var along := atan2(-F.x, -F.z)
+	match String(pl["type"]):
+		"farm":
+			_pl_prop(pl, "barn", 1.7, dout - 1.7, face, 1.0, 1.5, "solid")
+			_pl_prop(pl, "silo", 1.4, din + 1.4, 0.0, 0.85, 0.55, "solid")
+			_pl_prop(pl, "parked_tractor", 3.4 if L > 13.0 else L - 1.6, din + 0.7, along + 0.3, 1.0, 0.6, "solid")
+			_pl_prop(pl, "scarecrow", L * 0.62, mid, face, 1.0, 0.25, "wood")
+			var fa := 4.0
+			while fa < L - 1.0:
+				_pl_prop(pl, "fence", fa, din + 0.55, along + PI * 0.5, 1.0, 0.45, "wood")
+				fa += 1.6
+			_pl_prop(pl, "hay", L - 0.8, dout - 0.8, rng.randf() * TAU, 1.0, 0.42, "soft")
+			_pl_person(pl, L * 0.45, din + 1.0)
+		"village":
+			var n := 2 if L < 13.0 else 3
+			var houses := ["cottage_a", "cottage_b", "cottage_c"]
+			for k in n:
+				var ha := 2.2 + k * (L - 4.4) / maxf(1.0, n - 1)
+				var h := _pl_prop(pl, houses[(k + rng.randi_range(0, 2)) % 3], ha, dout - 1.5, face, 1.0, 0.95, "solid")
+				if not h.is_empty():
+					var hb := Basis(Vector3.UP, face)
+					_pl_anim("smoke", h, {"at": h["pos"] + hb * Vector3(0.4, 1.85, -0.25)})
+				_pl_prop(pl, "flower_bed", ha + 1.0, dout - 3.0, face, 0.8, 0.3, "soft")
+			_pl_prop(pl, "well", L * 0.5, din + 2.3, 0.0, 1.0, 0.45, "solid")
+			_pl_prop(pl, "bench", L * 0.5 + 1.8, din + 2.4, face, 1.0, 0.45, "wood")
+			_pl_person(pl, L * 0.5 + 1.8, din + 2.45, "sit", face)
+			_pl_prop(pl, "lamp", 1.0, din + 0.6, 0.0, 1.0, 0.18, "metal")
+			_pl_prop(pl, "lamp", L - 1.0, din + 0.6, 0.0, 1.0, 0.18, "metal")
+			_pl_prop(pl, "mailbox", 2.6, din + 3.6, face, 1.0, 0.2, "metal")
+			var parked: Dictionary = CARS.LIST[rng.randi_range(1, CARS.LIST.size() - 1)]
+			if not (parked["id"] in ["bus", "firetruck", "dump", "monster"]):
+				_pl_prop(pl, "parked_" + String(parked["id"]), L - 2.6, din + 1.4, along, 1.0, 0.6, "solid")
+			_pl_person(pl, L * 0.5 - 1.4, din + 1.6)
+			_pl_person(pl, L * 0.5 + 0.6, din + 1.2)
+		"pond":
+			var pc := Vector2(L * 0.5, mid + 0.6)
+			for k in 3:
+				var ang := rng.randf() * TAU
+				_pl_prop(pl, "lily", pc.x + cos(ang) * L * 0.18, pc.y + sin(ang) * 1.0, rng.randf() * TAU, 1.0, 0.0, "flat", -0.28)
+			for k in rng.randi_range(2, 3):
+				var dk := _pl_prop(pl, "duck", pc.x, pc.y, 0.0, 1.0, 0.0, "flat", -0.3)
+				_pl_anim("duck", dk, {"c": _pl_pos(pl, pc.x, pc.y) + Vector3(0, -0.3, 0), "r": rng.randf_range(0.6, 1.4), "sp": rng.randf_range(0.25, 0.5) * (1.0 if k % 2 == 0 else -1.0)})
+			for k in 5:
+				var ang2 := TAU * k / 5.0 + 0.3
+				_pl_prop(pl, "reeds", pc.x + cos(ang2) * L * 0.38, pc.y + sin(ang2) * (dout - din) * 0.36, rng.randf() * TAU, 1.0, 0.0, "flat")
+			_pl_prop(pl, "bench", 1.6, din + 1.2, face, 1.0, 0.45, "wood")
+			_pl_person(pl, 1.6, din + 1.25, "sit", face + PI)
+			_pl_prop(pl, "tree_round", L - 1.2, dout - 0.8, 0.0, 1.0, 0.45, "wood")
+			_pl_prop(pl, "flowers", 1.2, dout - 1.0, 0.0, 1.0, 0.0, "flat")
+		"orchard":
+			var rows := 2 if dout - din < 6.4 else 3
+			var ta := 1.6
+			while ta < L - 1.0:
+				for m in rows:
+					_pl_prop(pl, "apple_tree", ta, din + 1.5 + m * 2.1, rng.randf() * TAU, 0.9 + rng.randf() * 0.2, 0.42, "wood")
+				ta += 2.6
+			_pl_prop(pl, "apple_crate", 2.8, din + 0.7, rng.randf() * TAU, 1.0, 0.3, "wood")
+			_pl_prop(pl, "apple_crate", 3.4, din + 0.9, rng.randf() * TAU, 1.0, 0.3, "wood")
+			_pl_person(pl, 2.9, din + 2.6)
+		"beach":
+			var cols := [Color("ff7a6b"), Color("6ec6ff"), Color("ffd166"), Color("8fd19e"), Color("a998f2")]
+			for k in 3:
+				var ta2 := 2.0 + k * (L - 4.0) / 2.0
+				var tw := _pl_prop(pl, "towel", ta2, din + 2.6, face + PI * 0.5 + rng.randf_range(-0.3, 0.3), 1.0, 0.0, "flat")
+				if not tw.is_empty():
+					pools["towel"].tint(tw["slot"], cols[rng.randi_range(0, cols.size() - 1)])
+					if k != 1:
+						_pl_person(pl, ta2, din + 2.6, "lie", tw["yaw"])
+				_pl_prop(pl, "umbrella", ta2 + 0.9, din + 3.4, rng.randf() * TAU, 1.0, 0.3, "soft")
+			_pl_prop(pl, "lifeguard", L * 0.5, dout - 2.6, face, 1.0, 0.75, "solid")
+			_pl_person(pl, L * 0.5, dout - 2.6, "stand", face, 1.6)
+			var sb := _pl_prop(pl, "surfboard", 1.2, dout - 2.0, face + 0.3, 1.0, 0.25, "wood")
+			if not sb.is_empty():
+				pools["surfboard"].tint(sb["slot"], cols[rng.randi_range(0, cols.size() - 1)])
+			_pl_prop(pl, "beach_ball", L - 1.8, din + 1.6, 0.0, 1.0, 0.2, "soft")
+			_pl_prop(pl, "sandcastle", L - 1.4, dout - 2.4, rng.randf() * TAU, 0.8, 0.4, "sand")
+			_pl_person(pl, L - 2.6, dout - 1.9)
+		"pier":
+			var pa := L * 0.5
+			_pl_prop(pl, "crate", pa - 0.4, din + 2.8, rng.randf() * TAU, 0.8, 0.3, "wood")
+			_pl_person(pl, pa, dout - 0.4, "sit", face + PI)
+			for k in 2:
+				var ba := pa + (2.2 if k == 0 else -2.4)
+				var bt := _pl_prop(pl, "boat", ba, din + 3.6 + k * 1.6, along + rng.randf_range(-0.4, 0.4), 0.9, 0.0, "flat", -0.32)
+				_pl_anim("bob", bt, {"amp": 0.05})
+			var by := _pl_prop(pl, "buoy", L - 1.2, dout - 1.0, 0.0, 1.0, 0.0, "flat", -0.35)
+			_pl_anim("bob", by, {"amp": 0.07})
+			_pl_prop(pl, "dune_grass", 1.2, din + 1.0, 0.0, 1.0, 0.0, "flat")
+			_pl_person(pl, pa - 1.6, din + 1.6)
+		"cafe":
+			_pl_prop(pl, "kiosk", L * 0.5, din + 3.2, face, 1.0, 0.7, "solid")
+			_pl_person(pl, L * 0.5 - 0.3, din + 2.1, "stand", face + PI)
+			_pl_person(pl, L * 0.5 + 0.4, din + 1.5, "stand", face + PI)
+			for k in 2:
+				var ca2 := 2.0 if k == 0 else L - 2.0
+				_pl_prop(pl, "cafe_table", ca2, din + 2.0, 0.0, 1.0, 0.3, "metal")
+				_pl_person(pl, ca2 + 0.55, din + 2.0, "sit", face + PI * 0.5)
+			_pl_prop(pl, "deck_chair", L * 0.5 + 2.6, dout - 1.4, face, 1.0, 0.3, "wood")
+			_pl_prop(pl, "umbrella", L * 0.5 - 2.6, dout - 1.4, 0.0, 1.0, 0.3, "soft")
+		"campsite":
+			var cc := Vector2(L * 0.5, mid)
+			var fire := _pl_prop(pl, "campfire", cc.x, cc.y, 0.0, 1.0, 0.35, "rock")
+			var fl := _pl_prop(pl, "flame", cc.x, cc.y, 0.0, 1.0, 0.0, "flat", 0.05)
+			_pl_anim("flame", fl)
+			_pl_anim("smoke", fire, {"at": _pl_pos(pl, cc.x, cc.y) + Vector3(0, 0.6, 0), "grey": true})
+			var tents := [Color("ff8a5c"), Color("3db5a6"), Color("6ec6ff")]
+			for k in 2:
+				var tang := PI * 0.35 + k * PI * 0.75
+				var tp := cc + Vector2(cos(tang), sin(tang)) * 2.3
+				var tt := _pl_prop(pl, "tent", tp.x, tp.y, rng.randf() * TAU, 1.0, 0.75, "solid")
+				if not tt.is_empty():
+					pools["tent"].tint(tt["slot"], tents[(k + rng.randi_range(0, 2)) % 3])
+			for k in 2:
+				var lang := PI * 1.2 + k * PI * 0.6
+				var lp := cc + Vector2(cos(lang), sin(lang)) * 1.2
+				_pl_prop(pl, "log", lp.x, lp.y, lang, 0.8, 0.0, "flat")
+				var lyaw: float = atan2(-(_pl_pos(pl, cc.x, cc.y) - _pl_pos(pl, lp.x, lp.y)).x, -(_pl_pos(pl, cc.x, cc.y) - _pl_pos(pl, lp.x, lp.y)).z)
+				_pl_person(pl, lp.x, lp.y, "sit", lyaw, 0.12)
+			var cn := _pl_prop(pl, "canoe", 1.4, dout - 1.0, along, 1.0, 0.45, "wood")
+			if not cn.is_empty():
+				pools["canoe"].tint(cn["slot"], Color("ef5b4c"))
+			_pl_prop(pl, "lamp", cc.x + 2.6, cc.y - 1.6, 0.0, 1.0, 0.18, "metal")
+			_pl_prop(pl, "pine", L - 0.8, dout - 0.6, 0.0, 1.0, 0.42, "wood")
+			_pl_prop(pl, "pine_tall", 0.8, dout - 0.8, 0.0, 1.0, 0.45, "wood")
+		"mountain":
+			_pl_prop(pl, "peak", L * 0.5, dout - 1.0, rng.randf() * TAU, 1.0, 1.3, "solid", 2.0)
+			for k in 4:
+				var ka := 1.2 + k * (L - 2.4) / 3.0
+				var kd := din + 2.4 + (k % 2) * 1.2
+				var kh := 0.8 + (kd - din - 1.7) * 0.5
+				_pl_prop(pl, "pine" if k % 2 == 0 else "pine_tall", ka, kd, 0.0, 0.9, 0.0, "flat", kh)
+			_pl_person(pl, L * 0.3, din + 0.9, "stand")
+			_pl_prop(pl, "rock", L * 0.7, din + 0.9, 0.0, 1.0, 0.36, "rock")
+			var fall := CPUParticles3D.new()
+			fall.amount = 70
+			fall.lifetime = 2.2
+			fall.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+			fall.emission_box_extents = Vector3(0.6, 0.1, 0.6)
+			fall.direction = Vector3(0, -1, 0)
+			fall.spread = 6.0
+			fall.gravity = Vector3(0, -9.0, 0)
+			fall.initial_velocity_min = 1.0
+			fall.initial_velocity_max = 2.0
+			fall.scale_amount_min = 0.6
+			fall.scale_amount_max = 1.4
+			var dm := SphereMesh.new()
+			dm.radius = 0.12
+			dm.height = 0.24
+			dm.radial_segments = 6
+			dm.rings = 3
+			var wm := StandardMaterial3D.new()
+			wm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			wm.albedo_color = Color(0.85, 0.94, 1.0)
+			dm.material = wm
+			fall.mesh = dm
+			fall.local_coords = false
+			fall.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			fall.position = _pl_pos(pl, L * 0.25, dout + 0.4) + Vector3(0, 2.2, 0)
+			add_child(fall)
+			var holder := {"kind": "fall", "node": fall, "pos": fall.position, "s": _stripe_of(pl["va"] + L * 0.25)}
+			anims.append({"kind": "fall", "node": fall, "prop": holder, "base": fall.position, "ph": 0.0, "t": 0.0})
+			_stripe_add(holder["s"], holder)
+		"cabin":
+			var cb := _pl_prop(pl, "cabin", L * 0.5, dout - 1.6, face, 1.0, 1.3, "solid")
+			if not cb.is_empty():
+				_pl_anim("smoke", cb, {"at": cb["pos"] + Basis(Vector3.UP, face) * Vector3(0.55, 2.25, -0.3)})
+			_pl_prop(pl, "woodpile", L * 0.5 + 2.2, dout - 1.4, face, 1.0, 0.45, "wood")
+			_pl_prop(pl, "stump", L * 0.5 - 2.0, din + 2.0, 0.0, 1.0, 0.3, "wood")
+			_pl_prop(pl, "mailbox", L * 0.5 - 1.2, din + 0.8, face, 1.0, 0.2, "metal")
+			_pl_person(pl, L * 0.5 - 1.4, din + 2.2)
+			_pl_prop(pl, "lookout", 1.4, dout - 1.2, face, 0.9, 0.7, "solid")
+			_pl_prop(pl, "fern", L - 1.0, din + 1.2, 0.0, 1.0, 0.0, "flat")
+		"ruins":
+			_pl_prop(pl, "ruin_arch", L * 0.5, mid, face + PI * 0.5, 1.0, 0.0, "flat")
+			for sgn in [-1.0, 1.0]:
+				var col := {"name": "", "pool": "", "slot": -1, "pos": _pl_pos(pl, L * 0.5 + sgn * 0.9, mid), "yaw": 0.0, "scale": 1.0, "r": 0.3, "kind": "solid", "state": 0, "s": _stripe_of(pl["va"] + L * 0.5), "tile": Vector2i.ZERO}
+				_hash_add(col)
+				_stripe_add(col["s"], col)
+			_pl_prop(pl, "column_broken", 1.8, din + 1.4, rng.randf() * TAU, 1.0, 0.3, "rock")
+			_pl_prop(pl, "column_broken", L - 1.8, dout - 1.4, rng.randf() * TAU, 1.0, 0.3, "rock")
+			_pl_prop(pl, "crystal", 2.6, dout - 1.2, 0.0, 1.2, 0.3, "crystal")
+			_pl_prop(pl, "pillar", L - 1.4, din + 1.2, 0.0, 1.0, 0.32, "rock")
+			_pl_person(pl, L * 0.5 + 2.2, din + 1.6)
+		"balloons":
+			var cols2 := ["balloon", "balloon"]
+			for k in 2:
+				var ba2 := L * 0.5 + (k * 2 - 1) * 1.8
+				var tdp := din + 2.6 + k * 1.2
+				_pl_prop(pl, "tether", ba2, tdp, 0.0, 1.0, 0.3, "wood")
+				var bl := _pl_prop(pl, cols2[k], ba2, tdp, rng.randf() * TAU, 0.75, 0.0, "flat", 3.6 + k * 0.6)
+				var rp := _pl_prop(pl, "rope", ba2, tdp, 0.0, 1.0, 0.0, "flat", 0.55)
+				_pl_anim("balloon", bl, {"rope": rp, "anchor": _pl_pos(pl, ba2, tdp) + Vector3(0, 0.55, 0)})
+			_pl_person(pl, L * 0.5, din + 1.8)
+			_pl_person(pl, L * 0.5 + 0.7, din + 1.3)
+			_pl_prop(pl, "crate", L * 0.5 - 2.8, din + 1.4, rng.randf() * TAU, 0.8, 0.3, "wood")
+		"garden":
+			_pl_prop(pl, "rainbow", L * 0.5, dout - 1.4, face + PI * 0.5, 0.9, 0.0, "flat")
+			for k in 3:
+				_pl_prop(pl, "tree_puff", 1.6 + k * (L - 3.2) / 2.0, dout - 0.8 - (k % 2) * 1.4, 0.0, 1.0, 0.42, "wood")
+			_pl_prop(pl, "flower_bed", L * 0.5, din + 1.6, face, 1.0, 0.3, "soft")
+			_pl_prop(pl, "cloud_puff", 1.4, din + 1.2, 0.0, 1.0, 0.45, "cloud")
+			_pl_prop(pl, "bench", L * 0.5 + 2.4, din + 2.8, face, 1.0, 0.45, "wood")
+			_pl_person(pl, L * 0.5 + 2.4, din + 2.85, "sit", face)
+
+## Ducks paddle, boats bob, balloons float, fires flicker, chimneys smoke.
+func _tick_anims(dt: float, time: float, car_pos: Vector3) -> void:
+	var dead := []
+	for an in anims:
+		var pr: Dictionary = an["prop"]
+		if pr.get("state", 0) != 0 or pr.get("gone", false):
+			dead.append(an)
+			continue
+		var base: Vector3 = an["base"]
+		if base.distance_to(car_pos) > 42.0:
+			continue
+		var ph: float = an["ph"]
+		match String(an["kind"]):
+			"duck":
+				var ang: float = ph + time * an["sp"]
+				var p: Vector3 = an["c"] + Vector3(cos(ang), 0, sin(ang)) * an["r"] + Vector3(0, sin(time * 3.0 + ph) * 0.01, 0)
+				var tng := Vector3(-sin(ang), 0, cos(ang)) * signf(an["sp"])
+				pools[pr["pool"]].put(pr["slot"], Transform3D(Basis(Vector3.UP, atan2(-tng.x, -tng.z)), p))
+				pr["pos"] = p
+			"bob":
+				var y := sin(time * 1.4 + ph) * float(an.get("amp", 0.05))
+				var roll := sin(time * 1.1 + ph) * 0.06
+				pools[pr["pool"]].put(pr["slot"], Transform3D(Basis(Vector3.UP, pr["yaw"]) * Basis(Vector3.BACK, roll), base + Vector3(0, y, 0)))
+			"balloon":
+				var by := base + Vector3(sin(time * 0.5 + ph) * 0.15, sin(time * 0.8 + ph) * 0.25, cos(time * 0.4 + ph) * 0.15)
+				pools[pr["pool"]].put(pr["slot"], Transform3D(Basis(Vector3.UP, pr["yaw"] + time * 0.1).scaled(Vector3.ONE * pr["scale"]), by))
+				var rp: Dictionary = an.get("rope", {})
+				if not rp.is_empty() and rp.get("state", 0) == 0:
+					var anchor: Vector3 = an["anchor"]
+					var bottom := by + Vector3(0, -1.55 * pr["scale"], 0)
+					var v := bottom - anchor
+					var y_axis := v.normalized()
+					var x_axis := y_axis.cross(Vector3.FORWARD).normalized()
+					if x_axis.length() < 0.1:
+						x_axis = Vector3.RIGHT
+					var z_axis := x_axis.cross(y_axis)
+					pools[rp["pool"]].put(rp["slot"], Transform3D(Basis(x_axis, y_axis * v.length(), z_axis), anchor))
+			"flame":
+				var k := 1.0 + sin(time * 17.0 + ph) * 0.15 + sin(time * 9.0) * 0.1
+				pools[pr["pool"]].put(pr["slot"], Transform3D(Basis(Vector3.UP, time * 2.0).scaled(Vector3(1.0 / k, k * 1.1, 1.0 / k)), base))
+			"smoke":
+				an["t"] -= dt
+				if an["t"] <= 0.0 and fx and base.distance_to(car_pos) < 30.0:
+					an["t"] = 0.45
+					var col := Color(0.82, 0.8, 0.8) if an.get("grey", false) else Color(0.92, 0.92, 0.95)
+					fx.puff(an["at"], col, 0.34, Vector3(0.25, 0.0, 0.1), 1.8, 0.75)
+	for an in dead:
+		if an["kind"] == "fall" and is_instance_valid(an["node"]):
+			an["node"].queue_free()
+		anims.erase(an)
+	var old := []
+	for pl in places:
+		if pl["vb"] < crumble_v - 5.0:
+			old.append(pl)
+	for pl in old:
+		places.erase(pl)
 
 func _add_coin(p: Vector3, s: int, on_ground := false) -> void:
 	var slot: int = pools["coin"].alloc()
@@ -531,7 +976,10 @@ func _ground_rule(u: float, v: float) -> int:
 	if seg["narrow_end"]:
 		edge *= 1.0 - smoothstep(seg["v1"] - 10.0, seg["v1"] - 3.0, v)
 	if absf(u - c) > w + edge:
-		return 0
+		var pl := _place_at(u, v)
+		if pl.is_empty():
+			return 0
+		return 2 if _place_tile(pl["place"], pl["a"], pl["d"])["kind"] == "water" else 1
 	for h in seg["holes"]:
 		var va: float = h["va"]
 		var vb: float = h["vb"]
@@ -593,15 +1041,58 @@ func _gen_stripe(s: int) -> void:
 		if winter_ice and rule == 1 and dist < 3.0 and noise.get_noise_2d(u * 0.7 + 50.0, v * 0.7) > 0.25:
 			top = P.ICE
 			surface = "ice"
-		var tile := {"key": key, "pos": pos, "y": jitter, "s": s, "state": 0, "t": 0.0, "surface": surface, "top": top,
-			"slot": -1, "under": -1, "rot": Vector3.ZERO, "spin": Vector3.ZERO, "vy": 0.0}
 		var pool_name := "water" if rule == 2 else "tile"
+		var height := jitter
+		var in_place := false
+		var plc := _place_at(u, v) if dist > 1.5 else {}
+		if not plc.is_empty():
+			var pt := _place_tile(plc["place"], plc["a"], plc["d"])
+			in_place = true
+			match String(pt["kind"]) if not (pt["kind"] == "water" and rule != 2) else "ground":
+				"water":
+					pool_name = "water"
+					top = P.WATER
+					surface = "water"
+				"pier":
+					pool_name = "tile_pier"
+					top = P.PLANK
+					surface = "ground"
+				"rock":
+					pool_name = "tile_rock"
+					top = P.MOSS
+					side = P.ROCK
+					height = float(pt["h"])
+					surface = "ground"
+				_:
+					if pt.has("pool"):
+						pool_name = pt["pool"]
+					if pt.has("top"):
+						top = pt["top"]
+		elif biome == "forest" and rule == 1 and dist > 3.2 and seg["type"] == "land" and _ridge(u, v, i, j):
+			pool_name = "tile_rock"
+			top = P.MOSS
+			side = P.ROCK
+			height = 0.7 + _hash(i, j, 15) * 1.1
+		var tile := {"key": key, "pos": pos, "y": height, "s": s, "state": 0, "t": 0.0, "surface": surface, "top": top,
+			"slot": -1, "under": -1, "rot": Vector3.ZERO, "spin": Vector3.ZERO, "vy": 0.0, "place": in_place, "bits": -1,
+			"ry": 0.0 if pool_name == "tile_rock" else height, "sy": height if pool_name == "tile_rock" else 1.0}
 		tile["pool"] = pool_name
 		tile["slot"] = pools[pool_name].alloc()
 		if tile["slot"] < 0:
 			continue
-		pools[pool_name].put(tile["slot"], Transform3D(Basis(), pos + Vector3(0, jitter, 0)))
+		if pool_name == "tile_rock":
+			pools[pool_name].put(tile["slot"], Transform3D(Basis().scaled(Vector3(1, height, 1)), pos))
+		else:
+			pools[pool_name].put(tile["slot"], Transform3D(Basis(), pos + Vector3(0, jitter, 0)))
 		pools[pool_name].custom(tile["slot"], Color(top / 255.0, side / 255.0, _hash(i, j, 3), 0))
+		if pool_name == "tile_pier":
+			# water under the pier
+			var ws: int = pools["water"].alloc()
+			if ws >= 0:
+				pools["water"].put(ws, Transform3D(Basis(), pos))
+				pools["water"].custom(ws, Color(P.WATER / 255.0, P.SAND_SIDE / 255.0, 0.5, 0))
+				tile["under"] = ws
+				tile["under_pool"] = "water"
 		# hanging rock under tiles on the island rim
 		var rim := false
 		for nb: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
@@ -612,7 +1103,7 @@ func _gen_stripe(s: int) -> void:
 			if _ground_rule(nu, nv) == 0:
 				rim = true
 				break
-		if rim and rule == 1:
+		if rim and rule == 1 and tile["under"] < 0:
 			var us: int = pools["under"].alloc()
 			if us >= 0:
 				var sc := 0.75 + _hash(i, j, 4) * 0.5
@@ -621,8 +1112,15 @@ func _gen_stripe(s: int) -> void:
 				tile["under"] = us
 		tiles[key] = tile
 		keys.append(key)
-		if rule == 1 and seg["type"] != "station":
+		if rule == 1 and seg["type"] != "station" and not in_place and pool_name == "tile":
 			_maybe_prop(tile, u, v, c, seg, rim)
+			# tiny ground detail (blades, pebbles, flowers) on plain tiles
+			if dist > 1.2 and not tile.has("prop") and _hash(i, j, 16) < 0.55 and surface == "ground" and biome != "sky":
+				var bs: int = pools["ground_bits"].alloc()
+				if bs >= 0:
+					var o := Vector3((_hash(i, j, 17) - 0.5) * 0.9, height, (_hash(i, j, 18) - 0.5) * 0.9)
+					pools["ground_bits"].put(bs, Transform3D(Basis(Vector3.UP, _hash(i, j, 19) * TAU).scaled(Vector3.ONE * (0.8 + _hash(i, j, 20) * 0.6)), pos + o))
+					tile["bits"] = bs
 	stripes[s] = keys
 
 func _maybe_prop(tile: Dictionary, u: float, v: float, c: float, seg: Dictionary, rim: bool) -> void:
@@ -677,6 +1175,7 @@ func _maybe_prop(tile: Dictionary, u: float, v: float, c: float, seg: Dictionary
 	if prop["kind"] != "flat":
 		_hash_add(prop)
 	_stripe_add(tile["s"], prop)
+	tile["prop"] = true
 	if choice == "windmill":
 		var bs: int = pools["windmill_blades"].alloc()
 		prop["blades"] = bs
@@ -882,7 +1381,12 @@ func edge_skim(p: Vector3, side: Vector3) -> bool:
 
 # ------------------------------------------------------------------ per-frame
 
-func tick(dt: float, car_v: float, crumble_speed: float, crumbling: bool, time: float) -> void:
+var honk_pending := false
+
+func tick(dt: float, car_v: float, crumble_speed: float, crumbling: bool, time: float, car_pos := Vector3.ZERO, car_vel := Vector3.ZERO) -> void:
+	if people.tick(dt, car_pos, car_vel, time):
+		honk_pending = true
+	people.tick_visibility()
 	update_gen(car_v)
 	if crumbling:
 		crumble_v += crumble_speed * dt
@@ -894,6 +1398,7 @@ func tick(dt: float, car_v: float, crumble_speed: float, crumbling: bool, time: 
 	_tick_knocked(dt)
 	_tick_coins(dt, time)
 	_tick_pads()
+	_tick_anims(dt, time, car_pos)
 	for wm in windmills:
 		if wm["state"] == 0 and wm.has("blades"):
 			var yaw: float = wm["yaw"]
@@ -925,6 +1430,10 @@ func _crumble_stripe(s: int) -> void:
 				it["fy"] = 0.0
 				it["fvy"] = 0.0
 				falling.append(it)
+			elif it.get("kind", "") == "person":
+				people.vanish(it["p"], fx)
+			elif it.get("kind", "") == "fall":
+				it["state"] = 3
 			elif it.get("kind", "") == "pad":
 				pools["pad"].release(it["slot"])
 				pads.erase(it)
@@ -967,27 +1476,28 @@ func _tick_falling(dt: float) -> void:
 				if t["t"] >= 0.45:
 					t["state"] = 2
 					t["vy"] = 0.0
+					if t["bits"] >= 0:
+						pools["ground_bits"].release(t["bits"])
+						t["bits"] = -1
 					t["spin"] = Vector3(randf_range(-1.2, 1.2), randf_range(-0.6, 0.6), randf_range(-1.2, 1.2))
 					if randf() < 0.18:
 						game.world_event("crumble", {"pos": t["pos"]})
 				elif t["t"] > 0.0:
 					var sh: float = sin(t["t"] * 70.0) * 0.035 * (t["t"] / 0.45)
-					var o: Vector3 = t["pos"] + Vector3(sh, t["y"] - t["t"] * 0.06, -sh)
-					pool.put(t["slot"], Transform3D(Basis(), o))
-					if t["under"] >= 0:
-						pools["under"].put(t["under"], _under_xf(t, o))
+					var o: Vector3 = t["pos"] + Vector3(sh, t["ry"] - t["t"] * 0.06, -sh)
+					pool.put(t["slot"], Transform3D(Basis().scaled(Vector3(1, t["sy"], 1)), o))
+					_under_put(t, o, Basis())
 				continue
 			t["vy"] -= 16.0 * dt
-			t["y"] += t["vy"] * dt
+			t["ry"] += t["vy"] * dt
 			t["rot"] += t["spin"] * dt
 			var b: Basis = Basis.from_euler(t["rot"])
-			pool.put(t["slot"], Transform3D(b, t["pos"] + Vector3(0, t["y"], 0)))
-			if t["under"] >= 0:
-				pools["under"].put(t["under"], _under_xf(t, t["pos"] + Vector3(0, t["y"], 0), b))
-			if t["y"] < -40.0:
+			pool.put(t["slot"], Transform3D(b.scaled(Vector3(1, t["sy"], 1)), t["pos"] + Vector3(0, t["ry"], 0)))
+			_under_put(t, t["pos"] + Vector3(0, t["ry"], 0), b)
+			if t["ry"] < -40.0:
 				pool.release(t["slot"])
 				if t["under"] >= 0:
-					pools["under"].release(t["under"])
+					pools[t.get("under_pool", "under")].release(t["under"])
 				tiles.erase(t["key"])
 				done.append(t)
 		else:
@@ -1021,6 +1531,14 @@ func _tick_falling(dt: float) -> void:
 				done.append(t)
 	for t in done:
 		falling.erase(t)
+
+func _under_put(t: Dictionary, origin: Vector3, b: Basis) -> void:
+	if t["under"] < 0:
+		return
+	if t.get("under_pool", "under") == "water":
+		pools["water"].put(t["under"], Transform3D(b, origin))
+	else:
+		pools["under"].put(t["under"], _under_xf(t, origin, b))
 
 func _under_xf(t: Dictionary, origin: Vector3, b := Basis()) -> Transform3D:
 	var i: int = t["key"].x

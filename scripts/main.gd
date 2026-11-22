@@ -18,7 +18,7 @@ const K := preload("res://scripts/ui/kit.gd")
 
 enum { TITLE, RUN, DYING, OVER, GARAGE, PAUSED }
 
-const CAM_SIZE := 21.0
+const CAM_SIZE := 14.0   # visible width in metres (taller phones see more road ahead)
 const CAM_PITCH := -37.0
 const CAM_YAW := 45.0
 
@@ -76,6 +76,7 @@ var skid_t := 0.0
 var dust_t := 0.0
 var time := 0.0
 var rumble_t := 0.0
+var honk_cd := 0.0
 
 # input
 var touches := {}         # touch index -> -1 (left arrow) or 1 (right arrow)
@@ -103,6 +104,7 @@ func _ready() -> void:
 	toon.set_shader_parameter("palette", PAL.make_texture())
 	cam = Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
+	cam.keep_aspect = Camera3D.KEEP_WIDTH
 	cam.size = CAM_SIZE
 	cam.near = 1.0
 	cam.far = 140.0
@@ -114,6 +116,7 @@ func _ready() -> void:
 	fx = Fx.new()
 	add_child(fx)
 	fx.setup(toon)
+	world.fx = fx
 	car = Car.new()
 	add_child(car)
 	car.setup(world, self, toon)
@@ -366,6 +369,7 @@ func buzz(ms: int, amp: float) -> void:
 		Input.vibrate_handheld(ms, clampf(amp, 0.0, 1.0))
 
 func _style(points: int, text: String, pos: Vector3, col := Color.WHITE, sub := "") -> void:
+	world.people.cheer(pos)
 	chain += 1
 	chain_t = 2.6
 	var mult := 1.0 + minf(chain - 1, 6) * 0.25
@@ -514,7 +518,13 @@ func _sim(dt: float) -> void:
 	var crumble_on := state == RUN and crumble_delay <= 0.0
 	var gap := cv - world.crumble_v
 	var cspeed := lerpf(6.0, 7.4, world.difficulty) + clampf((gap - 32.0) * 0.3, 0.0, 6.0)
-	world.tick(dt, maxf(cv, max_v), cspeed, crumble_on, time)
+	world.tick(dt, maxf(cv, max_v), cspeed, crumble_on, time, car.position, car.vel)
+	honk_cd -= dt
+	if world.honk_pending:
+		world.honk_pending = false
+		if state == RUN and honk_cd <= 0.0 and not car.dead:
+			honk_cd = 3.5
+			sound.horn()
 	if state == DYING:
 		dying_t += dt
 		if dying_t > (0.8 if death == "fuel" else 1.5):
@@ -840,9 +850,9 @@ func _cam_update(dt: float, snap: bool) -> void:
 		cam_focus = want
 	else:
 		cam_focus = cam_focus.lerp(want, 1.0 - exp(-dt * 4.0))
-	var want_size := CAM_SIZE + (1.6 if not car.grounded and not car.dead else 0.0) + (1.8 if chase_state == "on" else 0.0)
+	var want_size := CAM_SIZE + (1.0 if not car.grounded and not car.dead else 0.0) + (1.2 if chase_state == "on" else 0.0)
 	if state == TITLE:
-		want_size = CAM_SIZE - 3.0
+		want_size = CAM_SIZE - 1.8
 	cam_size = want_size if snap else lerpf(cam_size, want_size, 1.0 - exp(-dt * 2.0))
 	cam.size = cam_size
 	var fwd := cam.global_transform.basis.z

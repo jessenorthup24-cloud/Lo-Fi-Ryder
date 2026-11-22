@@ -2,12 +2,14 @@ extends RefCounted
 ## The season palette. Every world mesh stores a slot index instead of a color; the toon shader looks
 ## the slot up here, so the whole world changes season smoothly by moving one uniform.
 
-const W := 32
+const W := 48
 enum {
 	GRASS, GRASS_FOREST, SAND, STONE, DIRT, DIRT_DARK, LEAF_A, LEAF_B,
 	TRUNK, PINE, FLOWER_A, FLOWER_B, HAY, PLANK, ROOF_RED, WALL,
 	WATER, GRASS_SKY, CLOUD, FENCE, BUSH, ROCK_DARK, PATH, PINE_CAP,
 	ICE, ROOF_BLUE, STONE_SIDE, SAND_SIDE, TUFT, CORAL, PUMPKIN, METAL,
+	CROP, SOIL, ROOF_GREEN, WALL_PINK, WALL_BLUE, COBBLE, ROCK, SNOWCAP,
+	LILY, REED, WOOD_DARK, FRUIT, CANVAS, MOSS, BLOSSOM, PEBBLE,
 }
 
 const SEASON_NAMES := ["Spring", "Summer", "Autumn", "Winter"]
@@ -46,6 +48,22 @@ const COLORS := {
 	CORAL: ["ff9478", "ff8a6b", "f0805f", "f2b3a6"],
 	PUMPKIN: ["f6b44a", "f4a43a", "f08a24", "f2c29a"],
 	METAL: ["a6afb9", "a3acb6", "a0a8b0", "b8c0c9"],
+	CROP: ["a9d96c", "ecc95f", "c99a50", "eef2f5"],
+	SOIL: ["8f6447", "966a4c", "7f573f", "dde1e6"],
+	ROOF_GREEN: ["6fbf8a", "66b682", "5f9f76", "f3f5f8"],
+	WALL_PINK: ["ffdcd6", "ffd8d0", "f8d4c8", "f6ece8"],
+	WALL_BLUE: ["d8e8ff", "d2e4ff", "d0ddf2", "eaf0f8"],
+	COBBLE: ["cbc2b6", "d0c6b8", "c4b8aa", "dfe2e6"],
+	ROCK: ["a69d94", "a89e93", "9e9389", "b8b6bb"],
+	SNOWCAP: ["f6f8fb", "f6f8fb", "f6f8fb", "ffffff"],
+	LILY: ["6fc35c", "5fb34f", "a8a04a", "bcd8e6"],
+	REED: ["93c45f", "82b450", "c4a050", "dfe6ea"],
+	WOOD_DARK: ["7a5236", "7a5236", "73502f", "6f5444"],
+	FRUIT: ["fff0f5", "e8473f", "f08a24", "e9eef2"],
+	CANVAS: ["f2e6cf", "f4e8d0", "eadcc2", "f2eee8"],
+	MOSS: ["7cb862", "6aa858", "9a9a4c", "dfe8ec"],
+	BLOSSOM: ["ffc2d4", "fff1a8", "f6a65e", "eef2f6"],
+	PEBBLE: ["bdb4aa", "c2b8ac", "b3a89c", "d5d8dd"],
 }
 
 static func make_texture() -> ImageTexture:

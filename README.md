@@ -17,6 +17,12 @@ islands that crumble away behind you, while the days, seasons and weather roll b
 - In the air, hold an arrow to spin the car. Land straight for a clean landing bonus.
 - The run ends if you drive off an edge, land in the water, or run out of fuel. Grab red cans and drive
   through gas stations to refuel.
+- Police chases: drive past a parked cruiser and it gives chase along your exact path. Hit the glowing
+  boost pads to stay ahead for the stretch shown on screen. Get away for +40 coins; get caught and you
+  lose 30% of your fuel.
+- The road runs past little places (farms, villages, ponds, orchards, beaches, piers, cafés, campsites,
+  mountains, cabins, sky ruins, balloon ports, cloud gardens) with toy people who wave as you pass and
+  cheer your stunts. They always hop out of the way.
 - Score = distance + style (drifts, near misses, air, spins, clean landings) + 5 per coin.
 - Coins buy cars and upgrades in the Garage. Missions pay out extra coins. The Daily run gives everyone
   the same road for the day, and your best daily attempt comes back as a ghost.
@@ -29,11 +35,14 @@ islands that crumble away behind you, while the days, seasons and weather roll b
 | `scenes/main.tscn`, `scripts/main.gd` | Game states, input, camera, scoring, fuel, missions, ghost |
 | `scripts/game/world.gd` | Terrain generation, crumbling, props, pickups, ground queries |
 | `scripts/game/car.gd` | Car physics and toy-like body animation |
+| `scripts/game/police.gd` | The chase cruiser (follows your breadcrumb trail) |
+| `scripts/game/people.gd` | Toy people: watch, wave, cheer, hop aside |
 | `scripts/game/atmos.gd` | Day/night, seasons, weather, sky and the far parallax layer |
 | `scripts/core/` | Palette (season colors), mesh builder, every model built in code |
 | `scripts/ui/` | All screens (built in code), icons drawn in code |
 | `shaders/` | Toon shader with the season palette, sky, ghost, outline, wipe |
-| `tools/audio/make_audio.py` | Synthesizes the sound effects (`python3 tools/audio/make_audio.py sfx`) |
+| `tools/audio/make_audio.py` | Synthesizes the UI and pickup sound effects (`python3 tools/audio/make_audio.py sfx`) |
+| `tools/audio/make_vehicle.py` | Synthesizes the vehicle sounds: 4-layer engines per family, tyres per surface, skids, siren |
 | `tools/music/` | CC0 music list and the script the build uses to fetch, trim and encode it (cached on the `music` branch) |
 | `tools/look/` | Icon renderer and look-dev scripts |
 
