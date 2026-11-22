@@ -45,6 +45,14 @@ var wall_t := 0.0          # >0 just after touching a wall
 var wall_dir := Vector3.ZERO  # the glancing direction off that wall
 var surface := "ground"
 var pace := 1.0            # cruise multiplier: the run speeds up the farther you get
+var air_bump := false      # this air time came from cresting a bump (steering stays gentle)
+var grinding := false      # locked onto a grind rail
+var rail: Dictionary = {}
+var rail_s := 0.0
+var grind_t := 0.0
+var grind_speed := 0.0
+var wheel_drop := [0.0, 0.0, 0.0, 0.0]   # visual suspension travel per wheel
+var wheel_h := [0.0, 0.0, 0.0, 0.0]
 
 # tuning from upgrades / weather
 var grip_mul := 1.0
@@ -96,6 +104,7 @@ func set_car(d: Dictionary) -> void:
 	var c := M.car(d)
 	body.mesh = c["body"]
 	var m: ShaderMaterial = (mat as ShaderMaterial).duplicate()
+	m.set_shader_parameter("decay", 0.0)
 	m.next_pass = outline_mat
 	body.material_override = m
 	body.position.y = c["ride"]
@@ -138,6 +147,8 @@ func boost() -> void:
 
 func place(p: Vector3, heading: float) -> void:
 	boost_t = 0.0
+	grinding = false
+	rail = {}
 	wall_cd = 0.0
 	stuck_t = 0.0
 	position = p
@@ -178,10 +189,27 @@ func step(dt: float) -> void:
 		_step_dead(dt)
 		return
 	steer_smooth = move_toward(steer_smooth, steer, dt * 7.0)
+	if grinding:
+		_grind(dt)
+		return
+	if not grounded and active and vel.y < 1.6:
+		var hit: Dictionary = world.rail_catch(position, 1.9)
+		if not hit.is_empty():
+			grinding = true
+			rail = hit["rail"]
+			rail_s = hit["s"]
+			grind_t = 0.0
+			grind_speed = maxf(speed(), CRUISE * pace * 0.9)
+			spin_acc = 0.0
+			game.car_event("grind_start", {"pos": position})
+			_grind(dt)
+			return
 	var f := forward()
 	var r := right()
 	boost_t = maxf(0.0, boost_t - dt)
 	var target := CRUISE * pace * slow * (1.0 + 0.6 * boost_k()) if fuel > 0.0 else 0.0
+	if surface == "slick":
+		target *= 0.72   # rock crawling: easy does it
 	if not active:
 		target = 0.0
 	slow = move_toward(slow, 1.0, dt * 0.8)
@@ -191,8 +219,8 @@ func step(dt: float) -> void:
 		var accel := 2.4 if fuel > 0.0 else 0.9
 		# steering: a tap carves, holding the arrow throws the tail out into a drift
 		var turn_scale := clampf(spd / 4.0, 0.4 if active else 0.0, 1.0)
-		var drift_amt := clampf(smoothstep(0.3, 0.95, absf(steer_smooth)) * float(def.get("drift", 1.0)), 0.0, 1.2)
-		turned = steer_smooth * TURN * (0.85 + 0.15 * pace) * turn_scale * (1.0 + drift_amt * 0.45) * dt
+		var drift_amt := clampf(smoothstep(0.25, 0.85, absf(steer_smooth)) * float(def.get("drift", 1.0)), 0.0, 1.2)
+		turned = steer_smooth * TURN * (0.85 + 0.15 * pace) * turn_scale * (1.0 + drift_amt * 0.55) * dt
 		# never stay pinned: crawling while trying to drive swings the nose back toward the road,
 		# overriding the thumb (the velocity turns with the car, so it can pull away)
 		if active and fuel > 0.0 and spd < 1.6:
@@ -206,13 +234,22 @@ func step(dt: float) -> void:
 		yaw -= turned
 		# traction: how much of the velocity swings round with the nose; the rest keeps sliding
 		var icy := surface == "ice"
-		var traction := lerpf(0.92, 0.4, clampf(drift_amt, 0.0, 1.0)) * (0.55 if icy else 1.0)
+		var dirt := surface == "dirt"
+		var traction := lerpf(0.92, 0.24, clampf(drift_amt, 0.0, 1.0)) * (0.55 if icy else (0.85 if dirt else 1.0))
 		if stuck_t > 0.45:
 			traction = 1.0
 		vel = vel.rotated(Vector3.UP, -turned * traction)
 		var vf := vel.dot(forward())
 		var vl := vel.dot(right())
 		vf += (target - vf) * accel * dt
+		# climbing slows you, rolling down a slickrock face speeds you up
+		if world.uneven_at(position):
+			var fw := forward()
+			var gf: float = world.ground_at(position + fw * 0.5)
+			var gb: float = world.ground_at(position - fw * 0.5)
+			if gf > NO_GROUND + 1.0 and gb > NO_GROUND + 1.0:
+				var sl := gf - gb
+				vf -= GRAVITY * 0.75 * sl / sqrt(1.0 + sl * sl) * dt
 		if stuck_t > 1.5:
 			# still wedged: a little toy hop back toward the road
 			stuck_t = 0.0
@@ -222,6 +259,7 @@ func step(dt: float) -> void:
 			vl = 0.0
 			vel.y = 6.0
 			grounded = false
+			air_bump = true
 			air_time = 0.0
 			spin_acc = 0.0
 			game.car_event("hop", {"pos": position})
@@ -231,14 +269,18 @@ func step(dt: float) -> void:
 			if spd > 1.0:
 				var vdir := atan2(-vel.x, -vel.z)
 				yaw = lerp_angle(yaw, vdir, 1.0 - exp(-dt * 7.0))
-		var grip := lerpf(8.0, 3.6, clampf(drift_amt, 0.0, 1.0)) * grip_mul * float(def.get("grip", 1.0)) * weather_grip
+		var grip := lerpf(8.0, 3.1, clampf(drift_amt, 0.0, 1.0)) * grip_mul * float(def.get("grip", 1.0)) * weather_grip
 		if icy:
 			grip *= 0.32
+		elif dirt:
+			grip *= 0.72
+		elif surface == "slick":
+			grip *= 0.85
 		var vl0 := absf(vl)
 		vl *= exp(-grip * dt)
 		# a slide carries its momentum: some of the sideways speed scrubbed off comes back as forward speed
 		if fuel > 0.0 and active:
-			vf += (vl0 - absf(vl)) * 0.55 * clampf(drift_amt, 0.0, 1.0)
+			vf += (vl0 - absf(vl)) * 0.68 * clampf(drift_amt, 0.0, 1.0)
 		var nf := forward()
 		var nr := right()
 		vel = nf * vf + nr * vl + Vector3(0, vel.y, 0)
@@ -246,7 +288,7 @@ func step(dt: float) -> void:
 		drift = atan2(vel.dot(nr), maxf(0.1, vel.dot(nf)))
 	else:
 		vel.y -= GRAVITY * dt
-		turned = steer_smooth * AIR_TURN * dt
+		turned = steer_smooth * (TURN * 1.1 if air_bump else AIR_TURN) * dt
 		yaw -= turned
 		spin_acc += absf(turned)
 		if absf(turned) > 0.0001:
@@ -298,6 +340,32 @@ func push_solid(n: Vector3, depth: float, dt: float) -> float:
 	_hit_wall(n, dt, false)
 	return into
 
+## Locked on a rail: slide along it (no steering needed), sparks fly, and pop off the far end.
+func _grind(dt: float) -> void:
+	if rail.get("falling", false):
+		grinding = false
+		grounded = false
+		return
+	grind_t += dt
+	grind_speed = move_toward(grind_speed, CRUISE * pace * 1.12, dt * 2.0)
+	rail_s += grind_speed * dt
+	var at: Dictionary = world.rail_at(rail, rail_s)
+	var dir: Vector3 = at["dir"]
+	var target: Vector3 = at["p"] + Vector3(0, 0.1, 0)
+	position = position.lerp(target, 1.0 - exp(-dt * 30.0)) if grind_t < 0.2 else target
+	yaw = lerp_angle(yaw, atan2(-dir.x, -dir.z), 1.0 - exp(-dt * 12.0))
+	vel = dir * grind_speed
+	drift = 0.0
+	air_time = 0.0
+	if rail_s >= float(rail["len"]) - 0.05:
+		grinding = false
+		grounded = false
+		air_bump = false
+		vel = dir * grind_speed + Vector3(0, 1.2, 0)
+		spin_acc = 0.0
+		game.car_event("grind_end", {"pos": position, "len": float(rail["len"]), "time": grind_t})
+		rail = {}
+
 func _move(dt: float) -> void:
 	wall_cd -= dt
 	var old := position
@@ -338,6 +406,7 @@ func _move(dt: float) -> void:
 			vel.x *= 1.06
 			vel.z *= 1.06
 			grounded = false
+			air_bump = false
 			air_time = 0.0
 			spin_acc = 0.0
 			game.car_event("launch", {"pos": np, "speed": sp})
@@ -349,7 +418,25 @@ func _move(dt: float) -> void:
 				vel.x *= -0.2
 				vel.z *= -0.2
 			else:
-				np.y = g
+				# bumpy ground: carry vertical speed over the humps and pop off the crests,
+				# the way a real car gets light over a mogul
+				var bumpy: bool = world.uneven_at(np) or world.uneven_at(old)
+				var ballistic := old.y + vel.y * dt - GRAVITY * 1.7 * dt * dt   # (the springs keep it planted a little)
+				if bumpy and vel.y > 1.2 and speed() > 4.5 and g < ballistic - 0.004:
+					grounded = false
+					air_bump = true
+					air_time = 0.0
+					spin_acc = 0.0
+					vel.y -= GRAVITY * dt
+					np.y = old.y + vel.y * dt
+				else:
+					var vy := (g - old.y) / dt
+					if bumpy:
+						susp_v -= maxf(0.0, vy - vel.y) * 0.045 * float(def.get("bounce", 1.0))
+						vel.y = clampf(vy, -7.0, 9.0)
+					else:
+						vel.y = 0.0
+					np.y = g
 			coyote = 0.0
 		else:
 			# no ground under the middle: hang on for a moment if a wheel is still on something
@@ -366,6 +453,7 @@ func _move(dt: float) -> void:
 						break
 			if not held:
 				grounded = false
+				air_bump = false
 				air_time = 0.0
 				spin_acc = 0.0
 				vel.y = maxf(vel.y, 0.0)
@@ -391,12 +479,13 @@ func _land(impact: float) -> void:
 		ang = absf(angle_difference(yaw, atan2(-hv.x, -hv.z)))
 	var spins := int(floor((spin_acc + 0.7) / TAU))
 	var clean := ang < 0.5
-	if ang > 1.0:
+	if ang > 1.0 and not air_bump:
 		recover = 0.45
 		vel *= 0.65
 	susp_v -= impact * 0.11 * float(def.get("bounce", 1.0))
 	squash_v -= impact * 0.07
-	game.car_event("land", {"air": air_time, "spins": spins, "spin_deg": rad_to_deg(spin_acc), "clean": clean, "impact": impact, "pos": position})
+	game.car_event("land", {"air": air_time, "spins": spins, "spin_deg": rad_to_deg(spin_acc), "clean": clean, "impact": impact, "pos": position, "bump": air_bump})
+	air_bump = false
 	air_time = 0.0
 	spin_acc = 0.0
 
@@ -468,11 +557,28 @@ func render(dt: float, night: float) -> void:
 		susp = sin(idle_t * 24.0) * 0.006
 	var target_roll := -steer_smooth * 0.09 * clampf(spd / CRUISE, 0.0, 1.0) - drift * 0.12
 	var target_pitch := 0.0
-	if not grounded:
+	# terrain under each wheel: the body pitches and rolls with it, each wheel reaches for the ground
+	var wb := Basis(Vector3.UP, yaw)
+	var gh := [0.0, 0.0, 0.0, 0.0]
+	var on_bumps: bool = grounded and world.uneven_at(position)
+	if on_bumps:
+		for i in 4:
+			var g: float = world.ground_at(position + wb * Vector3(c["wheels"][i].x, 0, c["wheels"][i].z))
+			gh[i] = (g - position.y) if g > NO_GROUND + 1.0 else -0.3
+		var base_len := absf(float(c["wheels"][0].z) - float(c["wheels"][2].z))
+		var track := absf(float(c["wheels"][0].x) - float(c["wheels"][1].x))
+		var front: float = (gh[0] + gh[1]) * 0.5
+		var rear: float = (gh[2] + gh[3]) * 0.5
+		var lft: float = (gh[0] + gh[2]) * 0.5 if float(c["wheels"][0].x) < 0.0 else (gh[1] + gh[3]) * 0.5
+		var rgt: float = (gh[1] + gh[3]) * 0.5 if float(c["wheels"][0].x) < 0.0 else (gh[0] + gh[2]) * 0.5
+		wheel_h = gh
+		target_pitch = clampf(atan2(front - rear, maxf(base_len, 0.3)), -0.6, 0.6)
+		target_roll = clampf(atan2(rgt - lft, maxf(track, 0.3)), -0.5, 0.5) - drift * 0.06
+	elif not grounded:
 		target_roll = 0.0
 		target_pitch = clampf(vel.y * 0.035, -0.25, 0.25)
-	roll = lerpf(roll, target_roll, 1.0 - exp(-dt * 8.0))
-	pitch = lerpf(pitch, target_pitch, 1.0 - exp(-dt * 6.0))
+	roll = lerpf(roll, target_roll, 1.0 - exp(-dt * (14.0 if on_bumps else 8.0)))
+	pitch = lerpf(pitch, target_pitch, 1.0 - exp(-dt * (14.0 if on_bumps else 6.0)))
 	pivot.position.y = susp
 	pivot.rotation = Vector3(pitch, 0, roll)
 	var sq := clampf(squash, -0.3, 0.3)
@@ -483,6 +589,14 @@ func render(dt: float, night: float) -> void:
 		var wh: Node3D = wheels[i]
 		var st := (steer_smooth * 0.42 if grounded else 0.0) if i < 2 else 0.0
 		wh.rotation = Vector3(0, -st, 0)
+		# suspension travel: how far this wheel sits from the tilted body's plane
+		var travel := 0.0
+		if on_bumps:
+			var wl: Vector3 = c["wheels"][i]
+			var plane := -wl.z * sin(pitch) + wl.x * sin(roll)
+			travel = clampf(float(wheel_h[i]) - plane, -0.16, 0.16)
+		wheel_drop[i] = lerpf(float(wheel_drop[i]), travel, 1.0 - exp(-dt * 16.0))
+		wh.position = c["wheels"][i] + Vector3(0, float(wheel_drop[i]) - susp, 0)
 		var wmesh: MeshInstance3D = wh.get_child(0)
 		var rr: float = c["r_f"] if i < 2 else c["r_r"]
 		wmesh.rotation.x = wheel_spin * float(c["r_r"]) / rr

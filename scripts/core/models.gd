@@ -80,7 +80,7 @@ static func _m_pad() -> ArrayMesh:
 	for k in 3:
 		var z := 0.55 - k * 0.55
 		for sgn in [-1.0, 1.0]:
-			var bs := Basis(Vector3.UP, sgn * 0.75)
+			var bs := Basis(Vector3.UP, -sgn * 0.75)
 			b.box(Vector3(sgn * 0.28, 0.085, z - 0.05), Vector3(0.78, 0.04, 0.16), MB.glow("ffb84d" if k != 1 else "ff7a4d"), bs)
 	for sgn in [-1.0, 1.0]:
 		b.box(Vector3(sgn * 0.92, 0.085, 0), Vector3(0.08, 0.04, 2.0), MB.glow("fff0a8"))
@@ -100,29 +100,256 @@ static func _m_bridge() -> ArrayMesh:
 	b.box(Vector3(1.08, 0.46, -0.8), Vector3(0.04, 0.04, 1.6), MB.rgb("e9d2b0"))
 	return b.commit()
 
+# ---- after the end: ruins, wrecks, and life pushing back through
+
+static func _glow_buds(b: MB, spots: Array) -> void:
+	var cols := ["8ff5ff", "ff8fd8", "fff07a", "a8ff9e", "c9a8ff"]
+	for i in spots.size():
+		var s: Vector3 = spots[i]
+		b.cyl(s + Vector3(0, -0.06, 0), 0.012, 0.12, p(P.TUFT), 3, Basis(), -1.0, false)
+		b.sphere(s + Vector3(0, 0.03, 0), 0.065, MB.glow(cols[(i * 3 + int(s.x * 10.0)) % cols.size()]), 6, 4)
+
+static func _m_wreck_car() -> ArrayMesh:
+	# an abandoned rusted car, flat tyres, ivy over the roof and a sapling through the bonnet
+	var b := MB.new()
+	for x in [-0.42, 0.42]:
+		for z in [-0.56, 0.6]:
+			b.cyl(Vector3(x, 0.12, z), 0.17, 0.13, MB.rgb("34302f"), 8, Basis(Vector3.BACK, PI * 0.5) * Basis(Vector3.RIGHT, 0.0), -1.0, true, false)
+	b.cbox(Vector3(0, 0.36, 0), Vector3(0.95, 0.32, 1.8), 0.06, p(P.RUST), Basis(Vector3.BACK, 0.05))
+	b.cbox(Vector3(0, 0.64, 0.08), Vector3(0.82, 0.3, 0.92), 0.05, p(P.RUST), Basis(Vector3.BACK, 0.05))
+	b.box(Vector3(0.49, 0.38, -0.25), Vector3(0.02, 0.18, 0.62), MB.rgb("7b97ad"))
+	b.box(Vector3(-0.47, 0.36, 0.4), Vector3(0.02, 0.14, 0.5), MB.rgb("7b97ad"))
+	b.box(Vector3(0, 0.66, -0.39), Vector3(0.7, 0.22, 0.02), MB.rgb("2b2735"))
+	b.box(Vector3(0.425, 0.66, 0.08), Vector3(0.02, 0.2, 0.7), MB.rgb("2b2735"))
+	b.box(Vector3(-0.405, 0.66, 0.08), Vector3(0.02, 0.2, 0.7), MB.rgb("2b2735"))
+	b.cbox(Vector3(0.08, 0.81, 0.12), Vector3(0.62, 0.05, 0.72), 0.02, p(P.IVY))
+	b.cbox(Vector3(-0.12, 0.54, -0.68), Vector3(0.52, 0.04, 0.36), 0.02, p(P.IVY))
+	b.box(Vector3(-0.46, 0.42, 0.2), Vector3(0.04, 0.3, 0.6), p(P.IVY))
+	b.cyl(Vector3(0.2, 0.78, -0.58), 0.025, 0.55, p(P.TRUNK), 5)
+	b.sphere(Vector3(0.2, 1.1, -0.58), 0.22, p(P.LEAF_A), 8, 5)
+	b.sphere(Vector3(0.32, 1.02, -0.45), 0.14, p(P.BLOSSOM), 7, 4)
+	_glow_buds(b, [Vector3(0.2, 0.88, 0.0), Vector3(-0.12, 0.88, 0.32), Vector3(-0.2, 0.6, -0.75), Vector3(0.36, 0.86, 0.3)])
+	for g in [Vector3(0.55, 0.06, 0.0), Vector3(-0.5, 0.06, -0.6), Vector3(0.3, 0.06, 0.95)]:
+		b.cyl(g, 0.02, 0.18, p(P.TUFT), 3, Basis(Vector3.BACK, 0.3), 0.0, false)
+	return b.commit()
+
+static func _house_ruin(wall: int, roof: int, flip: float) -> ArrayMesh:
+	# a cottage shell: broken walls, a collapsed roof slab, and a tree growing up through it
+	var b := MB.new()
+	b.cbox(Vector3(0, 0.08, 0), Vector3(2.5, 0.16, 2.1), 0.04, p(P.CONCRETE))
+	b.cbox(Vector3(0, 0.72, -0.92), Vector3(2.2, 1.2, 0.16), 0.03, p(wall))
+	b.cbox(Vector3(-0.62 * flip, 1.42, -0.92), Vector3(0.9, 0.34, 0.16), 0.03, p(wall))
+	b.cbox(Vector3(-1.02 * flip, 0.76, 0.0), Vector3(0.16, 1.3, 1.84), 0.03, p(wall))
+	b.cbox(Vector3(1.02 * flip, 0.4, 0.3), Vector3(0.16, 0.56, 1.24), 0.03, p(wall))
+	b.cbox(Vector3(-0.66 * flip, 0.6, 0.92), Vector3(0.7, 0.96, 0.16), 0.03, p(wall))
+	b.cbox(Vector3(0.75 * flip, 0.34, 0.92), Vector3(0.5, 0.44, 0.16), 0.03, p(wall))
+	b.box(Vector3(0.4 * flip, 0.86, -0.83), Vector3(0.36, 0.34, 0.02), MB.rgb("3a3342"))
+	b.box(Vector3(-1.11 * flip, 0.86, -0.3), Vector3(0.02, 0.34, 0.36), MB.rgb("3a3342"))
+	b.cbox(Vector3(-0.3 * flip, 1.2, -0.25), Vector3(1.35, 0.1, 1.35), 0.03, p(roof), Basis(Vector3.BACK, 0.5 * flip) * Basis(Vector3.RIGHT, 0.22))
+	for r in [[0.6, 0.12, 0.45, 0.2], [0.85, 0.1, -0.25, 0.16], [-0.25, 0.1, 0.55, 0.13], [0.2, 0.08, 0.2, 0.1]]:
+		b.cbox(Vector3(r[0] * flip, r[1] + 0.08, r[2]), Vector3(r[3] * 2.2, r[3] * 1.4, r[3] * 1.8), 0.03, p(P.CONCRETE), Basis(Vector3.UP, r[0] * 3.0))
+	b.cyl(Vector3(0.45 * flip, 1.05, -0.1), 0.08, 2.0, p(P.TRUNK), 7)
+	b.sphere(Vector3(0.45 * flip, 2.15, -0.1), 0.66, p(P.LEAF_A), 9, 6)
+	b.sphere(Vector3(0.82 * flip, 1.88, 0.22), 0.42, p(P.LEAF_B), 8, 5)
+	b.sphere(Vector3(0.12 * flip, 1.95, 0.18), 0.36, p(P.LEAF_A), 8, 5)
+	b.box(Vector3(-1.115 * flip, 0.62, 0.42), Vector3(0.03, 0.95, 0.55), p(P.IVY))
+	b.box(Vector3(-0.2 * flip, 0.55, -1.005), Vector3(0.85, 0.75, 0.03), p(P.IVY))
+	b.box(Vector3(0.2 * flip, 0.2, 1.0), Vector3(1.6, 0.08, 0.12), p(P.IVY))
+	_glow_buds(b, [Vector3(-0.9 * flip, 0.25, 0.75), Vector3(0.95 * flip, 0.72, 0.5), Vector3(-0.4 * flip, 1.62, -0.92), Vector3(0.1, 0.25, 1.05), Vector3(0.6 * flip, 0.25, -0.6)])
+	return b.commit()
+
+static func _m_house_ruin() -> ArrayMesh:
+	return _house_ruin(P.WALL, P.ROOF_RED, 1.0)
+
+static func _m_house_ruin_b() -> ArrayMesh:
+	return _house_ruin(P.WALL_BLUE, P.ROOF_BLUE, -1.0)
+
+static func _m_house_ruin_c() -> ArrayMesh:
+	return _house_ruin(P.WALL_PINK, P.ROOF_GREEN, 1.0)
+
+static func _m_wall_ruin() -> ArrayMesh:
+	# a broken concrete wall with rebar, ivy and flowers at its feet
+	var b := MB.new()
+	b.cbox(Vector3(0, 0.45, 0), Vector3(1.5, 0.9, 0.2), 0.03, p(P.CONCRETE))
+	b.cbox(Vector3(-0.38, 1.02, 0), Vector3(0.66, 0.26, 0.2), 0.03, p(P.CONCRETE))
+	b.cbox(Vector3(0.5, 0.98, 0), Vector3(0.28, 0.16, 0.2), 0.03, p(P.CONCRETE))
+	for x in [-0.05, 0.12, 0.3]:
+		b.cyl(Vector3(x, 1.02, 0.0), 0.015, 0.34, p(P.RUST), 4, Basis(Vector3.BACK, x * 1.5))
+	b.box(Vector3(-0.3, 0.55, 0.115), Vector3(0.7, 0.8, 0.03), p(P.IVY))
+	b.box(Vector3(-0.5, 0.95, 0.115), Vector3(0.3, 0.3, 0.03), p(P.IVY))
+	b.cbox(Vector3(0.55, 0.12, 0.35), Vector3(0.3, 0.2, 0.26), 0.03, p(P.CONCRETE), Basis(Vector3.UP, 0.6))
+	for g in [Vector3(-0.6, 0.07, 0.25), Vector3(0.1, 0.07, 0.3), Vector3(0.7, 0.07, -0.25), Vector3(-0.2, 0.07, -0.3)]:
+		b.cyl(g, 0.022, 0.2, p(P.TUFT), 3, Basis(Vector3.BACK, 0.35), 0.0, false)
+	_glow_buds(b, [Vector3(-0.45, 0.16, 0.3), Vector3(0.25, 0.16, 0.28), Vector3(-0.1, 0.16, -0.3), Vector3(0.62, 0.3, 0.38)])
+	return b.commit()
+
+static func _m_rubble() -> ArrayMesh:
+	# a heap of broken concrete with a wild tuft and a flower poking out
+	var b := MB.new()
+	var chunks := [[0.0, 0.14, 0.0, 0.42, 0.26, 0.36, 0.3], [0.24, 0.1, 0.18, 0.3, 0.2, 0.26, 1.1], [-0.22, 0.09, 0.15, 0.26, 0.18, 0.24, 2.0],
+		[0.12, 0.3, -0.05, 0.26, 0.16, 0.24, 0.8], [-0.15, 0.08, -0.22, 0.28, 0.16, 0.22, 2.6]]
+	for c in chunks:
+		b.cbox(Vector3(c[0], c[1], c[2]), Vector3(c[3], c[4], c[5]), 0.03, p(P.CONCRETE), Basis(Vector3.UP, c[6]) * Basis(Vector3.RIGHT, c[6] * 0.2))
+	b.cyl(Vector3(0.05, 0.42, 0.0), 0.014, 0.3, p(P.RUST), 4, Basis(Vector3.BACK, 0.5))
+	b.cyl(Vector3(-0.3, 0.12, -0.05), 0.022, 0.24, p(P.TUFT), 3, Basis(Vector3.BACK, -0.3), 0.0, false)
+	b.cyl(Vector3(0.32, 0.12, -0.12), 0.022, 0.22, p(P.TUFT), 3, Basis(Vector3.BACK, 0.3), 0.0, false)
+	_glow_buds(b, [Vector3(-0.28, 0.27, -0.06), Vector3(0.3, 0.28, -0.12)])
+	return b.commit()
+
+static func _m_sign_rust() -> ArrayMesh:
+	# a leaning rusty road sign, its face long faded, vines climbing the post
+	var b := MB.new()
+	var lean := Basis(Vector3.BACK, 0.22) * Basis(Vector3.RIGHT, -0.08)
+	b.cyl(lean * Vector3(0, 0.6, 0), 0.035, 1.2, p(P.RUST), 6, lean)
+	b.cbox(lean * Vector3(0, 1.2, 0), Vector3(0.62, 0.42, 0.04), 0.02, p(P.RUST), lean)
+	b.box(lean * Vector3(0, 1.2, 0.025), Vector3(0.48, 0.28, 0.01), MB.rgb("c9c0a8"), lean)
+	b.box(lean * Vector3(0.05, 0.5, 0.04), Vector3(0.08, 0.8, 0.04), p(P.IVY), lean)
+	_glow_buds(b, [Vector3(-0.12, 0.1, 0.1), Vector3(0.14, 0.1, -0.08)])
+	return b.commit()
+
+static func _m_barrel_rust() -> ArrayMesh:
+	var b := MB.new()
+	b.cyl(Vector3(0, 0.3, 0), 0.24, 0.6, p(P.RUST), 10)
+	for y in [0.12, 0.48]:
+		b.cyl(Vector3(0, y, 0), 0.255, 0.04, MB.rgb("6e4a36"), 10)
+	b.cyl(Vector3(0, 0.61, 0), 0.2, 0.03, p(P.MOSS), 10)
+	b.cyl(Vector3(0.05, 0.72, 0.02), 0.016, 0.22, p(P.TUFT), 3, Basis(Vector3.BACK, 0.2), 0.0, false)
+	_glow_buds(b, [Vector3(0.05, 0.85, 0.02)])
+	return b.commit()
+
+static func _m_bud_glow() -> ArrayMesh:
+	# a little clump of glowing seed-buds and leaves pushing up through the ground
+	var b := MB.new()
+	for i in 5:
+		var a := TAU * i / 5.0 + 0.3
+		var r := 0.08 + 0.06 * float(i % 2)
+		var hgt := 0.18 + 0.1 * float((i * 7) % 3)
+		b.cyl(Vector3(cos(a) * r, hgt * 0.5, sin(a) * r), 0.012, hgt, p(P.TUFT), 3, Basis(Vector3(cos(a), 0, sin(a)).cross(Vector3.UP).normalized(), 0.18), -1.0, false)
+		b.box(Vector3(cos(a) * r * 1.6, 0.04, sin(a) * r * 1.6), Vector3(0.1, 0.012, 0.05), p(P.IVY), Basis(Vector3.UP, -a))
+	_glow_buds(b, [Vector3(0.1, 0.27, 0.04), Vector3(-0.06, 0.37, 0.08), Vector3(0.02, 0.24, -0.11), Vector3(-0.1, 0.22, -0.04), Vector3(0.07, 0.33, -0.05)])
+	return b.commit()
+
+static func _m_pole_down() -> ArrayMesh:
+	# a toppled utility pole across the grass, its wire trailing, ivy taking it over
+	var b := MB.new()
+	var lie := Basis(Vector3.BACK, PI * 0.5 - 0.12)
+	b.cyl(Vector3(0.0, 0.14, 0), 0.07, 2.4, p(P.WOOD_DARK), 7, lie)
+	b.box(Vector3(1.0, 0.24, 0), Vector3(0.08, 0.08, 0.7), p(P.WOOD_DARK))
+	b.box(Vector3(0.3, 0.2, 0.0), Vector3(1.4, 0.04, 0.17), p(P.IVY))
+	b.cyl(Vector3(0.9, 0.1, 0.42), 0.01, 0.8, MB.rgb("2e2a2a"), 3, Basis(Vector3.RIGHT, PI * 0.5) * Basis(Vector3.BACK, 0.4))
+	_glow_buds(b, [Vector3(-0.5, 0.26, 0.05), Vector3(0.2, 0.26, -0.04), Vector3(0.7, 0.26, 0.06)])
+	return b.commit()
+
+static func _m_road_bits() -> ArrayMesh:
+	# cracks through old asphalt, with grass and a flower finding the gap
+	var b := MB.new()
+	var pts := [Vector3(-0.6, 0, -0.3), Vector3(-0.25, 0, -0.1), Vector3(0.05, 0, -0.25), Vector3(0.35, 0, 0.05), Vector3(0.6, 0, 0.0)]
+	for i in pts.size() - 1:
+		var a: Vector3 = pts[i]
+		var c: Vector3 = pts[i + 1]
+		var mid := (a + c) * 0.5
+		var d := c - a
+		b.box(mid + Vector3(0, 0.004, 0), Vector3(d.length() + 0.03, 0.01, 0.035), p(P.ASPHALT_DK), Basis(Vector3.UP, -atan2(d.z, d.x)))
+	b.box(Vector3(0.05, 0.004, 0.1), Vector3(0.3, 0.01, 0.03), p(P.ASPHALT_DK), Basis(Vector3.UP, 1.2))
+	for g in [Vector3(-0.25, 0.06, -0.1), Vector3(-0.2, 0.06, -0.08), Vector3(0.35, 0.06, 0.05)]:
+		b.cyl(g, 0.018, 0.13, p(P.TUFT), 3, Basis(Vector3.BACK, 0.4 * signf(g.x)), 0.0, false)
+	b.sphere(Vector3(0.37, 0.12, 0.06), 0.035, p(P.BLOSSOM), 5, 3)
+	return b.commit()
+
+# ---- grind rails
+
+static func _m_rail_piece() -> ArrayMesh:
+	# 1 m of steel grind pipe along -Z (scaled per piece), centre at y = 0, with a rusty band
+	var b := MB.new()
+	var along := Basis(Vector3.RIGHT, PI * 0.5)
+	b.cyl(Vector3(0, 0, -0.5), 0.075, 1.02, MB.rgb("d4d9e0"), 8, along)
+	b.cyl(Vector3(0, 0, -0.2), 0.08, 0.14, p(P.RUST), 8, along)
+	b.cyl(Vector3(0, -0.02, -0.75), 0.079, 0.05, MB.glow("8ff5ff"), 8, along)
+	return b.commit()
+
+static func _m_rail_post() -> ArrayMesh:
+	# a support post down into the abyss, ivy and a glowing bud on the bracket
+	var b := MB.new()
+	b.cyl(Vector3(0, -3.4, 0), 0.06, 6.8, p(P.RUST), 6)
+	b.box(Vector3(0, -0.12, 0), Vector3(0.36, 0.06, 0.08), p(P.RUST))
+	b.box(Vector3(0.03, -0.9, 0.0), Vector3(0.05, 1.1, 0.13), p(P.IVY))
+	_glow_buds(b, [Vector3(0.16, -0.08, 0.04)])
+	return b.commit()
+
+# ---- offroad
+
+## A rounded hump, radius 1 and height 1 (scaled per instance), profile (1 - d^2)^n to match the
+## physics in world.bump_at. strata: banded sandstone colours instead of the instance's top colour.
+static func _dome(n_exp: float, strata: bool, slope_k: float, rings := 7, segs := 16) -> ArrayMesh:
+	var b := MB.new()
+	var bands := [MB.rgb("c06a42"), MB.rgb("d07c4d"), MB.rgb("dc8e5b"), MB.rgb("e69f69"), MB.rgb("eeb07b"), MB.rgb("f3c190")]
+	var xs := []
+	for i in rings + 1:
+		var t := float(i) / rings
+		xs.append(sin(t * PI * 0.5) if n_exp < 1.0 else t)
+	var pt := func(x: float, a: float) -> Vector3:
+		return Vector3(cos(a) * x, pow(maxf(1.0 - x * x, 0.0), n_exp) - (0.03 if x > 0.999 else 0.0), sin(a) * x)
+	var nm := func(x: float, a: float) -> Vector3:
+		var g := minf(2.0 * n_exp * x * pow(maxf(1.0 - x * x, 0.02), n_exp - 1.0), 6.0) * slope_k
+		return Vector3(cos(a) * g, 1.0, sin(a) * g).normalized()
+	for i in rings:
+		var x0: float = xs[i]
+		var x1: float = xs[i + 1]
+		var y_mid := pow(maxf(1.0 - ((x0 + x1) * 0.5) * ((x0 + x1) * 0.5), 0.0), n_exp)
+		var col: Color = MB.TOP
+		if strata:
+			col = bands[clampi(int(y_mid * 5.99 + 0.15 * sin(float(i) * 2.3)), 0, 5)]
+		for j in segs:
+			var a0 := TAU * j / segs
+			var a1 := TAU * (j + 1) / segs
+			if i == 0:
+				b.tri(pt.call(x0, a0), pt.call(x1, a1), pt.call(x1, a0), nm.call(x0, a0), nm.call(x1, a1), nm.call(x1, a0), col)
+			else:
+				b.tri(pt.call(x0, a0), pt.call(x0, a1), pt.call(x1, a1), nm.call(x0, a0), nm.call(x0, a1), nm.call(x1, a1), col)
+				b.tri(pt.call(x0, a0), pt.call(x1, a1), pt.call(x1, a0), nm.call(x0, a0), nm.call(x1, a1), nm.call(x1, a0), col)
+	return b.commit()
+
+static func _m_mound() -> ArrayMesh:
+	return _dome(2.0, false, 0.45, 6, 14)
+
+static func _m_slick_dome() -> ArrayMesh:
+	return _dome(1.4, true, 0.5)
+
+static func _m_slick_pillow() -> ArrayMesh:
+	return _dome(0.55, true, 0.9, 8, 16)
+
+static func _m_mud() -> ArrayMesh:
+	# a flat glossy puddle, radius 1
+	var b := MB.new()
+	b.cyl(Vector3(0, 0.012, 0), 1.0, 0.02, MB.rgb("9a7050"), 14)
+	b.cyl(Vector3(0.1, 0.026, -0.05), 0.74, 0.012, MB.rgb("a97d5a"), 12)
+	b.cyl(Vector3(-0.3, 0.034, 0.2), 0.22, 0.01, MB.rgb("d2b494"), 8)
+	b.cyl(Vector3(0.35, 0.034, -0.25), 0.12, 0.01, MB.rgb("d2b494"), 8)
+	return b.commit()
+
 # ---- deck challenge pieces: 1 m long along -Z (scaled to length per piece), top at y = 0
 
 static func _m_deck_plank() -> ArrayMesh:
-	# a skinny plank walkway section, 1.44 wide
+	# a narrow plank walkway section, 1.9 wide
 	var b := MB.new()
 	var cols := [p(P.PLANK), p(P.PLANK), p(P.WOOD_DARK), p(P.PLANK)]
 	for i in 4:
 		var z := -0.125 - i * 0.25
-		b.cbox(Vector3([0.02, -0.03, 0.0, 0.03][i], -0.05, z), Vector3(1.44 + [0.0, 0.06, -0.04, 0.03][i], 0.1, 0.22), 0.02, cols[i])
+		b.cbox(Vector3([0.02, -0.03, 0.0, 0.03][i], -0.05, z), Vector3(1.9 + [0.0, 0.07, -0.05, 0.04][i], 0.1, 0.22), 0.02, cols[i])
 	for sgn in [-1.0, 1.0]:
-		b.box(Vector3(sgn * 0.55, -0.16, -0.5), Vector3(0.1, 0.12, 1.02), p(P.WOOD_DARK))
+		b.box(Vector3(sgn * 0.74, -0.16, -0.5), Vector3(0.1, 0.12, 1.02), p(P.WOOD_DARK))
 	return b.commit()
 
 static func _m_deck_stilt() -> ArrayMesh:
 	# tall stilts down into the haze, a cross brace, and two little lantern posts at the edges
 	var b := MB.new()
 	for sgn in [-1.0, 1.0]:
-		b.box(Vector3(sgn * 0.52, -3.7, -0.1), Vector3(0.13, 7.2, 0.13), p(P.WOOD_DARK))
-		b.box(Vector3(sgn * 0.8, 0.12, -0.1), Vector3(0.09, 0.42, 0.09), p(P.WOOD_DARK))
-		b.box(Vector3(sgn * 0.8, 0.38, -0.1), Vector3(0.13, 0.11, 0.13), MB.glow("ffd27a"))
-	b.box(Vector3(0, -1.2, -0.1), Vector3(1.5, 0.08, 0.08), p(P.WOOD_DARK), Basis(Vector3.BACK, 0.55))
-	b.box(Vector3(0, -2.9, -0.1), Vector3(1.5, 0.08, 0.08), p(P.WOOD_DARK), Basis(Vector3.BACK, -0.55))
-	b.box(Vector3(0, -0.28, -0.1), Vector3(1.24, 0.1, 0.14), p(P.WOOD_DARK))
+		b.box(Vector3(sgn * 0.7, -3.7, -0.1), Vector3(0.13, 7.2, 0.13), p(P.WOOD_DARK))
+		b.box(Vector3(sgn * 1.03, 0.12, -0.1), Vector3(0.09, 0.42, 0.09), p(P.WOOD_DARK))
+		b.box(Vector3(sgn * 1.03, 0.38, -0.1), Vector3(0.13, 0.11, 0.13), MB.glow("ffd27a"))
+	b.box(Vector3(0, -1.2, -0.1), Vector3(1.9, 0.08, 0.08), p(P.WOOD_DARK), Basis(Vector3.BACK, 0.62))
+	b.box(Vector3(0, -2.9, -0.1), Vector3(1.9, 0.08, 0.08), p(P.WOOD_DARK), Basis(Vector3.BACK, -0.62))
+	b.box(Vector3(0, -0.28, -0.1), Vector3(1.6, 0.1, 0.14), p(P.WOOD_DARK))
 	return b.commit()
 
 static func _track(red: bool) -> ArrayMesh:

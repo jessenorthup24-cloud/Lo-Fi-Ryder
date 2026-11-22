@@ -108,12 +108,13 @@ func _ready() -> void:
 	toon = ShaderMaterial.new()
 	toon.shader = load("res://shaders/toon.gdshader")
 	toon.set_shader_parameter("palette", PAL.make_texture())
+	toon.set_shader_parameter("decay", 0.85)
 	cam = Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
 	cam.keep_aspect = Camera3D.KEEP_WIDTH
 	cam.size = CAM_SIZE
 	cam.near = 1.0
-	cam.far = 140.0
+	cam.far = 420.0
 	cam.rotation_degrees = Vector3(CAM_PITCH, CAM_YAW, 0)
 	add_child(cam)
 	world = World.new()
@@ -132,6 +133,8 @@ func _ready() -> void:
 	for m in world.mat_sway.values():
 		atmos.add_material(m)
 	atmos.add_material(fx.puffs.material_override)
+	if fx.puffs.material_override is ShaderMaterial:
+		(fx.puffs.material_override as ShaderMaterial).set_shader_parameter("decay", 0.0)
 	sound = Sound.new()
 	add_child(sound)
 	sound.setup()
@@ -148,6 +151,8 @@ func _ready() -> void:
 	police = Police.new()
 	add_child(police)
 	police.setup(toon)
+	police.world = world
+	atmos.add_material(police.paint)
 	_apply_settings()
 	car_changed()
 	_new_world(_random_seed(), false)
@@ -167,7 +172,9 @@ func _ready() -> void:
 				ach_check()
 				ui.refresh_title())
 	if args.has("warp"):
-		if String(args["warp"]).begins_with("deck") and not world.decks.is_empty():
+		if String(args["warp"]) == "kind" and world.forced_v > 0.0:
+			_warp(world.forced_v + 2.0)
+		elif String(args["warp"]).begins_with("deck") and not world.decks.is_empty():
 			_warp(float(world.decks[0]["va"]) + float(String(args["warp"]).trim_prefix("deck") if String(args["warp"]) != "deck" else "8"))
 		else:
 			_warp(float(args["warp"]))
@@ -205,6 +212,7 @@ func _new_world(s: int, is_daily: bool) -> void:
 	seed_value = s
 	daily = is_daily
 	world.force_deck = String(args.get("deck", ""))
+	world.force_kind = String(args.get("kind", ""))
 	world.reset(s, String(args.get("biome", "")))
 	fx.clear()
 	var rng := RandomNumberGenerator.new()
@@ -412,8 +420,21 @@ func car_event(kind: String, d: Dictionary) -> void:
 			fx.puff(car.position, Color("fff4e0"), 0.5, -car.vel * 0.1, 0.5)
 		"land":
 			var air: float = d["air"]
-			run["air_max"] = maxf(float(run["air_max"]), air)
 			var impact: float = d["impact"]
+			if d.get("bump", false) and int(d["spins"]) == 0:
+				# a hop over a hump: thump, dust, a little haptic kick
+				if air > 0.08:
+					var dc := _dust_color()
+					for i in 3:
+						fx.puff(car.position + Vector3(randf_range(-0.4, 0.4), 0.08, randf_range(-0.4, 0.4)), dc, 0.32, Vector3(randf_range(-1.2, 1.2), 0.3, randf_range(-1.2, 1.2)), 0.5, 0.5)
+					sfx("bump", -7.0 + minf(impact, 8.0) * 0.6, randf_range(0.9, 1.1))
+					buzz(int(clampf(impact * 7.0, 15.0, 45.0)), clampf(0.25 + impact * 0.07, 0.3, 0.75))
+					shake = maxf(shake, clampf(impact * 0.015, 0.02, 0.1))
+				if air >= 0.5:
+					run["hops"] = int(run.get("hops", 0)) + 1
+					_style(int(air * 40.0), "Hop!", car.position, K.LEAF, "%.1fs" % air)
+				return
+			run["air_max"] = maxf(float(run["air_max"]), air)
 			if air > 0.12:
 				var dust := _dust_color()
 				for i in 6:
@@ -460,6 +481,22 @@ func car_event(kind: String, d: Dictionary) -> void:
 			sfx("bonk", -9.0 + minf(hit, 9.0) * 0.5, randf_range(0.92, 1.08))
 			buzz(22, clampf(0.25 + hit * 0.05, 0.25, 0.6))
 			fx.puff(d["pos"], Color("fff4e0"), 0.4, Vector3(0, 1.2, 0), 0.4)
+		"grind_start":
+			if args.has("auto"):
+				print("GRIND START v=", int(world.v_of(car.position)), " y=", snappedf(car.position.y, 0.01))
+			sfx("knock_metal", -2.0, 1.3)
+			buzz(50, 0.8)
+			shake = maxf(shake, 0.12)
+			grind_fx_t = 0.0
+			ui.popup("Grind!", car.position + Vector3(0, 1.3, 0), Color("8ff5ff"), 40)
+		"grind_end":
+			if args.has("auto"):
+				print("GRIND END v=", int(world.v_of(car.position)), " len=", int(d["len"]))
+			var gl: float = d["len"]
+			run["grind"] = float(run.get("grind", 0.0)) + gl
+			_style(int(gl * 7.0), "Rail grind!", car.position, Color("8ff5ff"), "%dm" % int(gl))
+			sfx("launch", -3.0, 1.15)
+			buzz(40, 0.7)
 		"hop":
 			if args.has("auto"):
 				print("HOP at v=", snappedf(world.v_of(car.position), 0.1), " u=", snappedf(world.u_of(car.position) - world.center(world.v_of(car.position)), 0.1))
@@ -600,6 +637,32 @@ func _sim(dt: float) -> void:
 		run["dist"] = int(max_v)
 		if best_target > 0 and style + int(max_v) + run_coins * 5 > best_target:
 			ui.passed_best()
+	if car.grinding:
+		grind_fx_t -= dt
+		if grind_fx_t <= 0.0:
+			grind_fx_t = 0.05
+			fx.burst(car.position + Vector3(0, -0.05, 0) - car.forward() * 0.4, ["ffd27a", "ff9a3d", "fff3b0"], 3, 2.5, 3.0, 0.35)
+			if randf() < 0.35:
+				sfx("skid_road", -11.0, randf_range(1.6, 1.9))
+			buzz(8, 0.35)
+	for gt in world.gauntlets:
+		if gt["done"]:
+			continue
+		if not gt["warned"] and cv > float(gt["va"]) - 6.0:
+			gt["warned"] = true
+			ui.toast("Gauntlet! Ramp · rail · bridge · canyon", "flag", K.CORAL, Color.WHITE, 2.2)
+		if max_v > float(gt["vb"]) and car.grounded and not car.dead:
+			gt["done"] = true
+			run["gauntlets"] = int(run.get("gauntlets", 0)) + 1
+			_style(500, "Gauntlet cleared!", car.position, K.CORAL, "")
+			sfx("record", -4.0)
+			buzz(90, 0.9)
+			fx.burst(car.position + Vector3(0, 0.8, 0), ["ff7a6b", "ffc94d", "8ff5ff", "a998f2"], 26, 5.0, 6.0)
+	# red rock canyon heads-up
+	var sg_now: Dictionary = world.segment_at(cv + 8.0)
+	if sg_now.get("kind", "") == "rough" and canyon_seg != sg_now:
+		canyon_seg = sg_now
+		ui.toast("Red rock canyon · crawl it", "map", Color("e0915c"), Color.WHITE, 1.8)
 	# deck challenges: a heads-up as one comes into view, a reward for making it across
 	for dk in world.decks:
 		if dk["done"]:
@@ -742,8 +805,21 @@ func _sim(dt: float) -> void:
 	elif car.grounded and car.speed() > 4.0:
 		dust_t -= dt
 		if dust_t <= 0.0:
-			dust_t = 0.12
-			fx.puff(car.position - car.forward() * 0.75 + Vector3(randf_range(-0.2, 0.2), 0.08, 0), _dust_color(), 0.22, Vector3.ZERO, 0.45, 0.3)
+			var dirt := car.surface == "dirt"
+			dust_t = 0.05 if dirt else 0.12
+			fx.puff(car.position - car.forward() * 0.75 + Vector3(randf_range(-0.3, 0.3), 0.08, randf_range(-0.2, 0.2)), _dust_color(), 0.34 if dirt else 0.22,
+				-car.vel * (0.12 if dirt else 0.0) + Vector3(0, 0.4 if dirt else 0.0, 0), 0.7 if dirt else 0.45, 0.5 if dirt else 0.3)
+	# mud puddles: a brown splash, a little drag and a slip
+	var md := world.mud_at(car.position) if car.grounded else {}
+	if not md.is_empty():
+		car.slow = minf(car.slow, 0.86)
+		if not in_mud:
+			sfx("splash", -9.0, 1.5)
+			buzz(30, 0.5)
+		if randf() < dt * 30.0:
+			fx.puff(car.position + Vector3(randf_range(-0.4, 0.4), 0.15, randf_range(-0.4, 0.4)), Color("7a5638"), 0.3,
+				Vector3(randf_range(-2.5, 2.5), 2.2, randf_range(-2.5, 2.5)) - car.vel * 0.1, 0.5, 0.1)
+	in_mud = not md.is_empty()
 	# near the crumbling edge
 	if cv - world.crumble_v < 7.0 and car.grounded:
 		rumble_t = maxf(rumble_t, 0.05)
@@ -780,7 +856,7 @@ func _sim(dt: float) -> void:
 # ------------------------------------------------------------------ police chases
 
 func _chase_tick(dt: float, cv: float) -> void:
-	police.record(car.position, car.yaw)
+	police.record(car.position, car.yaw, car.grounded)
 	match chase_state:
 		"":
 			for c in world.chases:
@@ -806,7 +882,9 @@ func _chase_tick(dt: float, cv: float) -> void:
 			var g := police.gap()
 			var left := maxf(0.0, float(chase["v_end"]) - cv)
 			ui.chase_update(dt, int(left), clampf(1.0 - (g - CATCH_SAFE) / 18.0, 0.0, 1.0))
-			if g < Police.CATCH_GAP:
+			if police.state == "falling":
+				_chase_end(true, true)
+			elif g < Police.CATCH_GAP:
 				_chase_end(false)
 			elif left <= 0.0 or g > Police.LOST_GAP:
 				_chase_end(true)
@@ -821,15 +899,21 @@ func _chase_tick(dt: float, cv: float) -> void:
 
 const CATCH_SAFE := 2.0
 var wall_hits := 0
+var grind_fx_t := 0.0
+var canyon_seg: Dictionary = {}
+var gauntlet_msg_t := 0.0
+var in_mud := false
 var ach_t := 0.0
 var next_gear := 1.1
 var solid_cd := 0.0
 var slow_t := 0.0
 var slow_max := 0.0
 
-func _chase_end(escaped: bool) -> void:
+func _chase_end(escaped: bool, fell := false) -> void:
 	if args.has("auto"):
-		print("CHASE END escaped=", escaped, " gap=", police.gap(), " v=", world.v_of(car.position), " boosts=", run["boosts"])
+		var pv := world.v_of(police.position)
+		var psg: Dictionary = world.segment_at(pv)
+		print("CHASE END escaped=", escaped, " fell=", fell, " gap=", int(police.gap()), " v=", int(world.v_of(car.position)), " police_at=", psg["type"], "/", psg.get("kind", ""), " lat=", snappedf(police.lat, 0.01), " water=", world.water_at(police.position), " boosts=", run["boosts"])
 	chase["done"] = true
 	chase_state = "over"
 	chase_over_t = 0.0
@@ -839,7 +923,12 @@ func _chase_end(escaped: bool) -> void:
 		run["chases"] += 1
 		run_coins += 40
 		run["coins"] = run_coins
-		_style(250, "Got away!", car.position, K.SKY, "+40 coins")
+		if fell:
+			run["police_fell"] = int(run.get("police_fell", 0)) + 1
+			_style(350, "Cop went over!", car.position, K.SKY, "+40 coins")
+			ui.toast("The cruiser went over the edge!", "flag", Color("4b6bd6"), Color.WHITE, 2.0)
+		else:
+			_style(250, "Got away!", car.position, K.SKY, "+40 coins")
 		sfx("mission")
 		buzz(90, 0.9)
 		fx.burst(car.position + Vector3(0, 0.8, 0), ["4b6bd6", "ff5a5a", "ffffff", "ffc94d"], 22, 5.0, 6.0)
@@ -865,6 +954,9 @@ func _dust_color() -> Color:
 	var slot: int = World.BIOME_TOP.get(b, PAL.GRASS)
 	if car.surface == "ice":
 		slot = PAL.ICE
+	elif car.surface == "dirt":
+		slot = World.ROUGH_TOP.get(b, PAL.PATH)
+		return PAL.color(slot, atmos.season).lightened(0.12)
 	return PAL.color(slot, atmos.season).lightened(0.35)
 
 func _finish_run(why: String) -> void:
@@ -935,6 +1027,7 @@ func _ach_live() -> Dictionary:
 		"drift": run["drift"], "max_drift": run.get("drift_max", 0.0), "max_chain": run.get("max_chain", 0),
 		"jumps": run["jumps"], "spin720": run["spin720"], "spins": run["spins"], "clean": run["clean"],
 		"near": run["near"], "knocks": run["knocks"], "planks": run.get("planks", 0), "tracks": run.get("tracks", 0),
+		"grind": run.get("grind", 0.0), "gauntlets": run.get("gauntlets", 0), "police_fell": run.get("police_fell", 0),
 		"decks": run.get("decks", 0), "chases": run["chases"], "max_regions": run["regions"], "stations": run["stations"],
 		"night": run["night"], "weather": run["weather"], "max_score": int(max_v) + style + run_coins * 5}
 
@@ -1194,6 +1287,11 @@ func _warp(v: float) -> void:
 	_cam_update(1.0, true)
 
 func _harness() -> void:
+	if args.has("trace") and frames == 5:
+		var segs := []
+		for sg in world.segments:
+			segs.append("%s/%s@%d-%d" % [sg["type"], sg.get("kind", ""), int(sg["v0"]), int(sg["v1"])])
+		print("SEGS ", segs, " forced=", world.forced_v, " mounds=", world.pools["mound"].used(), " cells=", world.bump_cells.size())
 	if args.has("trace") and state == RUN and frames % 6 == 0:
 		var cv := world.v_of(car.position)
 		print("TR t=%.2f v=%.1f u=%.2f spd=%.2f yaw=%.2f drift=%.2f gr=%s steer=%.2f g=%.2f stuck=%.2f" % [run_t, cv, world.u_of(car.position) - world.center(cv), car.speed(), car.yaw, car.drift, car.grounded, car.steer, world.ground_at(car.position), car.stuck_t])

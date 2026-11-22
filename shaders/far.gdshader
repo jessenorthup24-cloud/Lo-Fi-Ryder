@@ -18,7 +18,7 @@ vec3 pal(float idx) {
 	float r0 = floor(s);
 	float r1 = mod(r0 + 1.0, 4.0);
 	float f = smoothstep(0.6, 1.0, fract(s));
-	float u = (idx + 0.5) / 48.0;
+	float u = (idx + 0.5) / 64.0;
 	return mix(textureLod(palette, vec2(u, (r0 + 0.5) / 4.0), 0.0).rgb, textureLod(palette, vec2(u, (r1 + 0.5) / 4.0), 0.0).rgb, f);
 }
 

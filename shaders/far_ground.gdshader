@@ -1,32 +1,44 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled, shadows_disabled;
 
-// The land far below the floating islands. Fades between patterns as you change region:
-// x countryside patchwork fields, y seaside ocean, z forest canopy, w sky (just haze).
-uniform sampler2D palette : source_color, filter_nearest, repeat_disable;
-uniform float season = 0.0;
-uniform vec4 biome_w = vec4(1.0, 0.0, 0.0, 0.0);
-uniform vec2 offset = vec2(0.0);
-uniform vec3 haze_color : source_color = vec3(0.9, 0.92, 1.0);
-uniform float haze = 0.5;
-uniform float night = 0.0;
+// The abyss far below the floating islands: a deep galaxy void with drifting nebula auras, aurora
+// ribbons and star fields. Layers slide at different rates as you drive (depth without perspective).
+uniform vec3 deep_color : source_color = vec3(0.02, 0.01, 0.06);
+uniform vec3 aura_a : source_color = vec3(0.2, 0.9, 0.7);
+uniform vec3 aura_b : source_color = vec3(0.6, 0.3, 1.0);
+uniform vec3 aura_c : source_color = vec3(1.0, 0.45, 0.6);
+uniform float aura_amount = 1.0;
+uniform float star_amount = 1.0;
+uniform float glow = 1.0;
+uniform vec2 cam_xz = vec2(0.0);
 
 varying vec3 wp;
 
-vec3 lin(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
 	vec2 i = floor(p); vec2 f = fract(p);
 	vec2 u = f * f * (3.0 - 2.0 * f);
 	return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
 }
-vec3 pal(float idx) {
-	float s = mod(season, 4.0);
-	float r0 = floor(s);
-	float r1 = mod(r0 + 1.0, 4.0);
-	float f = smoothstep(0.6, 1.0, fract(s));
-	float u = (idx + 0.5) / 48.0;
-	return mix(textureLod(palette, vec2(u, (r0 + 0.5) / 4.0), 0.0).rgb, textureLod(palette, vec2(u, (r1 + 0.5) / 4.0), 0.0).rgb, f);
+float fbm(vec2 p) {
+	float v = 0.0; float a = 0.5;
+	for (int i = 0; i < 5; i++) { v += a * noise(p); p = p * 2.02 + vec2(1.7, 9.2); a *= 0.5; }
+	return v;
+}
+
+vec3 stars(vec2 p, float density, float size, float tw) {
+	vec2 cell = floor(p);
+	vec2 f = fract(p) - 0.5;
+	float h = hash(cell);
+	if (h < 1.0 - density) return vec3(0.0);
+	vec2 o = vec2(hash(cell + 3.1), hash(cell + 7.7)) - 0.5;
+	float d = length(f - o * 0.6);
+	float core = smoothstep(size, 0.0, d);
+	float flare = smoothstep(size * 4.0, 0.0, abs(f.x - o.x * 0.6)) * smoothstep(size * 0.6, 0.0, abs(f.y - o.y * 0.6))
+		+ smoothstep(size * 4.0, 0.0, abs(f.y - o.y * 0.6)) * smoothstep(size * 0.6, 0.0, abs(f.x - o.x * 0.6));
+	float twk = 0.65 + 0.35 * sin(TIME * (1.5 + h * 3.0) * tw + h * 60.0);
+	vec3 tint = mix(vec3(0.75, 0.85, 1.0), vec3(1.0, 0.85, 0.7), hash(cell + 1.3));
+	return tint * (core + flare * 0.35 * step(0.985, h)) * twk;
 }
 
 void vertex() {
@@ -34,35 +46,32 @@ void vertex() {
 }
 
 void fragment() {
-	vec2 p = wp.xz - offset;
-	vec3 col = vec3(0.0);
-	if (biome_w.x > 0.01) {
-		vec2 q = vec2(p.x + p.y, p.x - p.y) * 0.7071 / 7.5;
-		vec2 cell = floor(q);
-		vec2 f = fract(q);
-		float h = hash(cell);
-		vec3 fields = h < 0.3 ? pal(0.0) : (h < 0.55 ? pal(32.0) : (h < 0.78 ? pal(43.0) : pal(1.0)));
-		float rows = step(0.5, fract((h < 0.55 && h >= 0.3 ? q.x : q.y) * 9.0)) * 0.06;
-		fields *= 1.0 - rows;
-		float hedge = smoothstep(0.0, 0.05, f.x) * smoothstep(0.0, 0.05, f.y) * smoothstep(0.0, 0.05, 1.0 - f.x) * smoothstep(0.0, 0.05, 1.0 - f.y);
-		fields = mix(pal(9.0) * 0.85, fields, hedge);
-		if (hash(cell + 7.0) > 0.9) { fields = mix(fields, lin(vec3(0.45, 0.72, 0.85)), smoothstep(0.42, 0.38, length(f - 0.5))); }
-		col += fields * biome_w.x;
-	}
-	if (biome_w.y > 0.01) {
-		float wv = sin((p.x - p.y) * 0.3 + TIME * 0.7) * 0.5 + 0.5;
-		vec3 ocean = mix(lin(vec3(0.30, 0.60, 0.84)), lin(vec3(0.42, 0.74, 0.92)), wv * 0.5 + noise(p * 0.12 + TIME * 0.05) * 0.3);
-		float sp = step(0.992, hash(floor(p * 1.2) + floor(TIME * 1.5)));
-		ocean += vec3(sp * 0.5);
-		col += ocean * biome_w.y;
-	}
-	if (biome_w.z > 0.01) {
-		float n = noise(p * 0.22) * 0.6 + noise(p * 0.6) * 0.4;
-		vec3 forest = mix(pal(9.0) * 0.8, pal(1.0), smoothstep(0.35, 0.65, n));
-		forest = mix(forest, pal(38.0), smoothstep(0.78, 0.85, noise(p * 0.05 + 3.0)));
-		col += forest * biome_w.z;
-	}
-	col += haze_color * biome_w.w;
-	col *= mix(1.0, 0.42, night);
-	ALBEDO = mix(col, haze_color, haze);
+	float t = TIME;
+	// farthest: big slow nebula, barely moving as you drive
+	vec2 pn = (wp.xz - cam_xz * 0.86) * 0.038;
+	vec2 q = vec2(fbm(pn + vec2(0.0, t * 0.012)), fbm(pn + vec2(5.2, 1.3) - t * 0.01));
+	vec2 r = vec2(fbm(pn + q * 1.8 + vec2(1.7, 9.2) + t * 0.015), fbm(pn + q * 1.8 + vec2(8.3, 2.8)));
+	float neb = fbm(pn + r * 2.2);
+	vec3 col = deep_color;
+	vec3 aura = mix(aura_a, aura_b, smoothstep(0.25, 0.75, r.x));
+	aura = mix(aura, aura_c, smoothstep(0.55, 0.9, q.y) * 0.8);
+	float dens = smoothstep(0.3, 0.78, neb);
+	col += aura * pow(dens, 1.4) * 1.25 * aura_amount;
+	col += aura_b * smoothstep(0.2, 0.6, neb) * 0.12 * aura_amount;
+	// bright filaments where the swirls fold
+	float fil = smoothstep(0.03, 0.0, abs(neb - 0.62)) * smoothstep(0.4, 0.8, r.y);
+	col += mix(aura, vec3(1.0), 0.35) * fil * 0.35 * aura_amount;
+	// aurora ribbons, a little closer
+	vec2 pa = (wp.xz - cam_xz * 0.78) * 0.03;
+	float rib = sin(pa.x * 1.3 + pa.y * 0.6 + fbm(pa * 0.7 + t * 0.03) * 5.0 + t * 0.05);
+	float band = smoothstep(0.92, 1.0, rib) * smoothstep(0.3, 0.7, fbm(pa * 1.3 - t * 0.02));
+	col += mix(aura_a, aura_c, 0.5 + 0.5 * sin(pa.y * 0.4 + t * 0.07)) * band * 0.45 * aura_amount;
+	// glowing motes drifting far below (closest layer)
+	vec2 pm = (wp.xz - cam_xz * 0.6) * 0.18 + vec2(0.0, t * 0.08);
+	col += aura_c * stars(pm, 0.03, 0.08, 0.3) * 0.5;
+	// star fields at three depths
+	col += stars((wp.xz - cam_xz * 0.93) * 0.55, 0.06, 0.05, 1.0) * 0.9 * star_amount;
+	col += stars((wp.xz - cam_xz * 0.88) * 0.28, 0.05, 0.06, 0.7) * 1.1 * star_amount;
+	col += stars((wp.xz - cam_xz * 0.82) * 0.12, 0.03, 0.05, 0.5) * 1.4 * star_amount;
+	ALBEDO = col * glow;
 }

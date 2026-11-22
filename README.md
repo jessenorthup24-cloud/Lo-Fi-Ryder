@@ -17,8 +17,16 @@ islands that crumble away behind you, while the days, seasons and weather roll b
   drift for a little speed kick.
 - The run keeps speeding up the farther you get (about 32 km/h at the start, ~50 km/h by 900 m).
 - Bumping rocks and walls glances you along them; if you ever get wedged, the car hops back to the road.
-- Challenge pieces span long drops: skinny plank bridges on stilts, and twisty toy race tracks with
-  candy kerbs and little hills. They crumble away behind you, piece by piece.
+- The world is after the end: no people left, cracked roads and rusted wrecks, ruined houses with
+  trees growing through them, and glowing buds pushing up everywhere. The islands float over a galaxy
+  abyss whose nebula auras change with each region, with motes, spores, fireflies and wisps drifting by.
+- Challenge pieces span long drops: plank bridges on stilts, and twisty toy race tracks with candy
+  kerbs and little hills. They crumble away behind you, piece by piece.
+- Offroad sections are real uneven terrain: rolling dirt tracks, and red rock canyons you crawl through
+  (slower on the climbs, the car pitches and rolls and each wheel finds the ground).
+- Gauntlets chain it all: a kicker onto a grind rail (you lock on automatically), down onto a plank
+  bridge, over rough ground and through a red rock canyon.
+- Police cruisers are sloppy drivers: they weave and run wide, and often go over the edge on bridges.
 - In the air, hold an arrow to spin the car. Land straight for a clean landing bonus.
 - The run ends if you drive off an edge, land in the water, or run out of fuel. Grab red cans and drive
   through gas stations to refuel.
@@ -31,7 +39,7 @@ islands that crumble away behind you, while the days, seasons and weather roll b
 - Score = distance + style (drifts, near misses, air, spins, clean landings) + 5 per coin.
 - Coins buy cars and upgrades in the Garage. Missions pay out extra coins. The Daily run gives everyone
   the same road for the day, and your best daily attempt comes back as a ghost.
-- Trophies: 33 achievements (distance, speed, drifts, stunts, bridges, chases, regions, garage) that
+- Trophies: 36 achievements (distance, speed, drifts, stunts, bridges, chases, regions, garage) that
   each pay coins once. They unlock live during a run.
 
 ## Project layout
@@ -64,6 +72,7 @@ godot --path . -- --run --hour=22 --weather=rain --biome=seaside --season=2
 godot --path . -- --garage --coins=5000
 godot --path . -- --run --deck=plank --warp=deck   # jump onto a plank bridge (or --deck=track)
 godot --path . -- --auto --biome=forest --hug=4.2  # autopilot grinds along the rim walls
+godot --path . -- --auto --kind=gauntlet --warp=kind   # jump to a gauntlet (or --kind=rough / dirt)
 xvfb-run godot --path . -- --auto --shot=/tmp/x.png --frames=200   # screenshot, then quit
 ```
 

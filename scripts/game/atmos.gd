@@ -12,17 +12,26 @@ const KEYS := [
 	[0.0, "9fb6ff", 0.24, "56609c", 0.51, "1b2350", "394077", 1.0],
 	[4.5, "9fb6ff", 0.22, "5a62a0", 0.51, "222b5c", "4a4c86", 1.0],
 	[6.0, "ffb59a", 0.41, "b393c6", 0.45, "7c86d8", "ffc2a6", 0.55],
-	[7.5, "ffe1c0", 0.70, "a6b4e6", 0.43, "8cc8ff", "ffe0c4", 0.0],
-	[12.0, "fff4e0", 0.80, "a9bbe8", 0.41, "88cfff", "fde8cc", 0.0],
-	[16.5, "ffe6c4", 0.74, "b0b4e2", 0.41, "8cc4ff", "ffdcbc", 0.0],
-	[18.5, "ffa86e", 0.55, "c79cc8", 0.43, "7a7fd2", "ffb38e", 0.2],
+	[7.5, "ffd2a0", 0.72, "a6b4e6", 0.43, "8cc8ff", "ffe0c4", 0.0],
+	[12.0, "fff0d6", 0.80, "a9bbe8", 0.41, "88cfff", "fde8cc", 0.0],
+	[16.5, "ffd29e", 0.76, "b0b4e2", 0.41, "8cc4ff", "ffdcbc", 0.0],
+	[18.5, "ff9a58", 0.6, "c79cc8", 0.43, "7a7fd2", "ffb38e", 0.2],
 	[20.0, "c7a0ff", 0.30, "6e6aac", 0.48, "3a3f86", "a477b0", 0.75],
 	[21.5, "9fb6ff", 0.24, "56609c", 0.51, "1b2350", "394077", 1.0],
 	[24.0, "9fb6ff", 0.24, "56609c", 0.51, "1b2350", "394077", 1.0],
 ]
 
+# the abyss below: nebula aura colours per region [aura a, aura b, aura c]
+const AURAS := {
+	"countryside": ["3df2a6", "8a5cff", "ff9a6b"],
+	"seaside": ["38d6ff", "ff5ab8", "9dffe6"],
+	"forest": ["35e672", "6b3cf0", "ffb347"],
+	"sky": ["ffcc55", "f04aa8", "b39bff"],
+}
+
 var world: Node
 var game: Node
+var aura := [Color("3df2a6"), Color("8a5cff"), Color("ff9a6b")]
 var env: Environment
 var sun: DirectionalLight3D
 var sky_quad: MeshInstance3D
@@ -57,6 +66,14 @@ var rain_p: CPUParticles3D
 var snow_p: CPUParticles3D
 var streak_p: CPUParticles3D
 var leaf_p: CPUParticles3D
+var mote_p: CPUParticles3D       # golden dust motes drifting in the light
+var spore_p: CPUParticles3D      # pollen and seed fluff rising off the plants
+var fly_p: CPUParticles3D        # fireflies at night
+var petal_p: CPUParticles3D      # petals in spring
+var wisp_p: CPUParticles3D       # glowing wisps rising out of the abyss
+var glow_tex: GradientTexture2D
+var vignette: ColorRect
+var vig_mat: ShaderMaterial
 var particle_root: Node3D
 var far_root: Node3D
 var leaf_mat: StandardMaterial3D
@@ -77,6 +94,18 @@ func setup(w: Node, g: Node, camera: Camera3D, toon_mat: ShaderMaterial) -> void
 	env.background_color = Color("fde8cc")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	# soft bloom on glowing buds, lanterns, stars and auras
+	env.glow_enabled = false   # (the compatibility renderer is LDR: bloom would wash out anything white)
+	env.glow_intensity = 0.7
+	env.glow_strength = 1.0
+	env.glow_bloom = 0.04
+	env.glow_hdr_threshold = 0.8
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
+	env.set_glow_level(0, 0.0)
+	env.set_glow_level(1, 1.0)
+	env.set_glow_level(2, 0.8)
+	env.set_glow_level(3, 0.6)
+	env.set_glow_level(4, 0.4)
 	we.environment = env
 	add_child(we)
 	sun = DirectionalLight3D.new()
@@ -105,6 +134,50 @@ func setup(w: Node, g: Node, camera: Camera3D, toon_mat: ShaderMaterial) -> void
 	snow_p = _particles(320, _flake_mesh(), Vector3(18, 0.5, 18), Vector3(0, -1, 0), 1.6, 2.4, 6.0, 0.6)
 	streak_p = _particles(40, _streak_mesh(Vector3(1.6, 0.025, 0.025), Color(1, 1, 1, 0.55)), Vector3(16, 3, 16), Vector3(1, 0, 0), 9.0, 13.0, 1.4, 0.0)
 	leaf_p = _particles(40, _leaf_mesh(), Vector3(16, 3, 16), Vector3(1, 0, 0), 4.0, 6.0, 2.6, 0.4)
+	# a soft vignette tinted by the abyss
+	var vl := CanvasLayer.new()
+	vl.layer = -1
+	add_child(vl)
+	vignette = ColorRect.new()
+	vignette.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var vs := Shader.new()
+	vs.code = "shader_type canvas_item;\nuniform vec4 edge : source_color = vec4(0.1, 0.05, 0.2, 0.5);\nvoid fragment() {\n\tvec2 d = (UV - 0.5) * vec2(1.0, 1.25);\n\tfloat k = smoothstep(0.38, 0.85, length(d));\n\tCOLOR = vec4(edge.rgb, edge.a * k);\n}\n"
+	vig_mat = ShaderMaterial.new()
+	vig_mat.shader = vs
+	vignette.material = vig_mat
+	vl.add_child(vignette)
+	# ambient life: motes, spores, fireflies, petals and abyss wisps
+	glow_tex = GradientTexture2D.new()
+	glow_tex.fill = GradientTexture2D.FILL_RADIAL
+	glow_tex.fill_from = Vector2(0.5, 0.5)
+	glow_tex.fill_to = Vector2(0.5, 0.0)
+	glow_tex.width = 64
+	glow_tex.height = 64
+	var gg := Gradient.new()
+	gg.set_color(0, Color(1, 1, 1, 1))
+	gg.set_color(1, Color(1, 1, 1, 0))
+	gg.add_point(0.25, Color(1, 1, 1, 0.75))
+	glow_tex.gradient = gg
+	mote_p = _glow_particles(70, 0.16, Vector3(13, 2.5, 13), Vector3(0.3, 0.25, 0.1), 0.15, 0.45, 7.0,
+		[Color(1, 0.9, 0.6, 0.0), Color(1, 0.88, 0.55, 0.9), Color(1, 0.85, 0.5, 0.0)])
+	mote_p.position.y = 2.2
+	spore_p = _glow_particles(45, 0.12, Vector3(13, 0.6, 13), Vector3(0.1, 1.0, 0.0), 0.25, 0.6, 6.0,
+		[Color(0.9, 1, 0.85, 0.0), Color(0.92, 1, 0.8, 0.95), Color(0.9, 1, 0.9, 0.0)])
+	spore_p.position.y = 0.4
+	fly_p = _glow_particles(50, 0.26, Vector3(12, 1.2, 12), Vector3(0.0, 0.3, 0.0), 0.1, 0.5, 5.0,
+		[Color(0.8, 1, 0.4, 0.0), Color(0.85, 1, 0.45, 1.0), Color(0.8, 1, 0.4, 0.1), Color(0.85, 1, 0.45, 1.0), Color(0.8, 1, 0.4, 0.0)])
+	fly_p.position.y = 0.9
+	fly_p.angular_velocity_min = 0.0
+	fly_p.angular_velocity_max = 0.0
+	fly_p.gravity = Vector3(0, 0.05, 0)
+	fly_p.spread = 180.0
+	petal_p = _glow_particles(26, 0.16, Vector3(14, 3, 14), Vector3(0.6, -0.3, 0.2), 0.4, 0.8, 7.0,
+		[Color(1, 0.75, 0.85, 0.0), Color(1, 0.72, 0.82, 0.95), Color(1, 0.8, 0.9, 0.0)])
+	petal_p.position.y = 3.0
+	wisp_p = _glow_particles(18, 0.9, Vector3(20, 1.0, 20), Vector3(0, 1, 0), 1.2, 2.0, 9.0,
+		[Color(0.6, 0.8, 1, 0.0), Color(0.7, 0.85, 1, 0.55), Color(0.8, 0.7, 1, 0.0)])
+	wisp_p.position.y = -14.0
 	rain_p.position.y = 13.0
 	snow_p.position.y = 11.0
 	streak_p.position.y = 1.6
@@ -114,7 +187,7 @@ func setup(w: Node, g: Node, camera: Camera3D, toon_mat: ShaderMaterial) -> void
 	add_child(far_root)
 	ground_plane = MeshInstance3D.new()
 	var pm := PlaneMesh.new()
-	pm.size = Vector2(280, 280)
+	pm.size = Vector2(900, 900)
 	ground_plane.mesh = pm
 	ground_mat = ShaderMaterial.new()
 	ground_mat.shader = load("res://shaders/far_ground.gdshader")
@@ -125,9 +198,9 @@ func setup(w: Node, g: Node, camera: Camera3D, toon_mat: ShaderMaterial) -> void
 	far_mat = ShaderMaterial.new()
 	far_mat.shader = load("res://shaders/far.gdshader")
 	far_mat.set_shader_parameter("palette", toon_mat.get_shader_parameter("palette"))
-	for i in 14:
+	for i in 5:
 		var mi := MeshInstance3D.new()
-		var kind := "far_cloud" if i < 10 else ("far_island" if i < 13 else "balloon")
+		var kind := "far_island"
 		mi.mesh = M.get_mesh(kind)
 		mi.material_override = far_mat if kind != "balloon" else toon_mat
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -164,6 +237,33 @@ func _particles(amount: int, mesh: Mesh, box: Vector3, dir: Vector3, vmin: float
 		p.angle_max = 360.0
 		p.particle_flag_rotate_y = true
 	particle_root.add_child(p)
+	return p
+
+## Soft glowing billboard particles that fade in and out over their life (colors: the ramp).
+func _glow_particles(amount: int, size: float, box: Vector3, dir: Vector3, vmin: float, vmax: float, life: float, ramp: Array) -> CPUParticles3D:
+	var q := QuadMesh.new()
+	q.size = Vector2(size, size)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	m.vertex_color_use_as_albedo = true
+	m.albedo_texture = glow_tex
+	m.no_depth_test = false
+	m.disable_receive_shadows = true
+	q.material = m
+	var p := _particles(amount, q, box, dir, vmin, vmax, life, 0.0)
+	p.spread = 35.0
+	p.scale_amount_min = 0.6
+	p.scale_amount_max = 1.4
+	var g := Gradient.new()
+	g.set_color(0, ramp[0])
+	g.set_color(1, ramp[ramp.size() - 1])
+	for i in range(1, ramp.size() - 1):
+		g.add_point(float(i) / float(ramp.size() - 1), ramp[i])
+	p.color_ramp = g
+	p.preprocess = life
 	return p
 
 func _unshaded(col: Color) -> StandardMaterial3D:
@@ -212,6 +312,8 @@ func reset(seed_in: int, start_season: int) -> void:
 	world.winter_ice = false
 	for p in [rain_p, snow_p, streak_p, leaf_p]:
 		p.emitting = false
+	for p in [mote_p, spore_p, wisp_p]:
+		p.emitting = true
 	_place_far(Vector3.ZERO, true)
 	apply(Vector3.ZERO, 0.0)
 
@@ -363,18 +465,36 @@ func apply(target: Vector3, dt: float) -> void:
 	sun.light_color = sun_col
 	sun.light_energy = sun_e
 	sun.shadow_opacity = clampf(0.85 - wet * 0.5 - night * 0.3, 0.2, 0.85)
+	# the galaxy abyss: region auras drift in, the void deepens at night
+	var prog: float = target.x * world.F.x + target.z * world.F.z
+	var b: String = world.biome_at(prog)
+	var want_aura: Array = AURAS.get(b, AURAS["countryside"])
+	var ak := clampf(dt * 0.5, 0.0, 1.0) if dt > 0.0 else 1.0
+	for i in 3:
+		aura[i] = (aura[i] as Color).lerp(Color(want_aura[i]), ak)
+	var deep := Color("1d1246").lerp(Color("0a0618"), night).lerp(Color("2a2a3a"), wet * 0.4)
+	var aura_amt := lerpf(0.9, 1.25, night) * (1.0 - wet * 0.45)
+	var star_amt := lerpf(0.45, 1.1, night) * (1.0 - wet * 0.7)
+	for m2 in [sky_mat, ground_mat]:
+		m2.set_shader_parameter("deep_color", deep)
+		m2.set_shader_parameter("aura_a", aura[0])
+		m2.set_shader_parameter("aura_b", aura[1])
+		m2.set_shader_parameter("aura_c", aura[2])
+		m2.set_shader_parameter("aura_amount", aura_amt)
+		m2.set_shader_parameter("star_amount", star_amt)
+	sky_mat.set_shader_parameter("scroll", Vector2(0, -prog * 0.004))
+	sky_mat.set_shader_parameter("sun_glow", sun_col)
+	sky_mat.set_shader_parameter("sun_amount", (1.0 - night) * (1.0 - wet * 0.8))
+	var abyss := deep.lerp(aura[1], 0.18)
+	# a touch of the aura in the shadows
+	amb = amb.lerp((aura[1] as Color).lerp(aura[0], 0.3), 0.22)
 	env.ambient_light_color = amb
 	env.ambient_light_energy = amb_e
-	env.background_color = bot
-	sky_mat.set_shader_parameter("top_color", top)
-	sky_mat.set_shader_parameter("bottom_color", bot)
-	sky_mat.set_shader_parameter("haze_color", bot.lightened(0.2))
-	sky_mat.set_shader_parameter("stars", night * (1.0 - wet))
-	sky_mat.set_shader_parameter("cloud_amount", 0.4 + wet * 0.5)
-	sky_mat.set_shader_parameter("cloud_color", Color(1, 1, 1).lerp(Color("8a90b0"), night))
-	var prog: float = target.x * world.F.x + target.z * world.F.z
-	sky_mat.set_shader_parameter("scroll", Vector2(0, -prog * 0.004))
-	var fog_col := bot.lightened(0.25).lerp(Color("e8ecf2").lerp(Color("50567a"), night), fog)
+	env.background_color = deep
+	var fog_col := Color("b9b0d8").lerp(Color("3a3560"), night).lerp(abyss.lightened(0.3), 0.3)
+	var rim_col := (aura[0] as Color).lerp(aura[1], 0.4)
+	var ve := deep.lerp(aura[1], 0.35)
+	vig_mat.set_shader_parameter("edge", Color(ve.r, ve.g, ve.b, lerpf(0.38, 0.6, night)))
 	wind_vec = world.S * gust_dir * windy * (0.35 + gust * 0.65) * 6.5
 	for m in mats:
 		m.set_shader_parameter("season", season)
@@ -385,24 +505,28 @@ func apply(target: Vector3, dt: float) -> void:
 		m.set_shader_parameter("fog_start", lerpf(14.0, 2.0, fog))
 		m.set_shader_parameter("fog_len", lerpf(22.0, 12.0, fog))
 		m.set_shader_parameter("wind", Vector2(wind_vec.x, wind_vec.z) * 0.06)
+		m.set_shader_parameter("abyss_color", abyss)
+		m.set_shader_parameter("moss_color", P.color(P.MOSS, season).darkened(0.08))
+		m.set_shader_parameter("rim_color", rim_col)
 	far_mat.set_shader_parameter("season", season)
 	far_mat.set_shader_parameter("night", night)
-	far_mat.set_shader_parameter("haze_color", bot.lerp(top, 0.35))
-	far_mat.set_shader_parameter("haze", 0.5 + wet * 0.3)
-	# the land far below: follows the camera, its pattern drifts slower (depth without perspective)
-	var b: String = world.biome_at(prog)
-	var want := Vector4(1, 0, 0, 0) if b == "countryside" else (Vector4(0, 1, 0, 0) if b == "seaside" else (Vector4(0, 0, 1, 0) if b == "forest" else Vector4(0, 0, 0, 1)))
-	biome_w = biome_w.lerp(want, clampf(dt * 0.6, 0.0, 1.0)) if dt > 0.0 else want
+	far_mat.set_shader_parameter("haze_color", abyss)
+	far_mat.set_shader_parameter("haze", 0.62 + wet * 0.2)
+	# the abyss plane follows the camera; its layers slide slower (depth without perspective)
 	ground_plane.position = Vector3(target.x, -38.0, target.z)
-	ground_mat.set_shader_parameter("offset", Vector2(target.x, target.z) * 0.8)
-	ground_mat.set_shader_parameter("biome_w", biome_w)
-	ground_mat.set_shader_parameter("season", season)
-	ground_mat.set_shader_parameter("night", night)
-	ground_mat.set_shader_parameter("haze_color", bot.lerp(top, 0.3))
-	ground_mat.set_shader_parameter("haze", 0.46 + wet * 0.35)
+	ground_mat.set_shader_parameter("cam_xz", Vector2(target.x, target.z))
 	_particles_update()
 
 func _particles_update() -> void:
+	var dry := rain < 0.3 and snow < 0.3
+	mote_p.emitting = night < 0.5 and dry
+	spore_p.emitting = dry and season_idx != 3
+	fly_p.emitting = night > 0.5 and dry and season_idx != 3
+	petal_p.emitting = season_idx == 0 and dry
+	wisp_p.emitting = true
+	if wisp_p.color_ramp != null:
+		var c0: Color = (aura[0] as Color).lerp(aura[2], 0.5)
+		wisp_p.color_ramp.set_color(1, Color(c0.r, c0.g, c0.b, 0.5))
 	rain_p.emitting = rain > 0.05
 	snow_p.emitting = snow > 0.05
 	var wdir: Vector3 = world.S * gust_dir

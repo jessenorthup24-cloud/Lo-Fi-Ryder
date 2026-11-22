@@ -7,6 +7,7 @@ extends Node3D
 
 const M := preload("res://scripts/core/models.gd")
 const P := preload("res://scripts/core/palette.gd")
+const MB := preload("res://scripts/core/mesh_builder.gd")
 const Pool := preload("res://scripts/game/pool.gd")
 const People := preload("res://scripts/game/people.gd")
 const CARS := preload("res://scripts/game/cars.gd")
@@ -24,29 +25,50 @@ const BIOME_NAMES := {"countryside": "Countryside", "seaside": "Seaside", "fores
 const BIOME_TOP := {"countryside": P.GRASS, "seaside": P.SAND, "forest": P.GRASS_FOREST, "sky": P.GRASS_SKY}
 const BIOME_SIDE := {"countryside": P.DIRT, "seaside": P.SAND_SIDE, "forest": P.DIRT, "sky": P.STONE_SIDE}
 const BIOME_PATH := {"countryside": P.PATH, "seaside": P.PLANK, "forest": P.PATH, "sky": P.CLOUD}
+# offroad stretches: the trail surface and the humps on it
+const ROUGH_TOP := {"countryside": P.PATH, "seaside": P.SAND, "forest": P.SOIL, "sky": P.CLOUD}
+const MOUND_TOP := {"countryside": P.GRASS, "seaside": P.SAND, "forest": P.MOSS, "sky": P.CLOUD}
 
 # name: [weight, radius, knock kind, sway]   kind "flat" = no collision, "solid" = can't knock over
 const DECOR := {
-	"countryside": {"tree_round": [3.0, 0.45, "wood", 0.5], "tree_blossom": [2.0, 0.45, "wood", 0.5], "bush": [3.0, 0.4, "soft", 0.6],
-		"flowers": [4.0, 0.0, "flat", 1.0], "tuft": [4.0, 0.0, "flat", 1.0], "hay": [1.4, 0.42, "soft", 0.0],
-		"sunflower": [1.4, 0.3, "soft", 0.8], "fence": [1.6, 0.5, "wood", 0.0], "rock": [1.0, 0.36, "rock", 0.0],
-		"barn": [0.22, 1.5, "solid", 0.0], "windmill": [0.2, 0.85, "solid", 0.0]},
+	"countryside": {"tree_round": [3.0, 0.45, "wood", 0.5], "tree_blossom": [2.5, 0.45, "wood", 0.5], "bush": [3.0, 0.4, "soft", 0.6],
+		"flowers": [5.0, 0.0, "flat", 1.0], "tuft": [4.0, 0.0, "flat", 1.0], "bud_glow": [2.5, 0.0, "flat", 1.0],
+		"sunflower": [1.4, 0.3, "soft", 0.8], "fence": [1.0, 0.5, "wood", 0.0], "rock": [1.0, 0.36, "rock", 0.0],
+		"rubble": [1.4, 0.36, "rock", 0.0], "wreck_car": [0.35, 0.62, "solid", 0.0], "wall_ruin": [0.5, 0.62, "solid", 0.0],
+		"sign_rust": [0.5, 0.2, "metal", 0.0], "barrel_rust": [0.6, 0.28, "metal", 0.0], "pole_down": [0.4, 0.0, "flat", 0.0],
+		"house_ruin_c": [0.22, 1.3, "solid", 0.0], "windmill": [0.15, 0.85, "solid", 0.0]},
 	"forest": {"pine": [4.0, 0.42, "wood", 0.3], "pine_tall": [3.0, 0.45, "wood", 0.25], "tree_round": [1.5, 0.45, "wood", 0.5],
 		"fern": [3.0, 0.0, "flat", 1.0], "mushroom": [2.0, 0.3, "soft", 0.0], "stump": [1.4, 0.3, "wood", 0.0],
-		"log": [1.0, 0.55, "wood", 0.0], "rock": [1.6, 0.36, "rock", 0.0], "cabin": [0.2, 1.3, "solid", 0.0]},
-	"seaside": {"umbrella": [2.0, 0.35, "soft", 0.2], "deck_chair": [1.4, 0.35, "wood", 0.0], "dune_grass": [4.0, 0.0, "flat", 1.0],
-		"beach_rock": [2.0, 0.38, "rock", 0.0], "sandcastle": [1.5, 0.42, "sand", 0.0], "buoy": [1.0, 0.26, "soft", 0.0],
-		"crate": [1.0, 0.36, "wood", 0.0], "hut": [0.3, 0.95, "solid", 0.0], "lighthouse": [0.15, 0.9, "solid", 0.0]},
+		"log": [1.0, 0.55, "wood", 0.0], "rock": [1.6, 0.36, "rock", 0.0], "house_ruin": [0.2, 1.3, "solid", 0.0],
+		"bud_glow": [3.0, 0.0, "flat", 1.0], "wreck_car": [0.3, 0.62, "solid", 0.0], "sign_rust": [0.3, 0.2, "metal", 0.0],
+		"barrel_rust": [0.4, 0.28, "metal", 0.0]},
+	"seaside": {"dune_grass": [4.0, 0.0, "flat", 1.0], "beach_rock": [2.0, 0.38, "rock", 0.0], "barrel_rust": [1.0, 0.28, "metal", 0.0],
+		"rubble": [1.2, 0.36, "rock", 0.0], "wreck_car": [0.4, 0.62, "solid", 0.0], "wall_ruin": [0.4, 0.62, "solid", 0.0],
+		"bud_glow": [2.0, 0.0, "flat", 1.0], "sign_rust": [0.4, 0.2, "metal", 0.0], "flowers": [2.0, 0.0, "flat", 1.0],
+		"house_ruin_b": [0.3, 1.3, "solid", 0.0], "lighthouse": [0.15, 0.9, "solid", 0.0]},
 	"sky": {"cloud_puff": [3.0, 0.45, "cloud", 0.0], "tree_puff": [2.5, 0.42, "wood", 0.5], "crystal": [2.0, 0.3, "crystal", 0.0],
-		"pillar": [1.0, 0.32, "rock", 0.0], "tuft": [2.0, 0.0, "flat", 1.0], "flowers": [2.0, 0.0, "flat", 1.0]},
+		"pillar": [1.0, 0.32, "rock", 0.0], "tuft": [2.0, 0.0, "flat", 1.0], "flowers": [2.5, 0.0, "flat", 1.0],
+		"bud_glow": [3.0, 0.0, "flat", 1.0], "rubble": [1.0, 0.36, "rock", 0.0], "wall_ruin": [0.5, 0.62, "solid", 0.0]},
 }
 const OBSTACLES := {
-	"countryside": {"hay": 2.0, "rock": 2.0, "fence": 1.5, "bush": 2.0},
-	"forest": {"log": 2.0, "stump": 2.0, "rock": 2.0, "mushroom": 1.0},
-	"seaside": {"sandcastle": 2.0, "crate": 2.0, "beach_rock": 2.0, "umbrella": 1.0, "buoy": 1.0},
-	"sky": {"cloud_puff": 3.0, "crystal": 2.0, "pillar": 1.0},
+	"countryside": {"rubble": 2.0, "rock": 2.0, "fence": 1.0, "bush": 2.0, "barrel_rust": 1.5},
+	"forest": {"log": 2.0, "stump": 2.0, "rock": 2.0, "mushroom": 1.0, "barrel_rust": 1.0},
+	"seaside": {"rubble": 2.0, "barrel_rust": 2.0, "beach_rock": 2.0},
+	"sky": {"cloud_puff": 3.0, "crystal": 2.0, "pillar": 1.0, "rubble": 1.0},
 }
-const BIG := ["barn", "windmill", "cabin", "hut", "lighthouse"]
+# After the end: what the old lively props became (an empty name means it's gone)
+const RUIN_SWAP := {
+	"cottage_a": ["house_ruin", 1.3, "solid"], "cottage_b": ["house_ruin_b", 1.3, "solid"], "cottage_c": ["house_ruin_c", 1.3, "solid"],
+	"barn": ["house_ruin_c", 1.4, "solid"], "cabin": ["house_ruin", 1.3, "solid"], "hut": ["house_ruin_b", 1.2, "solid"],
+	"umbrella": [""], "towel": [""], "beach_ball": [""], "surfboard": ["sign_rust", 0.2, "metal"], "kiosk": ["wall_ruin", 0.62, "solid"],
+	"cafe_table": ["rubble", 0.36, "rock"], "deck_chair": ["rubble", 0.36, "rock"], "lifeguard": ["pole_down", 0.0, "flat"],
+	"tent": ["rubble", 0.36, "rock"], "campfire": ["bud_glow", 0.0, "flat"], "flame": [""], "tether": [""], "rope": [""],
+	"rainbow": [""], "duck": [""], "balloon": [""], "scarecrow": ["sign_rust", 0.2, "metal"], "parked_tractor": ["wreck_car", 0.62, "solid"],
+	"mailbox": ["sign_rust", 0.2, "metal"], "bench": ["rubble", 0.36, "rock"], "flower_bed": ["bud_glow", 0.0, "flat"],
+	"apple_crate": ["barrel_rust", 0.28, "metal"], "crate": ["barrel_rust", 0.28, "metal"], "buoy": ["barrel_rust", 0.28, "metal"],
+	"boat": [""], "canoe": [""], "woodpile": ["rubble", 0.36, "rock"], "sandcastle": ["rubble", 0.36, "rock"], "deck_chair_b": [""],
+}
+const BIG := ["barn", "windmill", "cabin", "hut", "lighthouse", "house_ruin", "house_ruin_b", "house_ruin_c", "wreck_car", "wall_ruin"]
 
 var game: Node          # main.gd
 var mat: ShaderMaterial
@@ -70,10 +92,19 @@ var coins: Array = []
 var fuels: Array = []
 var surfaces: Array = []   # ramps and bridges: {kind, origin, fwd, side, len, half_w, height, launch, s}
 var surf_cells := {}       # Vector2i (4 m cell) -> Array of surfaces touching it
+var bump_cells := {}       # Vector2i (4 m cell) -> Array of mounds touching it
+var muds: Array = []       # mud puddles on offroad stretches: {pos, r, s, slot}
+var rails: Array = []      # grind rails: {pts: [Vector3], len, va, vb, pieces}
+var terra_meshes := {}     # stripe -> MeshInstance3D of the uneven ground there (offroad / canyon)
+const TERRA_KINDS := ["rough", "dirt"]
+var gauntlets: Array = []  # chained challenges: {va, vb, done}
+var last_gauntlet_v := 0.0
 var bends: Array = []      # extra S-curves in the centerline over deck challenges: {va, vb, amp, k}
 var decks: Array = []      # deck challenges: {style, va, vb}
 var last_deck_v := 0.0
 var force_deck := ""       # testing: make the first challenge this style, early
+var force_kind := ""       # testing: make the first land segment after 25 m this kind
+var forced_v := -1.0
 const SURF_CELL := 4.0
 const NO_SURFS: Array = []
 var stations: Array = []
@@ -123,14 +154,17 @@ func setup(g: Node, material: ShaderMaterial, font: Font) -> void:
 			if not pools.has(nm):
 				pools[nm] = _pool(nm, 260 if DECOR[b][nm][1] < 0.8 else 24, false, DECOR[b][nm][2] != "flat", DECOR[b][nm][3])
 	for nm in ["coin", "fuel", "ramp", "bridge", "station", "arch", "marker", "lamp", "windmill_blades", "pad",
-			"deck_plank", "deck_track_a", "deck_track_b", "deck_stilt", "deck_stand"]:
+			"deck_plank", "deck_track_a", "deck_track_b", "deck_stilt", "deck_stand", "mound", "mud", "slick_dome", "slick_pillow",
+			"rail_piece", "rail_post"]:
 		if not pools.has(nm):
 			var cap := {"coin": 260, "fuel": 24, "ramp": 24, "bridge": 80, "station": 6, "arch": 2, "marker": 6, "lamp": 60, "windmill_blades": 24, "pad": 30,
-				"deck_plank": 220, "deck_track_a": 130, "deck_track_b": 130, "deck_stilt": 50, "deck_stand": 50}[nm] as int
-			pools[nm] = _pool(nm, cap, false, nm != "coin")
+				"deck_plank": 220, "deck_track_a": 130, "deck_track_b": 130, "deck_stilt": 50, "deck_stand": 50,
+				"mound": 220, "mud": 24, "slick_dome": 120, "slick_pillow": 200, "rail_piece": 90, "rail_post": 34}[nm] as int
+			pools[nm] = _pool(nm, cap, nm == "mound", nm != "coin" and nm != "mud")
 	for nm in TILE_POOLS:
 		pools[nm] = _pool(nm, TILE_POOLS[nm], true)
 	pools["ground_bits"] = _pool("ground_bits", 1400, false, false, 1.0)
+	pools["road_bits"] = _pool("road_bits", 500, false, false, 0.6)
 	people = People.new()
 	add_child(people)
 	people.setup(self, mat)
@@ -170,8 +204,14 @@ func reset(seed_in: int, force_biome := "") -> void:
 		m["label"].queue_free()
 	tiles.clear(); stripes.clear(); stripe_items.clear(); falling.clear(); knocked.clear()
 	props_hash.clear(); coins.clear(); fuels.clear(); surfaces.clear(); stations.clear()
-	surf_cells.clear(); bends.clear(); decks.clear()
+	surf_cells.clear(); bends.clear(); decks.clear(); bump_cells.clear(); muds.clear()
+	rails.clear(); gauntlets.clear()
+	for k in terra_meshes:
+		terra_meshes[k].queue_free()
+	terra_meshes.clear()
+	last_gauntlet_v = 0.0
 	last_deck_v = 0.0
+	forced_v = -1.0
 	pads.clear(); chases.clear()
 	places.clear(); anims.clear()
 	people.clear()
@@ -268,6 +308,8 @@ func _plan_next() -> void:
 		bends.pop_front()
 	while not decks.is_empty() and float(decks[0]["vb"]) < plan_v - 260.0:
 		decks.pop_front()
+	while not gauntlets.is_empty() and float(gauntlets[0]["vb"]) < plan_v - 400.0:
+		gauntlets.pop_front()
 	var d := clampf(plan_v / 2600.0, 0.0, 1.0)
 	var v0 := plan_v
 	# biome change: a crossing, then the new biome
@@ -292,11 +334,18 @@ func _plan_next() -> void:
 		next_station_v = sv + clampf(210.0 + station_count * 26.0, 210.0, 440.0)
 		_add_land(plan_v, 14.0, d, "plain")
 		return
+	# the gauntlet: a kicker onto a grind rail, down onto a plank bridge, over humps, into a red rock canyon
+	var g_ok := v0 > 220.0 and v0 - last_gauntlet_v > 380.0 and v0 - last_deck_v > 60.0 and v0 + 260.0 < next_biome_v and not _in_chase(v0)
+	if (force_kind == "gauntlet" and last_gauntlet_v == 0.0 and v0 > 25.0) or (g_ok and rng.randf() < 0.22 + d * 0.1):
+		_plan_gauntlet(v0, d)
+		return
 	# deck challenges: a long skinny plank bridge or a twisty toy race track over the drop
-	var deck_ok := v0 > 150.0 and v0 - last_deck_v > 110.0 and v0 + 90.0 < next_biome_v
+	# (more likely mid-chase: the cruiser is a shaky driver on narrow decks)
+	var chasing := _in_chase(v0)
+	var deck_ok := v0 > 150.0 and v0 - last_deck_v > (70.0 if chasing else 110.0) and v0 + 90.0 < next_biome_v
 	if force_deck != "" and v0 > 30.0 and last_deck_v == 0.0:
 		deck_ok = true
-	if deck_ok and (rng.randf() < 0.2 + d * 0.12 or (force_deck != "" and last_deck_v == 0.0)):
+	if deck_ok and (rng.randf() < (0.45 if chasing else 0.2 + d * 0.12) or (force_deck != "" and last_deck_v == 0.0)):
 		var style := "plank" if rng.randf() < 0.5 else "track"
 		if force_deck != "" and last_deck_v == 0.0:
 			style = force_deck
@@ -309,12 +358,18 @@ func _plan_next() -> void:
 	var roll := rng.randf()
 	var kind := "plain"
 	if v0 > 40.0:
-		if roll < 0.24 + d * 0.08: kind = "ramp_gap"
-		elif roll < 0.34 + d * 0.12: kind = "bridge_gap"
-		elif roll < 0.52 + d * 0.08: kind = "holes"
-		elif roll < 0.62: kind = "split"
-		elif roll < 0.72: kind = "narrow"
-		elif roll < 0.80: kind = "stunt"
+		if roll < 0.22 + d * 0.08: kind = "ramp_gap"
+		elif roll < 0.31 + d * 0.12: kind = "bridge_gap"
+		elif roll < 0.46 + d * 0.08: kind = "holes"
+		elif roll < 0.54: kind = "split"
+		elif roll < 0.62: kind = "narrow"
+		elif roll < 0.69: kind = "stunt"
+		elif roll < 0.85 and v0 > 70.0: kind = "rough" if rng.randf() < 0.5 else "dirt"
+	if force_kind != "" and forced_v < 0.0 and v0 > 25.0:
+		kind = force_kind
+		forced_v = v0
+	if kind == "rough" or kind == "dirt":
+		len = maxf(len, 40.0) * 1.3
 	match kind:
 		"ramp_gap":
 			_add_land(v0, len, d, "plain", true)
@@ -325,12 +380,20 @@ func _plan_next() -> void:
 		_:
 			_add_land(v0, len, d, kind)
 
+func _in_chase(v: float) -> bool:
+	for c in chases:
+		if v >= float(c["v_start"]) + 20.0 and v <= float(c["v_end"]) - 30.0:
+			return true
+	return false
+
 func _add_land(v0: float, len: float, d: float, kind: String, narrow_end := false) -> void:
 	var w := rng.randf_range(3.9, 4.9) * lerpf(1.0, 0.8, d)
 	if kind == "narrow":
 		w = lerpf(2.8, 2.3, d)
 	if kind == "split":
 		w = maxf(w, 5.0)
+	if kind == "rough" or kind == "dirt":
+		w = rng.randf_range(4.8, 5.6)
 	var seg := {"v0": v0, "v1": v0 + len, "type": "land", "biome": cur_biome, "w": w, "holes": [], "narrow_end": narrow_end,
 		"density": lerpf(0.035, 0.11, d), "kind": kind}
 	match kind:
@@ -351,7 +414,88 @@ func _add_land(v0: float, len: float, d: float, kind: String, narrow_end := fals
 			_add_ramp(rv, rng.randf_range(-1.5, 1.5), 6.0, false)
 	segments.append(seg)
 	plan_v = v0 + len
+	if kind == "rough":
+		_plan_rough(seg, d)
 	_plan_items(seg)
+
+## A red rock canyon: a sandy wash winding between sandstone pillows, with big slickrock domes across
+## the trail to crawl up and over. The domes are climbable; the pillows at the sides are walls.
+func _plan_rough(seg: Dictionary, d: float) -> void:
+	var v0: float = seg["v0"]
+	var v1: float = seg["v1"]
+	var w: float = seg["w"]
+	# desert life in the cracks
+	for k in rng.randi_range(3, 6):
+		var bv := rng.randf_range(v0 + 3.0, v1 - 3.0)
+		var bp := pos_at(bv, rng.randf_range(-w + 1.0, w - 1.0))
+		if bump_at(bp) < 0.05:
+			_add_item_prop("bud_glow", bp, rng.randf() * TAU, rng.randf_range(0.9, 1.3), 0.0, "flat", _stripe_of(bv))
+
+func _add_mound(p: Vector3, r: float, h: float, top: int, rz := -1.0, n_exp := 2.0, pool := "mound", yaw := INF) -> void:
+	var slot: int = pools[pool].alloc()
+	if slot < 0:
+		return
+	if yaw == INF:
+		yaw = rng.randf() * TAU
+	if rz < 0.0:
+		rz = r
+	var m := {"kind": "mound", "pos": p, "r": r, "rz": rz, "h": h, "n": n_exp, "pool": pool, "slot": slot, "yaw": yaw,
+		"s": _stripe_of(v_of(p)), "cells": []}
+	pools[pool].put(slot, Transform3D(Basis(Vector3.UP, yaw) * Basis.from_scale(Vector3(r, h, rz)), p + Vector3(0, -0.015, 0)))
+	if pool == "mound":
+		pools[pool].custom(slot, Color(top / 255.0, P.DIRT / 255.0, rng.randf(), 0))
+	var reach := maxf(r, rz)
+	for cx in range(int(floor((p.x - reach) / SURF_CELL)), int(floor((p.x + reach) / SURF_CELL)) + 1):
+		for cz in range(int(floor((p.z - reach) / SURF_CELL)), int(floor((p.z + reach) / SURF_CELL)) + 1):
+			var key := Vector2i(cx, cz)
+			if not bump_cells.has(key):
+				bump_cells[key] = []
+			bump_cells[key].append(m)
+			m["cells"].append(key)
+	_stripe_add(m["s"], m)
+
+func _mound_unlink(m: Dictionary) -> void:
+	for key in m["cells"]:
+		if bump_cells.has(key):
+			bump_cells[key].erase(m)
+			if bump_cells[key].is_empty():
+				bump_cells.erase(key)
+	m["cells"] = []
+
+## Height of the humps at p (0 on smooth ground).
+func bump_at(p: Vector3) -> float:
+	if bump_cells.is_empty():
+		return 0.0
+	var h := 0.0
+	for m in bump_cells.get(Vector2i(int(floor(p.x / SURF_CELL)), int(floor(p.z / SURF_CELL))), NO_SURFS):
+		var dx: float = p.x - m["pos"].x
+		var dz: float = p.z - m["pos"].z
+		var cy := cos(float(m["yaw"]))
+		var sy := sin(float(m["yaw"]))
+		var lx := (dx * cy - dz * sy) / float(m["r"])
+		var lz := (dx * sy + dz * cy) / float(m["rz"])
+		var d2 := lx * lx + lz * lz
+		if d2 < 1.0:
+			h = maxf(h, float(m["h"]) * pow(1.0 - d2, float(m["n"])))
+	return h
+
+func _add_mud(p: Vector3, r: float) -> void:
+	var slot: int = pools["mud"].alloc()
+	if slot < 0:
+		return
+	var md := {"kind": "mud", "pos": p, "r": r, "slot": slot, "s": _stripe_of(v_of(p))}
+	pools["mud"].put(slot, Transform3D(Basis(Vector3.UP, rng.randf() * TAU) * Basis.from_scale(Vector3(r, 1, r * rng.randf_range(0.7, 1.0))), p))
+	muds.append(md)
+	_stripe_add(md["s"], md)
+
+## The mud puddle under p (or {}).
+func mud_at(p: Vector3) -> Dictionary:
+	for md in muds:
+		var dx: float = p.x - md["pos"].x
+		var dz: float = p.z - md["pos"].z
+		if dx * dx + dz * dz < float(md["r"]) * float(md["r"]) * 0.8:
+			return md
+	return {}
 
 func _add_gap(v0: float, bridge: bool, d: float, biome: String) -> void:
 	var glen := rng.randf_range(4.2, 5.2) + d * 1.4
@@ -415,7 +559,7 @@ func _add_bridge(va: float, vb: float) -> void:
 ## A deck challenge across a long drop. "plank": a skinny wooden bridge on stilts that sags and sways
 ## through gentle S-bends. "track": a toy race track with candy kerbs, tighter bends and little hills.
 ## Built from short straight pieces, each its own surface, so they crumble away one by one behind you.
-func _add_deck(v0: float, style: String, d: float) -> void:
+func _add_deck(v0: float, style: String, d: float, straight := 0.0) -> void:
 	var plank := style == "plank"
 	var L := (rng.randf_range(34.0, 48.0) if plank else rng.randf_range(42.0, 60.0)) + d * 16.0
 	var speed := 9.0 * pace_at(v0 + L * 0.5) * 1.05
@@ -426,11 +570,11 @@ func _add_deck(v0: float, style: String, d: float) -> void:
 	amp = minf(amp, 0.85 / wv)   # keep the steepest bit under ~40°
 	if rng.randf() < 0.5:
 		amp = -amp
-	bends.append({"va": v0, "vb": v0 + L, "amp": amp, "k": k})
+	bends.append({"va": v0 + straight, "vb": v0 + L, "amp": amp * (L - straight) / L, "k": k})
 	segments.append({"v0": v0, "v1": v0 + L, "type": "gap", "biome": cur_biome, "w": 0.0, "holes": [], "density": 0.0,
 		"narrow_end": false, "kind": "deck_" + style})
 	decks.append({"style": style, "va": v0, "vb": v0 + L, "done": false})
-	var half := 0.72 if plank else 1.2
+	var half := 0.95 if plank else 1.2
 	var sag := rng.randf_range(0.35, 0.7) if plank else 0.0
 	var hill := (rng.randf_range(0.5, 1.1) if rng.randf() < 0.7 else 0.0) if not plank else 0.0
 	var humps := rng.randi_range(1, 2)
@@ -486,6 +630,219 @@ func _add_deck(v0: float, style: String, d: float) -> void:
 		fp.y = yfn.call(v0 + L * 0.5 + 1.3)
 		_add_fuel(fp, _stripe_of(v0 + L * 0.5 + 1.3))
 	plan_v = v0 + L
+
+func _plan_gauntlet(v0: float, d: float) -> void:
+	last_gauntlet_v = v0
+	if force_kind == "gauntlet":
+		forced_v = v0
+	_add_land(v0, rng.randf_range(18.0, 24.0), d, "plain", true)
+	var lip_v := plan_v
+	_add_ramp(lip_v - 0.15, 0.0, 7.2, true)
+	var rl := rng.randf_range(18.0, 26.0) + d * 8.0
+	_add_rail(lip_v, rl, d)
+	_add_deck(plan_v, "plank", d, 10.0)
+	last_deck_v = plan_v
+	_add_land(plan_v, rng.randf_range(26.0, 34.0), d, "dirt")
+	var len := rng.randf_range(44.0, 60.0)
+	_add_land(plan_v, len, d, "rough")
+	gauntlets.append({"va": v0, "vb": plan_v, "done": false, "warned": false})
+
+## Height of the uneven ground in an offroad ("dirt") or canyon ("rough") section at p. Big swells,
+## mid-size lumps and a little grit; in a canyon the sides climb into rock walls. Fades to flat at both ends.
+func terra_h(p: Vector3, seg: Dictionary) -> float:
+	var v := v_of(p)
+	var du := u_of(p) - center(v)
+	var canyon: bool = seg.get("kind", "") == "rough"
+	var fade := smoothstep(float(seg["v0"]), float(seg["v0"]) + 7.0, v) * (1.0 - smoothstep(float(seg["v1"]) - 7.0, float(seg["v1"]), v))
+	var big := noise.get_noise_2d(p.x * 0.55, p.z * 0.55)
+	var mid := noise.get_noise_2d(p.x * 1.5 + 40.0, p.z * 1.5 - 17.0)
+	var fine := noise.get_noise_2d(p.x * 4.0 + 9.0, p.z * 4.0 + 3.0)
+	var h: float
+	if canyon:
+		h = 0.45 + big * 0.85 + mid * 0.34 + fine * 0.035
+		var wd := absf(du) - (float(seg["w"]) - 2.6)
+		if wd > 0.0:
+			h += pow(wd, 1.5) * (0.85 + 0.35 * mid)
+	else:
+		h = 0.35 + big * 0.62 + mid * 0.34 + fine * 0.04
+		h += smoothstep(1.5, 4.5, absf(du)) * 0.35 * (mid + 1.0)   # rougher off the worn track
+	return h * fade
+
+func _build_terra(s: int, list: Array) -> void:
+	var b := MB.new()
+	var n := 4
+	var step := T / n
+	var bands := [MB.rgb("c47c58"), MB.rgb("cf8b64"), MB.rgb("d99a71"), MB.rgb("e2a97f"), MB.rgb("e9b98f"), MB.rgb("efc8a3")]
+	var sand := MB.rgb("e8b487")
+	for tile in list:
+		var seg: Dictionary = tile["terra"]
+		var canyon: bool = seg.get("kind", "") == "rough"
+		var pos: Vector3 = tile["pos"]
+		var biome: String = seg["biome"]
+		var grass := MB.pal(BIOME_TOP[biome])
+		var grass_hi := MB.pal(P.GRASS_FOREST if biome != "seaside" else P.SAND)
+		var soil := MB.pal(P.SOIL if biome != "seaside" else P.SAND_SIDE)
+		var track := MB.pal(P.DIRT if biome != "seaside" else P.SAND_SIDE)
+		var tile_du := u_of(pos) - center(v_of(pos))
+		var side_col := MB.rgb("b8734f") if canyon else MB.pal(BIOME_SIDE[biome])
+		var hs := []
+		for a in n + 1:
+			var row := []
+			for c in n + 1:
+				var q := pos + Vector3(-T * 0.5 + a * step, 0, -T * 0.5 + c * step)
+				row.append(terra_h(q, seg))
+			hs.append(row)
+		var nrm := func(a: int, c: int) -> Vector3:
+			var hx: float = float(hs[mini(a + 1, n)][c]) - float(hs[maxi(a - 1, 0)][c])
+			var hz: float = float(hs[a][mini(c + 1, n)]) - float(hs[a][maxi(c - 1, 0)])
+			var dx := step * float(mini(a + 1, n) - maxi(a - 1, 0))
+			var dz := step * float(mini(c + 1, n) - maxi(c - 1, 0))
+			return Vector3(-hx / dx, 1.0, -hz / dz).normalized()
+		for a in n:
+			for c in n:
+				var p00 := pos + Vector3(-T * 0.5 + a * step, hs[a][c], -T * 0.5 + c * step)
+				var p10 := pos + Vector3(-T * 0.5 + (a + 1) * step, hs[a + 1][c], -T * 0.5 + c * step)
+				var p01 := pos + Vector3(-T * 0.5 + a * step, hs[a][c + 1], -T * 0.5 + (c + 1) * step)
+				var p11 := pos + Vector3(-T * 0.5 + (a + 1) * step, hs[a + 1][c + 1], -T * 0.5 + (c + 1) * step)
+				var n00: Vector3 = nrm.call(a, c)
+				var n10: Vector3 = nrm.call(a + 1, c)
+				var n01: Vector3 = nrm.call(a, c + 1)
+				var n11: Vector3 = nrm.call(a + 1, c + 1)
+				var hm := (p00.y + p10.y + p01.y + p11.y) * 0.25
+				var flat := (n00.y + n10.y + n01.y + n11.y) * 0.25
+				var col: Color
+				if canyon:
+					col = sand if (flat > 0.94 and hm < 0.55) else bands[clampi(int((hm + 0.25) / 0.34), 0, 5)]
+				else:
+					# a worn dirt track down the middle; bare soil on the steep bits and in the hollows,
+					# darker grass on the crests, so the lumps read
+					var qdu := tile_du + (a + 0.5 - n * 0.5) * step * 0.7071 - (c + 0.5 - n * 0.5) * step * 0.7071
+					if absf(qdu) < 1.25 + 0.3 * sin(hm * 7.0):
+						col = track
+					elif flat < 0.93 or hm < 0.12:
+						col = soil
+					elif hm > 0.75:
+						col = grass_hi
+					else:
+						col = grass
+				b.tri(p00, p10, p11, n00, n10, n11, col)
+				b.tri(p00, p11, p01, n00, n11, n01, col)
+		# skirts on every side (hidden under neighbours, visible at the rim)
+		for e in 4:
+			for k in n:
+				var a0: Vector2i
+				var a1: Vector2i
+				match e:
+					0: a0 = Vector2i(k, 0); a1 = Vector2i(k + 1, 0)
+					1: a0 = Vector2i(k + 1, n); a1 = Vector2i(k, n)
+					2: a0 = Vector2i(0, k + 1); a1 = Vector2i(0, k)
+					_: a0 = Vector2i(n, k); a1 = Vector2i(n, k + 1)
+				var t0 := pos + Vector3(-T * 0.5 + a0.x * step, hs[a0.x][a0.y], -T * 0.5 + a0.y * step)
+				var t1 := pos + Vector3(-T * 0.5 + a1.x * step, hs[a1.x][a1.y], -T * 0.5 + a1.y * step)
+				var bot0 := Vector3(t0.x, -0.9, t0.z)
+				var bot1 := Vector3(t1.x, -0.9, t1.z)
+				var out := Vector3([0.0, 0.0, -1.0, 1.0][e], 0, [-1.0, 1.0, 0.0, 0.0][e])
+				b.quad(t0, t1, bot1, bot0, out, side_col)
+	var mi := MeshInstance3D.new()
+	mi.mesh = b.commit()
+	mi.material_override = mat
+	add_child(mi)
+	terra_meshes[s] = mi
+
+## Is p on uneven ground (offroad terrain or a hump)? The car then tracks vertical speed and articulates.
+func uneven_at(p: Vector3) -> bool:
+	var t = tiles.get(_key(p))
+	if t != null and t.has("terra") and t["state"] < 2:
+		return true
+	return bump_at(p) > 0.004
+
+## A grind rail over a drop: a steel pipe on posts that the car locks onto off the kicker before it.
+func _add_rail(v0: float, L: float, d: float) -> void:
+	var k := 1 if rng.randf() < 0.6 else 2
+	var wv := PI * float(k) / L
+	var amp := minf(rng.randf_range(1.2, 2.4), 0.6 / wv) * (1.0 if rng.randf() < 0.5 else -1.0)
+	bends.append({"va": v0, "vb": v0 + L, "amp": amp, "k": k})
+	segments.append({"v0": v0, "v1": v0 + L, "type": "gap", "biome": cur_biome, "w": 0.0, "holes": [], "density": 0.0,
+		"narrow_end": false, "kind": "rail"})
+	var y := 1.7
+	var rail := {"va": v0 + 1.8, "vb": v0 + L - 0.6, "pts": [], "acc": [], "len": 0.0, "pieces": [], "y": y, "falling": false}
+	var vv: float = rail["va"]
+	var acc := 0.0
+	var prev := Vector3.ZERO
+	var idx := 0
+	while vv <= float(rail["vb"]) + 0.001:
+		var tt := (vv - float(rail["va"])) / maxf(float(rail["vb"]) - float(rail["va"]), 1.0)
+		var pnt := pos_at(vv, 0.0) + Vector3(0, y - 0.75 * smoothstep(0.55, 1.0, tt), 0)
+		if idx > 0:
+			acc += Vector2(pnt.x - prev.x, pnt.z - prev.z).length()
+			var dir := pnt - prev
+			var slot: int = pools["rail_piece"].alloc()
+			var piece := {"kind": "rail_piece", "slot": slot, "pool": "rail_piece", "a": prev, "dir": dir, "s": _stripe_of(vv), "rail": rail,
+				"x_slot": -1}
+			if slot >= 0:
+				var yaw := atan2(-dir.x, -dir.z)
+				pools["rail_piece"].put(slot, Transform3D(Basis(Vector3.UP, yaw) * Basis.from_scale(Vector3(1, 1, dir.length() + 0.04)), prev))
+			if idx % 3 == 0:
+				var ps: int = pools["rail_post"].alloc()
+				if ps >= 0:
+					piece["x_slot"] = ps
+					pools["rail_post"].put(ps, Transform3D(Basis(Vector3.UP, atan2(-dir.x, -dir.z)), prev))
+			rail["pieces"].append(piece)
+			_stripe_add(piece["s"], piece)
+		rail["pts"].append(pnt)
+		rail["acc"].append(acc)
+		prev = pnt
+		vv += 1.0
+		idx += 1
+	rail["len"] = acc
+	rails.append(rail)
+	# coins strung along the rail
+	var cv := v0 + 4.0
+	while cv < v0 + L - 2.0:
+		_add_coin(pos_at(cv, 0.0) + Vector3(0, y + 0.55, 0), _stripe_of(cv))
+		cv += 2.2
+	plan_v = v0 + L
+
+## The rail point at distance s along it: {p, dir}.
+func rail_at(rail: Dictionary, s: float) -> Dictionary:
+	var pts: Array = rail["pts"]
+	var acc: Array = rail["acc"]
+	if pts.size() < 2:
+		return {"p": pts[0] if pts.size() > 0 else Vector3.ZERO, "dir": F}
+	s = clampf(s, 0.0, float(rail["len"]))
+	var i := 1
+	while i < pts.size() - 1 and float(acc[i]) < s:
+		i += 1
+	var a: Vector3 = pts[i - 1]
+	var b: Vector3 = pts[i]
+	var seg := maxf(float(acc[i]) - float(acc[i - 1]), 0.001)
+	var t := clampf((s - float(acc[i - 1])) / seg, 0.0, 1.0)
+	var dir := b - a
+	dir.y = 0.0
+	return {"p": a.lerp(b, t), "dir": dir.normalized()}
+
+## A rail the car (in the air at p) can lock onto: {rail, s} or {}.
+func rail_catch(p: Vector3, reach: float) -> Dictionary:
+	for rail in rails:
+		if rail["falling"]:
+			continue
+		var pv := v_of(p)
+		if pv < float(rail["va"]) - 1.5 or pv > float(rail["vb"]) - 1.0:
+			continue
+		var pts: Array = rail["pts"]
+		var best := -1
+		var bd := reach * reach
+		for i in pts.size():
+			var q: Vector3 = pts[i]
+			var dd := Vector2(q.x - p.x, q.z - p.z).length_squared()
+			if dd < bd:
+				bd = dd
+				best = i
+		if best >= 0:
+			var y: float = rail["y"]
+			if p.y > y - 0.6 and p.y < y + 1.4:
+				return {"rail": rail, "s": float(rail["acc"][best])}
+	return {}
 
 ## Spatial index for surfaces (ramps, bridges, deck pieces): which 4 m cells each one touches.
 func _surf_add(s: Dictionary) -> void:
@@ -767,12 +1124,21 @@ func _pl_yaw(pl: Dictionary, face := 1.0) -> float:
 	return atan2(-dir.x, -dir.z)
 
 func _pl_prop(pl: Dictionary, nm: String, a: float, d: float, yaw: float, sc := 1.0, r := 0.4, kind := "wood", y := 0.0) -> Dictionary:
+	var swap = RUIN_SWAP.get(nm, RUIN_SWAP["parked_tractor"] if nm.begins_with("parked_") else null)
+	if swap != null:
+		if String(swap[0]) == "":
+			return {}
+		nm = swap[0]
+		r = swap[1]
+		kind = swap[2]
+		y = minf(y, 0.0)
 	_ensure_pool(nm)
 	if pools[nm].used() >= 39:
 		return {}
 	return _add_item_prop(nm, _pl_pos(pl, a, d) + Vector3(0, y, 0), yaw, sc, r, kind, _stripe_of(pl["va"] + a))
 
 func _pl_person(pl: Dictionary, a: float, d: float, pose := "stand", yaw := INF, y := 0.0) -> void:
+	return   # nobody's left out here: only the plants and the critters' tracks
 	var p := _pl_pos(pl, a, d) + Vector3(0, y, 0)
 	var pr := people.spawn(rng.randi_range(0, 99), pose, p, _pl_yaw(pl) if yaw == INF else yaw, _stripe_of(pl["va"] + a))
 	if not pr.is_empty():
@@ -856,7 +1222,7 @@ func _place_props(pl: Dictionary) -> void:
 				var ta2 := 2.0 + k * (L - 4.0) / 2.0
 				var tw := _pl_prop(pl, "towel", ta2, din + 2.6, face + PI * 0.5 + rng.randf_range(-0.3, 0.3), 1.0, 0.0, "flat")
 				if not tw.is_empty():
-					pools["towel"].tint(tw["slot"], cols[rng.randi_range(0, cols.size() - 1)])
+					if tw["pool"] == "towel": pools["towel"].tint(tw["slot"], cols[rng.randi_range(0, cols.size() - 1)])
 					if k != 1:
 						_pl_person(pl, ta2, din + 2.6, "lie", tw["yaw"])
 				_pl_prop(pl, "umbrella", ta2 + 0.9, din + 3.4, rng.randf() * TAU, 1.0, 0.3, "soft")
@@ -864,7 +1230,7 @@ func _place_props(pl: Dictionary) -> void:
 			_pl_person(pl, L * 0.5, dout - 2.6, "stand", face, 1.6)
 			var sb := _pl_prop(pl, "surfboard", 1.2, dout - 2.0, face + 0.3, 1.0, 0.25, "wood")
 			if not sb.is_empty():
-				pools["surfboard"].tint(sb["slot"], cols[rng.randi_range(0, cols.size() - 1)])
+				if sb["pool"] == "surfboard": pools["surfboard"].tint(sb["slot"], cols[rng.randi_range(0, cols.size() - 1)])
 			_pl_prop(pl, "beach_ball", L - 1.8, din + 1.6, 0.0, 1.0, 0.2, "soft")
 			_pl_prop(pl, "sandcastle", L - 1.4, dout - 2.4, rng.randf() * TAU, 0.8, 0.4, "sand")
 			_pl_person(pl, L - 2.6, dout - 1.9)
@@ -902,7 +1268,7 @@ func _place_props(pl: Dictionary) -> void:
 				var tp := cc + Vector2(cos(tang), sin(tang)) * 2.3
 				var tt := _pl_prop(pl, "tent", tp.x, tp.y, rng.randf() * TAU, 1.0, 0.75, "solid")
 				if not tt.is_empty():
-					pools["tent"].tint(tt["slot"], tents[(k + rng.randi_range(0, 2)) % 3])
+					if tt["pool"] == "tent": pools["tent"].tint(tt["slot"], tents[(k + rng.randi_range(0, 2)) % 3])
 			for k in 2:
 				var lang := PI * 1.2 + k * PI * 0.6
 				var lp := cc + Vector2(cos(lang), sin(lang)) * 1.2
@@ -955,8 +1321,7 @@ func _place_props(pl: Dictionary) -> void:
 			_stripe_add(holder["s"], holder)
 		"cabin":
 			var cb := _pl_prop(pl, "cabin", L * 0.5, dout - 1.6, face, 1.0, 1.3, "solid")
-			if not cb.is_empty():
-				_pl_anim("smoke", cb, {"at": cb["pos"] + Basis(Vector3.UP, face) * Vector3(0.55, 2.25, -0.3)})
+			pass
 			_pl_prop(pl, "woodpile", L * 0.5 + 2.2, dout - 1.4, face, 1.0, 0.45, "wood")
 			_pl_prop(pl, "stump", L * 0.5 - 2.0, din + 2.0, 0.0, 1.0, 0.3, "wood")
 			_pl_prop(pl, "mailbox", L * 0.5 - 1.2, din + 0.8, face, 1.0, 0.2, "metal")
@@ -1178,6 +1543,12 @@ func update_gen(car_v: float) -> void:
 		segments.pop_front()
 
 func _gen_stripe(s: int) -> void:
+	var terra_tiles: Array = []
+	_gen_stripe_tiles(s, terra_tiles)
+	if not terra_tiles.is_empty():
+		_build_terra(s, terra_tiles)
+
+func _gen_stripe_tiles(s: int, terra_tiles: Array) -> void:
 	var v := s * D
 	var c := center(v)
 	var seg := segment_at(v)
@@ -1208,7 +1579,13 @@ func _gen_stripe(s: int) -> void:
 			top = P.GRASS
 		elif biome == "forest" and _hash(i, j, 9) < 0.08:
 			top = P.STONE
-		if winter_ice and rule == 1 and dist < 3.0 and noise.get_noise_2d(u * 0.7 + 50.0, v * 0.7) > 0.25:
+		if rule == 1 and seg.get("kind", "") == "rough":
+			top = P.RED_SAND
+			side = P.RED_ROCK
+			surface = "slick"
+		elif rule == 1 and seg.get("kind", "") == "dirt":
+			surface = "dirt"
+		if winter_ice and rule == 1 and surface != "slick" and dist < 3.0 and noise.get_noise_2d(u * 0.7 + 50.0, v * 0.7) > 0.25:
 			top = P.ICE
 			surface = "ice"
 		var pool_name := "water" if rule == 2 else "tile"
@@ -1247,6 +1624,14 @@ func _gen_stripe(s: int) -> void:
 			"slot": -1, "under": -1, "rot": Vector3.ZERO, "spin": Vector3.ZERO, "vy": 0.0, "place": in_place, "bits": -1,
 			"ry": 0.0 if pool_name == "tile_rock" else height, "sy": height if pool_name == "tile_rock" else 1.0}
 		tile["pool"] = pool_name
+		var terra: bool = rule == 1 and seg.get("kind", "") in TERRA_KINDS and pool_name == "tile"
+		if terra:
+			tile["terra"] = seg
+			tile["slot"] = -1
+			terra_tiles.append(tile)
+			tiles[key] = tile
+			keys.append(key)
+			continue
 		tile["slot"] = pools[pool_name].alloc()
 		if tile["slot"] < 0:
 			continue
@@ -1284,8 +1669,15 @@ func _gen_stripe(s: int) -> void:
 		keys.append(key)
 		if rule == 1 and seg["type"] != "station" and not in_place and pool_name == "tile":
 			_maybe_prop(tile, u, v, c, seg, rim)
+			# cracked old road, with grass and flowers finding the gaps
+			if dist <= 1.15 and top == P.PATH and _hash(i, j, 16) < 0.6 and surface == "ground":
+				var rb: int = pools["road_bits"].alloc()
+				if rb >= 0:
+					pools["road_bits"].put(rb, Transform3D(Basis(Vector3.UP, floor(_hash(i, j, 19) * 4.0) * PI * 0.5), pos + Vector3(0, height, 0)))
+					tile["bits"] = rb
+					tile["bits_pool"] = "road_bits"
 			# tiny ground detail (blades, pebbles, flowers) on plain tiles
-			if dist > 1.2 and not tile.has("prop") and _hash(i, j, 16) < 0.55 and surface == "ground" and biome != "sky":
+			elif dist > 1.2 and not tile.has("prop") and _hash(i, j, 16) < 0.55 and surface == "ground" and biome != "sky":
 				var bs: int = pools["ground_bits"].alloc()
 				if bs >= 0:
 					var o := Vector3((_hash(i, j, 17) - 0.5) * 0.9, height, (_hash(i, j, 18) - 0.5) * 0.9)
@@ -1377,7 +1769,7 @@ func ground_at(p: Vector3) -> float:
 	var key := _key(p)
 	var t = tiles.get(key)
 	if t != null and t["state"] < 2 and t["surface"] != "water":
-		h = t["y"]
+		h = (terra_h(p, t["terra"]) if t.has("terra") else float(t["y"])) + bump_at(p)
 	for s in _surfs_at(p):
 		var rel: Vector3 = p - s["origin"]
 		var f: float = rel.x * s["fwd"].x + rel.z * s["fwd"].z
@@ -1588,6 +1980,9 @@ func start_crumble(at_v: float) -> void:
 	crumble_v = at_v
 
 func _crumble_stripe(s: int) -> void:
+	if terra_meshes.has(s):
+		falling.append({"kind": "terra", "node": terra_meshes[s], "ft": 0.0, "fy": 0.0, "fvy": 0.0})
+		terra_meshes.erase(s)
 	if stripes.has(s):
 		for key in stripes[s]:
 			var t = tiles.get(key)
@@ -1605,6 +2000,23 @@ func _crumble_stripe(s: int) -> void:
 				it["fy"] = 0.0
 				it["fvy"] = 0.0
 				falling.append(it)
+			elif it.get("kind", "") == "mound":
+				_mound_unlink(it)
+				it["falling"] = true
+				it["ft"] = 0.0
+				it["fy"] = 0.0
+				it["fvy"] = 0.0
+				falling.append(it)
+			elif it.get("kind", "") == "rail_piece":
+				it["rail"]["falling"] = true
+				it["falling"] = true
+				it["ft"] = 0.0
+				it["fy"] = 0.0
+				it["fvy"] = 0.0
+				falling.append(it)
+			elif it.get("kind", "") == "mud":
+				pools["mud"].release(it["slot"])
+				muds.erase(it)
 			elif it.get("kind", "") == "person":
 				people.vanish(it["p"], fx)
 			elif it.get("kind", "") == "fall":
@@ -1647,12 +2059,21 @@ func _tick_falling(dt: float) -> void:
 		if t.has("key"):
 			t["t"] += dt
 			var pool: Pool = pools[t["pool"]]
+			if t["slot"] < 0:
+				t["t"] += dt
+				if t["t"] >= 0.45:
+					t["state"] = 2
+					done.append(t)
+					tiles.erase(t["key"])
+					if t["under"] >= 0:
+						pools[t.get("under_pool", "under")].release(t["under"])
+				continue
 			if t["state"] == 1:
 				if t["t"] >= 0.45:
 					t["state"] = 2
 					t["vy"] = 0.0
 					if t["bits"] >= 0:
-						pools["ground_bits"].release(t["bits"])
+						pools[t.get("bits_pool", "ground_bits")].release(t["bits"])
 						t["bits"] = -1
 					t["spin"] = Vector3(randf_range(-1.2, 1.2), randf_range(-0.6, 0.6), randf_range(-1.2, 1.2))
 					if randf() < 0.18:
@@ -1674,6 +2095,49 @@ func _tick_falling(dt: float) -> void:
 				if t["under"] >= 0:
 					pools[t.get("under_pool", "under")].release(t["under"])
 				tiles.erase(t["key"])
+				done.append(t)
+		elif t["kind"] == "terra":
+			t["ft"] += dt
+			var node: MeshInstance3D = t["node"]
+			if t["ft"] < 0.45:
+				var sh: float = sin(float(t["ft"]) * 70.0) * 0.03 * (float(t["ft"]) / 0.45)
+				node.position = Vector3(sh, -t["ft"] * 0.06, -sh)
+				continue
+			t["fvy"] -= 16.0 * dt
+			t["fy"] += t["fvy"] * dt
+			node.position = Vector3(0, t["fy"], 0)
+			if t["fy"] < -40.0:
+				node.queue_free()
+				done.append(t)
+		elif t["kind"] == "rail_piece":
+			t["ft"] += dt
+			if t["ft"] < 0.3:
+				continue
+			t["fvy"] -= 16.0 * dt
+			t["fy"] += t["fvy"] * dt
+			var dir: Vector3 = t["dir"]
+			var ryaw := atan2(-dir.x, -dir.z)
+			var tilt := Basis(Vector3.RIGHT, t["fy"] * 0.03)
+			if t["slot"] >= 0:
+				pools["rail_piece"].put(t["slot"], Transform3D(Basis(Vector3.UP, ryaw) * tilt * Basis.from_scale(Vector3(1, 1, dir.length() + 0.04)), t["a"] + Vector3(0, t["fy"], 0)))
+			if t["x_slot"] >= 0:
+				pools["rail_post"].put(t["x_slot"], Transform3D(Basis(Vector3.UP, ryaw) * tilt, t["a"] + Vector3(0, t["fy"], 0)))
+			if t["fy"] < -40.0:
+				if t["slot"] >= 0:
+					pools["rail_piece"].release(t["slot"])
+				if t["x_slot"] >= 0:
+					pools["rail_post"].release(t["x_slot"])
+				done.append(t)
+				rails.erase(t["rail"])
+		elif t["kind"] == "mound":
+			t["ft"] += dt
+			if t["ft"] < 0.45:
+				continue
+			t["fvy"] -= 16.0 * dt
+			t["fy"] += t["fvy"] * dt
+			pools[t["pool"]].put(t["slot"], Transform3D(Basis(Vector3.UP, t["yaw"]) * Basis.from_scale(Vector3(t["r"], t["h"], t["rz"])), t["pos"] + Vector3(0, t["fy"], 0)))
+			if t["fy"] < -40.0:
+				pools[t["pool"]].release(t["slot"])
 				done.append(t)
 		else:
 			# ramp / bridge / station

@@ -1,7 +1,7 @@
 shader_type spatial;
 render_mode cull_back, specular_disabled;
 
-// Season palette: 32 color slots x 4 rows (spring, summer, autumn, winter).
+// Season palette: 64 color slots x 4 rows (spring, summer, autumn, winter).
 uniform sampler2D palette : source_color, filter_nearest, repeat_disable;
 uniform float season = 0.0;          // 0..4, wraps; blends near the end of each season
 uniform float night = 0.0;           // 0..1, lights up the glow parts (windows, lamps, headlights)
@@ -19,13 +19,26 @@ uniform vec3 fog_origin = vec3(0.0);
 uniform vec3 fog_dir = vec3(-0.7071, 0.0, -0.7071);
 uniform float fog_start = 2.0;
 uniform float fog_len = 22.0;
-uniform float haze = 0.6;              // things below the islands fade into the sky
+uniform float haze = 0.6;              // things below the islands fade into the abyss
+uniform vec3 abyss_color : source_color = vec3(0.05, 0.03, 0.12);
+uniform vec3 rim_color : source_color = vec3(0.6, 0.5, 1.0);   // the abyss's aura light on edges
+uniform float decay = 0.0;             // post-apocalyptic weathering: grime and moss patches
+uniform vec3 moss_color : source_color = vec3(0.35, 0.55, 0.25);
 
 varying vec3 v_col;
 varying float v_glow;
 varying vec3 v_world;
+varying vec3 v_nrm;
+varying float v_direct;
 
-const float PAL_W = 48.0;
+float hsh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p) {
+	vec2 i = floor(p); vec2 f = fract(p);
+	vec2 u = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hsh(i), hsh(i + vec2(1, 0)), u.x), mix(hsh(i + vec2(0, 1)), hsh(i + vec2(1, 1)), u.x), u.y);
+}
+
+const float PAL_W = 64.0;
 
 vec3 lin(vec3 c) {
 	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
@@ -45,6 +58,7 @@ vec3 pal(float idx) {
 void vertex() {
 	vec4 c = COLOR;
 	v_glow = 0.0;
+	v_direct = c.a > 0.6 ? 1.0 : 0.0;
 	if (c.a < 0.2) {
 		v_col = pal(floor(c.r * 255.0 + 0.5));
 	} else if (c.a < 0.4) {
@@ -58,6 +72,7 @@ void vertex() {
 		v_col = lin(c.rgb);
 	}
 	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	v_nrm = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 	if (sway > 0.0) {
 		vec3 wp = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 		float h = max(VERTEX.y, 0.0);
@@ -70,15 +85,30 @@ void vertex() {
 
 void fragment() {
 	vec3 col = v_col * tint;
+	if (decay > 0.0 && v_glow < 0.5) {
+		// weathering: blotchy grime, and moss creeping over anything facing up
+		// (living things - anything already green - stay fresh)
+		float green = smoothstep(0.01, 0.08, col.g - max(col.r, col.b));
+		float n = vnoise(v_world.xz * 0.9 + vec2(v_world.y * 0.7));
+		float grime = smoothstep(0.35, 0.75, n) * decay * (1.0 - green);
+		float l = dot(col, vec3(0.3, 0.55, 0.15));
+		col = mix(col, mix(vec3(l), col, 0.6) * vec3(0.86, 0.82, 0.78), grime * 0.55);
+		float up = smoothstep(0.55, 0.9, v_nrm.y);
+		float mp = smoothstep(0.58, 0.72, vnoise(v_world.xz * 1.7 + 11.0) * 0.7 + vnoise(v_world.xz * 5.3) * 0.3);
+		col = mix(col, moss_color, up * mp * decay * 0.8 * (1.0 - green) * (1.0 - v_direct * 0.75));
+	}
 	ALBEDO = col;
 	ROUGHNESS = 1.0;
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
-	vec3 emi = col * rim * rim_strength + col * v_glow * night * 1.4 + vec3(flash);
+	vec3 emi = mix(col, rim_color, 0.55) * rim * rim_strength * 1.5 + col * v_glow * night * 1.4 + col * v_glow * 0.25 + vec3(flash);
 	float ahead = dot(v_world - fog_origin, fog_dir);
 	float below = clamp((-v_world.y - 1.0) * 0.045, 0.0, 1.0);
-	float f = clamp(smoothstep(fog_start, fog_start + fog_len, ahead) * fog_amount + below * haze, 0.0, 0.96);
+	float fa = smoothstep(fog_start, fog_start + fog_len, ahead) * fog_amount;
+	float fb = below * haze;
+	float f = clamp(fa + fb, 0.0, 0.96);
+	vec3 fc = (fog_color * fa + abyss_color * fb) / max(fa + fb, 0.001);
 	ALBEDO = col * (1.0 - f);
-	EMISSION = emi * (1.0 - f) + fog_color * f;
+	EMISSION = emi * (1.0 - f) + fc * f;
 }
 
 void light() {
