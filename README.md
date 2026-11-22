@@ -12,9 +12,9 @@ islands that crumble away behind you, while the days, seasons and weather roll b
 
 ## How to play
 
-- Hold anywhere and slide your thumb left or right to steer. The farther you slide, the harder you turn
-  (and the more you drift).
-- In the air, slide to spin the car. Land straight for a clean landing bonus.
+- Hold the left or right arrow to steer (anywhere on that half of the screen counts). A quick tap is a
+  gentle turn; holding winds up to full lock, which drifts.
+- In the air, hold an arrow to spin the car. Land straight for a clean landing bonus.
 - The run ends if you drive off an edge, land in the water, or run out of fuel. Grab red cans and drive
   through gas stations to refuel.
 - Score = distance + style (drifts, near misses, air, spins, clean landings) + 5 per coin.
@@ -33,7 +33,8 @@ islands that crumble away behind you, while the days, seasons and weather roll b
 | `scripts/core/` | Palette (season colors), mesh builder, every model built in code |
 | `scripts/ui/` | All screens (built in code), icons drawn in code |
 | `shaders/` | Toon shader with the season palette, sky, ghost, outline, wipe |
-| `tools/audio/make_audio.py` | Synthesizes all music and sound effects (`python3 tools/audio/make_audio.py`) |
+| `tools/audio/make_audio.py` | Synthesizes the sound effects (`python3 tools/audio/make_audio.py sfx`) |
+| `tools/music/` | CC0 music list and the script the build uses to fetch, trim and encode it (cached on the `music` branch) |
 | `tools/look/` | Icon renderer and look-dev scripts |
 
 There are no autoloads and no `class_name`s, so an update pack can replace any script before it loads.
@@ -56,5 +57,7 @@ xvfb-run godot --path . -- --auto --shot=/tmp/x.png --frames=200   # screenshot,
 
 ## Credits
 
-Everything is made in code for this game, including models, music and sound effects. The font is
-Fredoka (SIL Open Font License, `assets/fonts/LICENSE_Fredoka.txt`).
+Models and sound effects are made in code for this game. Music: CC0 lo-fi hip hop by HoliznaCC0 and
+omfgdude from OpenGameArt (see `tools/music/sources.json`; the list of tracks actually used is
+`tracks.json` on the `music` branch). The font is Fredoka (SIL Open Font License,
+`assets/fonts/LICENSE_Fredoka.txt`).

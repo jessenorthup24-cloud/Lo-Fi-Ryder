@@ -35,6 +35,8 @@ var hud_fuel: ProgressBar
 var hud_fuel_icon: Control
 var hud_coins: PanelContainer
 var hud_combo: Label
+var arrow_l: Control
+var arrow_r: Control
 var _fuel_flash := 0.0
 var _passed_best := false
 # garage refs
@@ -234,7 +236,7 @@ func _build_title() -> void:
 			daily_dot.position = Vector2(84, 0)
 			daily_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			b.add_child(daily_dot)
-	title_tap = K.outlined(K.label("Tap to drive · slide to steer", 38, Color.WHITE, 650), Color(0.29, 0.23, 0.2, 0.9), 12)
+	title_tap = K.outlined(K.label("Tap to drive · hold the arrows to steer", 34, Color.WHITE, 650), Color(0.29, 0.23, 0.2, 0.9), 12)
 	bottom.add_child(K.spacer(10))
 	bottom.add_child(title_tap)
 
@@ -312,11 +314,64 @@ func _build_hud() -> void:
 	hud_coins = K.pill("coin", "0", 32)
 	hud_coins.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	row.add_child(hud_coins)
+	arrow_l = _arrow("left", true)
+	arrow_r = _arrow("right", false)
 	hud_combo = K.outlined(K.label("", 34, K.SUN, 700), K.INK, 12)
 	hud_combo.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	hud_combo.position = Vector2(-200, 300)
 	hud_combo.size = Vector2(400, 50)
 	hud.add_child(hud_combo)
+
+## A big round steering arrow in a bottom corner. Visual only: main.gd reads the touches.
+func _arrow(icon: String, left: bool) -> Control:
+	var d := 168.0
+	var p := PanelContainer.new()
+	var sb := K.box(Color(1.0, 0.98, 0.95, 0.88), int(d * 0.5), 9, Color(0.85, 0.76, 0.66, 0.95), 0)
+	sb.shadow_color = Color(0.25, 0.15, 0.1, 0.18)
+	sb.shadow_size = 10
+	sb.shadow_offset = Vector2(0, 6)
+	p.add_theme_stylebox_override("panel", sb)
+	p.custom_minimum_size = Vector2(d, d)
+	p.size = Vector2(d, d)
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ic := Icon.new(icon, K.INK, d * 0.5)
+	ic.position = Vector2(d * 0.25, d * 0.22)
+	ic.size = Vector2(d * 0.5, d * 0.5)
+	p.add_child(ic)
+	p.set_anchors_preset(Control.PRESET_BOTTOM_LEFT if left else Control.PRESET_BOTTOM_RIGHT)
+	var margin := 44.0
+	var bottom := 96.0 + safe_bottom()
+	p.offset_left = margin if left else -margin - d
+	p.offset_right = p.offset_left + d
+	p.offset_top = -bottom - d
+	p.offset_bottom = -bottom
+	p.pivot_offset = Vector2(d, d) * 0.5
+	p.set_meta("pressed", false)
+	hud.add_child(p)
+	return p
+
+func arrows_pressed(left: bool, right: bool) -> void:
+	for pair in [[arrow_l, left], [arrow_r, right]]:
+		var a: Control = pair[0]
+		var on: bool = pair[1]
+		if a.get_meta("pressed") == on:
+			continue
+		a.set_meta("pressed", on)
+		var t := a.create_tween()
+		t.tween_property(a, "scale", Vector2(0.9, 0.9) if on else Vector2.ONE, 0.07 if on else 0.16)
+		a.modulate = Color(1.0, 0.92, 0.86) if on else Color.WHITE
+		if on:
+			game.buzz(8, 0.3)
+
+## Extra bottom padding (in UI units) for gesture bars.
+func safe_bottom() -> int:
+	var safe := DisplayServer.get_display_safe_area()
+	var screen := DisplayServer.screen_get_size()
+	if screen.y <= 0 or safe.size.y <= 0:
+		return 0
+	var vs := get_viewport().get_visible_rect().size
+	var inset := screen.y - (safe.position.y + safe.size.y)
+	return clampi(int(float(inset) * vs.y / float(screen.y)), 0, 80)
 
 func show_hud() -> void:
 	hud.visible = true
@@ -639,6 +694,11 @@ func open_settings(from_pause := false) -> void:
 			game.reset_progress()
 			close_sheet())
 	vb.add_child(reset)
+	var credit: String = game.sound.credit_line()
+	if credit != "":
+		var cl := K.label("Music by %s (CC0)" % credit, 22, K.INK_SOFT, 500)
+		cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		vb.add_child(cl)
 	vb.add_child(K.label("Lo-Fi Ryder · %s" % game.build_label(), 22, K.INK_SOFT, 500))
 	var done := K.button("Done", K.LILAC, K.LILAC_DK, 38, 0, 92)
 	_tap(done, func():

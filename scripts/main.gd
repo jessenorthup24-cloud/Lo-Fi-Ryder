@@ -20,7 +20,6 @@ enum { TITLE, RUN, DYING, OVER, GARAGE, PAUSED }
 const CAM_SIZE := 21.0
 const CAM_PITCH := -37.0
 const CAM_YAW := 45.0
-const STEER_RANGE := 105.0
 
 var save: SaveData
 var missions: Missions
@@ -73,11 +72,10 @@ var time := 0.0
 var rumble_t := 0.0
 
 # input
-var touch_id := -1
-var anchor_x := 0.0
-var tap_start := Vector2.ZERO
-var tap_moved := false
-var key_steer := 0.0
+var touches := {}         # touch index -> -1 (left arrow) or 1 (right arrow)
+var title_touch := -1
+var hold_l := 0.0
+var hold_r := 0.0
 
 # test harness
 var args := {}
@@ -200,6 +198,7 @@ func _new_world(s: int, is_daily: bool) -> void:
 
 func _start_run() -> void:
 	state = RUN
+	_clear_touches()
 	run_t = 0.0
 	max_v = 0.0
 	style = 0
@@ -297,6 +296,7 @@ func pause() -> void:
 	if state != RUN:
 		return
 	state = PAUSED
+	_clear_touches()
 	sound.set_muffle(0.8)
 	sound.silence_loops()
 	ui.open_pause()
@@ -476,7 +476,7 @@ func _process(delta: float) -> void:
 func _sim(dt: float) -> void:
 	if state == RUN:
 		run_t += dt
-		car.steer = _steer_input()
+		car.steer = _steer_input(dt)
 		crumble_delay -= dt
 	elif state == TITLE:
 		car.steer = 0.0
@@ -664,6 +664,7 @@ func _finish_run(why: String) -> void:
 	if state == OVER:
 		return
 	state = OVER
+	_clear_touches()
 	car.active = false
 	sound.silence_loops()
 	sound.set_muffle(0.6)
@@ -822,39 +823,59 @@ func _best_line_tick() -> void:
 
 # ------------------------------------------------------------------ input
 
-func _steer_input() -> float:
+## Arrow steering: a quick tap is a gentle turn; holding winds up to full lock (and a drift).
+func _steer_input(dt: float) -> float:
 	if autopilot:
 		return _auto_steer()
-	var s := key_steer
-	if Input.is_key_pressed(KEY_LEFT) or Input.is_key_pressed(KEY_A):
-		s -= 1.0
-	if Input.is_key_pressed(KEY_RIGHT) or Input.is_key_pressed(KEY_D):
-		s += 1.0
-	return clampf(s, -1.0, 1.0)
+	var left := Input.is_key_pressed(KEY_LEFT) or Input.is_key_pressed(KEY_A)
+	var right := Input.is_key_pressed(KEY_RIGHT) or Input.is_key_pressed(KEY_D)
+	for side in touches.values():
+		if side < 0:
+			left = true
+		else:
+			right = true
+	hold_l = hold_l + dt if left else 0.0
+	hold_r = hold_r + dt if right else 0.0
+	var l := lerpf(0.5, 1.0, smoothstep(0.0, 0.35, hold_l)) if left else 0.0
+	var r := lerpf(0.5, 1.0, smoothstep(0.0, 0.35, hold_r)) if right else 0.0
+	ui.arrows_pressed(left, right)
+	return clampf(r - l, -1.0, 1.0)
+
+## Which arrow a touch belongs to: the left or right half of the screen below the top bar.
+func _arrow_side(p: Vector2) -> int:
+	var vs := get_viewport().get_visible_rect().size
+	if p.y < vs.y * 0.3:
+		return 0
+	return -1 if p.x < vs.x * 0.5 else 1
+
+func _clear_touches() -> void:
+	touches.clear()
+	title_touch = -1
+	hold_l = 0.0
+	hold_r = 0.0
+	ui.arrows_pressed(false, false)
 
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventScreenTouch:
 		if e.pressed:
 			if ui.blocks(e.position):
 				return
-			if touch_id == -1:
-				touch_id = e.index
-				anchor_x = e.position.x
-				tap_start = e.position
-				tap_moved = false
-		elif e.index == touch_id:
-			touch_id = -1
-			key_steer = 0.0
-			if state == TITLE and not tap_moved:
+			if state == TITLE:
+				title_touch = e.index
+			elif state == RUN:
+				var side := _arrow_side(e.position)
+				if side != 0:
+					touches[e.index] = side
+		else:
+			touches.erase(e.index)
+			if state == TITLE and e.index == title_touch:
+				title_touch = -1
 				_start_run()
-	elif e is InputEventScreenDrag and e.index == touch_id:
-		if e.position.distance_to(tap_start) > 24.0:
-			tap_moved = true
-		var dx: float = e.position.x - anchor_x
-		if absf(dx) > STEER_RANGE:
-			anchor_x = e.position.x - signf(dx) * STEER_RANGE
-			dx = signf(dx) * STEER_RANGE
-		key_steer = dx / STEER_RANGE
+	elif e is InputEventScreenDrag and touches.has(e.index):
+		# sliding a thumb across to the other side switches arrows
+		var side := _arrow_side(e.position)
+		if side != 0:
+			touches[e.index] = side
 	elif e is InputEventKey and e.pressed and not e.echo:
 		if state == TITLE and e.keycode in [KEY_SPACE, KEY_ENTER, KEY_UP, KEY_W]:
 			_start_run()

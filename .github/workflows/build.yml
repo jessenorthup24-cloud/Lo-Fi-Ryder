@@ -72,6 +72,32 @@ jobs:
           sed -i 's/^          //' ~/.config/godot/$f
           done
 
+      - name: Prepare music (CC0 lo-fi from tools/music/sources.json, cached on the music branch)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HASH=$(cat tools/music/sources.json tools/music/prepare_music.py | sha256sum | cut -c1-16)
+          if git clone -q --depth 1 -b music "https://github.com/${GITHUB_REPOSITORY}.git" /tmp/music 2>/dev/null \
+             && [ "$(cat /tmp/music/stamp 2>/dev/null)" = "$HASH" ]; then
+            echo "music branch is up to date ($HASH)"
+          else
+            rm -rf /tmp/music && mkdir -p /tmp/music
+            python3 tools/music/prepare_music.py tools/music/sources.json /tmp/music
+            echo "$HASH" > /tmp/music/stamp
+            cp tools/music/sources.json /tmp/music/
+            cd /tmp/music
+            git init -q -b music
+            git add -A
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "Music for sources $HASH"
+            git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" music
+            cd -
+          fi
+          cat /tmp/music/log.txt || true
+          mkdir -p assets/audio/music
+          cp /tmp/music/tracks/*.ogg assets/audio/music/ 2>/dev/null || echo "no music tracks"
+          cp /tmp/music/tracks.json assets/audio/music/tracks.json 2>/dev/null || true
+          ls -la assets/audio/music
+
       - name: Stamp the build number
         run: |
           N=$(git rev-list --count HEAD)

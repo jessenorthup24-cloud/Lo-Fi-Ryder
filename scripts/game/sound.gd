@@ -3,7 +3,8 @@ extends Node
 
 const SFX_DIR := "res://assets/audio/sfx/"
 const MUSIC_DIR := "res://assets/audio/music/"
-const TRACKS := ["sunday_morning.ogg", "golden_hour.ogg", "window_seat.ogg", "night_drive.ogg", "rain_on_the_roof.ogg"]
+# The build drops CC0 lo-fi tracks and their tracks.json into MUSIC_DIR (see tools/music/).
+const TRACK_LIST := "res://assets/audio/music/tracks.json"
 
 var streams := {}
 var pool: Array[AudioStreamPlayer] = []
@@ -23,6 +24,7 @@ var sfx_vol := 0.9
 var music_bus := 0
 var sfx_bus := 0
 var _fade := 0.0
+var credits: Array = []   # [{title, artist, license, page}]
 
 func setup() -> void:
 	_bus("Music")
@@ -45,10 +47,23 @@ func setup() -> void:
 	drift = _loop("drift")
 	wind = _loop("wind")
 	rain = _loop("rain")
-	for t in TRACKS:
-		if ResourceLoader.exists(MUSIC_DIR + t):
-			tracks.append(MUSIC_DIR + t)
+	if FileAccess.file_exists(TRACK_LIST):
+		var v = JSON.parse_string(FileAccess.get_file_as_string(TRACK_LIST))
+		if v is Dictionary:
+			for t in v.get("tracks", []):
+				var path := MUSIC_DIR + String(t.get("file", ""))
+				if ResourceLoader.exists(path):
+					tracks.append(path)
+					credits.append(t)
 	tracks.shuffle()
+
+## "HoliznaCC0, omfgdude" for the settings screen.
+func credit_line() -> String:
+	var names := []
+	for c in credits:
+		if not names.has(c["artist"]):
+			names.append(c["artist"])
+	return ", ".join(names)
 
 func _bus(n: String) -> void:
 	if AudioServer.get_bus_index(n) == -1:

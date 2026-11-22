@@ -5,3 +5,6 @@ export_credentials.cfg
 /android/
 *.apk
 *.aab
+
+# music arrives from the `music` branch at build time (tools/music/)
+assets/audio/music/*
