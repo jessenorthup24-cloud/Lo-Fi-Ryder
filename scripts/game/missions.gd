@@ -18,6 +18,8 @@ const TYPES := {
 	"regions": ["Visit {n} regions in one run", [2, 3, 4, 5], "regions"],
 	"weather": ["Drive {n} m through rough weather", [80, 160, 280, 400], "weather"],
 	"air": ["Stay in the air {n} s in one jump", [1, 1.1, 1.2, 1.3], "air_max"],
+	"chase": ["Escape {n} police chases", [1, 1, 2, 3], "chases"],
+	"boost": ["Hit {n} boost pads in one run", [3, 5, 8, 12], "boosts"],
 }
 
 var save  # save.gd instance
@@ -52,7 +54,7 @@ static func text(m: Dictionary) -> String:
 		ns = "%.1f" % float(n)
 	var out := s.replace("{n}", ns)
 	if ns == "1":
-		for pl in [["stations", "station"], ["ramps", "ramp"], ["seconds", "second"], ["landings", "landing"], ["spins", "spin"], ["misses", "miss"], ["coins", "coin"], ["things", "thing"], ["regions", "region"]]:
+		for pl in [["stations", "station"], ["ramps", "ramp"], ["seconds", "second"], ["landings", "landing"], ["spins", "spin"], ["misses", "miss"], ["coins", "coin"], ["things", "thing"], ["regions", "region"], ["chases", "chase"], ["pads", "pad"]]:
 			out = out.replace(" " + pl[0] + " ", " " + pl[1] + " ")
 	return out
 

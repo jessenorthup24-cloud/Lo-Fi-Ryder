@@ -13,6 +13,7 @@ const Missions := preload("res://scripts/game/missions.gd")
 const Ads := preload("res://scripts/game/ads.gd")
 const CARS := preload("res://scripts/game/cars.gd")
 const UI := preload("res://scripts/ui/ui.gd")
+const Police := preload("res://scripts/game/police.gd")
 const K := preload("res://scripts/ui/kit.gd")
 
 enum { TITLE, RUN, DYING, OVER, GARAGE, PAUSED }
@@ -35,6 +36,11 @@ var cam: Camera3D
 var ghost: Node3D
 var ghost_mat: ShaderMaterial
 var best_line: Node3D
+var police: Police
+var chase := {}            # the chase in progress (from world.chases)
+var chase_state := ""      # "", parked, on, over
+var chase_siren_k := 0.0
+var chase_over_t := 0.0
 
 var state := TITLE
 var seed_value := 1
@@ -130,6 +136,9 @@ func _ready() -> void:
 	ghost.visible = false
 	best_line = _make_best_line()
 	add_child(best_line)
+	police = Police.new()
+	add_child(police)
+	police.setup(toon)
 	_apply_settings()
 	car_changed()
 	_new_world(_random_seed(), false)
@@ -145,6 +154,10 @@ func _ready() -> void:
 		ui.show_title()
 	if args.has("warp"):
 		_warp(float(args["warp"]))
+	if args.has("chase"):
+		world._plan_until(1600.0)
+		if not world.chases.is_empty():
+			_warp(float(world.chases[0]["v_start"]) - 30.0)
 	sound.start_music()
 
 func _parse_args() -> void:
@@ -195,6 +208,12 @@ func _new_world(s: int, is_daily: bool) -> void:
 	ghost.visible = false
 	best_line.visible = false
 	biomes_seen.clear()
+	police.reset()
+	chase = {}
+	chase_state = ""
+	chase_siren_k = 0.0
+	ui.chase_show(false)
+	sound.mute_loops(false)
 
 func _start_run() -> void:
 	state = RUN
@@ -211,7 +230,7 @@ func _start_run() -> void:
 	low_fuel_warned = false
 	coin_streak = 0
 	run = {"dist": 0, "coins": 0, "drift": 0.0, "near": 0, "clean": 0, "spins": 0, "spin720": 0, "stations": 0,
-		"knocks": 0, "jumps": 0, "night": 0.0, "regions": 0, "weather": 0.0, "air_max": 0.0}
+		"knocks": 0, "jumps": 0, "night": 0.0, "regions": 0, "weather": 0.0, "air_max": 0.0, "chases": 0, "boosts": 0}
 	biomes_seen.clear()
 	_apply_upgrades()
 	car.active = true
@@ -233,6 +252,7 @@ func _start_run() -> void:
 	ui.hide_title()
 	ui.show_hud()
 	sound.set_muffle(0.0)
+	sound.mute_loops(false)
 	sfx("start")
 	buzz(40, 0.6)
 	if daily:
@@ -290,6 +310,7 @@ func car_changed() -> void:
 		atmos.remove_material(old)
 	car.set_car(CARS.by_id(String(save.data["car"])))
 	atmos.add_material(car.body_material())
+	sound.set_engine(String(car.def.get("engine", "small")), float(car.def.get("pitch", 1.0)))
 	_build_ghost()
 
 func pause() -> void:
@@ -298,13 +319,14 @@ func pause() -> void:
 	state = PAUSED
 	_clear_touches()
 	sound.set_muffle(0.8)
-	sound.silence_loops()
+	sound.mute_loops(true)
 	ui.open_pause()
 
 func resume() -> void:
 	if state == PAUSED:
 		state = RUN
 		sound.set_muffle(0.0)
+		sound.mute_loops(false)
 
 func end_run_from_pause() -> void:
 	state = RUN
@@ -403,6 +425,10 @@ func car_event(kind: String, d: Dictionary) -> void:
 		"off_edge":
 			pass
 		"dead":
+			if chase_state == "on":
+				police.stop()
+				chase_state = "over"
+				ui.chase_show(false)
 			death = String(d["why"])
 			state = DYING
 			dying_t = 0.0
@@ -414,7 +440,7 @@ func car_event(kind: String, d: Dictionary) -> void:
 			else:
 				sfx("fall")
 				buzz(180, 0.7)
-			sound.silence_loops()
+			sound.mute_loops(true)
 
 func world_event(kind: String, d: Dictionary) -> void:
 	match kind:
@@ -468,7 +494,10 @@ func _process(delta: float) -> void:
 	car.weather_grip = 1.0 - atmos.rain * 0.3 - atmos.snow * 0.15
 	car.wind = atmos.wind_vec if running else Vector3.ZERO
 	var drift_amt := clampf((absf(car.drift) - 0.2) * 2.5, 0.0, 1.0) if car.drifting else 0.0
-	sound.tick(dt, car.speed(), car.steer_smooth, car.grounded, running and car.active and not car.dead, drift_amt, atmos.windy, atmos.rain, car.fuel < 0.2)
+	sound.tick(dt, {"speed": car.speed(), "grounded": car.grounded, "active": running and car.active and not car.dead,
+		"drift": drift_amt, "air_t": car.air_time, "boost": car.boost_k(), "empty": car.fuel <= 0.0 and running,
+		"roll": world.roll_at(car.position, atmos.season_idx == 3), "windy": atmos.windy, "rainy": atmos.rain,
+		"siren": chase_siren(), "siren_close": chase_closeness()})
 	if state == RUN:
 		ui.hud_update(dt, int(max_v), car.fuel, run_coins, best_target, 1.0 + minf(chain - 1, 8) * 0.25 if chain > 1 else 1.0)
 	_harness()
@@ -522,7 +551,7 @@ func _sim(dt: float) -> void:
 			death = "fuel"
 			state = DYING
 			dying_t = 0.0
-			sound.silence_loops()
+			sound.mute_loops(true)
 	else:
 		stopped_t = 0.0
 	# combo window
@@ -594,6 +623,16 @@ func _sim(dt: float) -> void:
 				buzz(30, 0.6)
 				ui.popup("Fuel +", e["pos"] + Vector3(0, 1.0, 0), Color("ff8a5c"), 36)
 				fx.burst(e["pos"] + Vector3(0, 0.4, 0), ["ec4b3f", "ffd36b", "ffffff"], 8, 2.5, 3.0, 0.7)
+			"boost":
+				car.boost()
+				run["boosts"] += 1
+				sfx("boost", -2.0)
+				sound.rev(1.25)
+				buzz(45, 0.85)
+				shake = maxf(shake, 0.18)
+				ui.popup("Boost!", e["pos"] + Vector3(0, 1.0, 0), Color("ffb84d"), 40)
+				for i in 6:
+					fx.puff(car.position - car.forward() * 0.8 + Vector3(randf_range(-0.4, 0.4), 0.2, randf_range(-0.4, 0.4)), Color("ffd9a0"), 0.4, -car.forward() * 4.0, 0.45, 0.4)
 			"station":
 				car.fuel = 1.0
 				low_fuel_warned = false
@@ -639,6 +678,7 @@ func _sim(dt: float) -> void:
 	run["regions"] = maxi(int(run["regions"]), biomes_seen.size())
 	# weather starts after a calm opening
 	atmos.weather_enabled = run_t > 18.0 or args.has("weather")
+	_chase_tick(dt, cv)
 	# missions
 	for m in missions.check(run):
 		ui.toast("Mission done! +%d" % int(m["reward"]), "check", K.TEAL, Color.WHITE, 2.4)
@@ -653,6 +693,83 @@ func _sim(dt: float) -> void:
 		ghost_rec.append([snappedf(run_t, 0.01), snappedf(tv, 0.01), snappedf(world.u_of(car.position) - world.center(tv), 0.01),
 			snappedf(car.position.y, 0.01), snappedf(angle_difference(atan2(-tt.x, -tt.z), car.yaw), 0.001)])
 
+# ------------------------------------------------------------------ police chases
+
+func _chase_tick(dt: float, cv: float) -> void:
+	police.record(car.position, car.yaw)
+	match chase_state:
+		"":
+			for c in world.chases:
+				if not c["done"] and cv > c["v_start"] - 45.0 and cv < c["v_start"]:
+					chase = c
+					chase_state = "parked"
+					police.park(c["parked"], c["yaw"])
+					break
+		"parked":
+			if cv >= chase["v_start"]:
+				chase_state = "on"
+				police.start_chase()
+				if args.has("auto"):
+					print("CHASE START v=", cv, " end=", chase["v_end"], " gap=", police.gap())
+				chase_siren_k = 1.0
+				ui.chase_show(true)
+				ui.toast("Police chase! Hit the boost pads", "flag", Color("4b6bd6"), Color.WHITE, 2.4)
+				sfx("lowfuel", -4.0, 0.8)
+				buzz(80, 0.8)
+			elif cv > chase["v_start"] + 5.0:
+				chase_state = ""
+		"on":
+			var g := police.gap()
+			var left := maxf(0.0, float(chase["v_end"]) - cv)
+			ui.chase_update(dt, int(left), clampf(1.0 - (g - CATCH_SAFE) / 18.0, 0.0, 1.0))
+			if g < Police.CATCH_GAP:
+				_chase_end(false)
+			elif left <= 0.0 or g > Police.LOST_GAP:
+				_chase_end(true)
+		"over":
+			chase_over_t += dt
+			chase_siren_k = maxf(0.0, chase_siren_k - dt * 0.5)
+			if chase_over_t > 3.0 and police.position.distance_to(car.position) > 26.0:
+				police.state = "hidden"
+				police.visible = false
+				chase_state = ""
+	police.tick(dt, atmos.night)
+
+const CATCH_SAFE := 2.0
+
+func _chase_end(escaped: bool) -> void:
+	if args.has("auto"):
+		print("CHASE END escaped=", escaped, " gap=", police.gap(), " v=", world.v_of(car.position), " boosts=", run["boosts"])
+	chase["done"] = true
+	chase_state = "over"
+	chase_over_t = 0.0
+	police.stop()
+	ui.chase_show(false)
+	if escaped:
+		run["chases"] += 1
+		run_coins += 40
+		run["coins"] = run_coins
+		_style(250, "Got away!", car.position, K.SKY, "+40 coins")
+		sfx("mission")
+		buzz(90, 0.9)
+		fx.burst(car.position + Vector3(0, 0.8, 0), ["4b6bd6", "ff5a5a", "ffffff", "ffc94d"], 22, 5.0, 6.0)
+	else:
+		car.fuel = maxf(0.0, car.fuel - 0.3)
+		ui.popup("Busted!", car.position + Vector3(0, 1.4, 0), Color("ff5a5a"), 52, "-30% fuel")
+		sfx("bonk")
+		sfx("lowfuel", -2.0, 0.7)
+		buzz(160, 1.0)
+		shake = maxf(shake, 0.35)
+		car.slow = 0.5
+
+func chase_siren() -> float:
+	return chase_siren_k if chase_state in ["on", "over"] else 0.0
+
+func chase_closeness() -> float:
+	if chase_state != "on":
+		return 0.0
+	return clampf(1.0 - police.gap() / 20.0, 0.0, 1.0)
+
 func _dust_color() -> Color:
 	var b := world.biome_at(world.v_of(car.position))
 	var slot: int = World.BIOME_TOP.get(b, PAL.GRASS)
@@ -666,7 +783,7 @@ func _finish_run(why: String) -> void:
 	state = OVER
 	_clear_touches()
 	car.active = false
-	sound.silence_loops()
+	sound.mute_loops(true)
 	sound.set_muffle(0.6)
 	ui.hide_hud()
 	var dist := int(max_v)
@@ -715,7 +832,7 @@ func _cam_update(dt: float, snap: bool) -> void:
 	var target := car.position
 	if car.dead and car.falling:
 		target = Vector3(car.position.x, maxf(car.position.y, -1.5), car.position.z)
-	var lead := world.F * 4.4 + Vector3(car.vel.x, 0, car.vel.z) * 0.16
+	var lead := world.F * (4.4 if chase_state != "on" else 1.6) + Vector3(car.vel.x, 0, car.vel.z) * 0.16
 	if state == TITLE or state == GARAGE:
 		lead = world.F * 2.0
 	var want := Vector3(target.x, maxf(target.y * 0.6, -1.0), target.z) + lead
@@ -723,7 +840,7 @@ func _cam_update(dt: float, snap: bool) -> void:
 		cam_focus = want
 	else:
 		cam_focus = cam_focus.lerp(want, 1.0 - exp(-dt * 4.0))
-	var want_size := CAM_SIZE + (1.6 if not car.grounded and not car.dead else 0.0)
+	var want_size := CAM_SIZE + (1.6 if not car.grounded and not car.dead else 0.0) + (1.8 if chase_state == "on" else 0.0)
 	if state == TITLE:
 		want_size = CAM_SIZE - 3.0
 	cam_size = want_size if snap else lerpf(cam_size, want_size, 1.0 - exp(-dt * 2.0))

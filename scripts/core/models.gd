@@ -72,6 +72,20 @@ static func _m_ramp() -> ArrayMesh:
 	b.box(Vector3(0.5, 0.92, -2.42), Vector3(0.5, 0.06, 0.05), MB.rgb("ffd166"))
 	return b.commit()
 
+static func _m_pad() -> ArrayMesh:
+	# boost pad, 2.0 wide and 2.2 long, chevrons point along -Z
+	var b := MB.new()
+	b.cbox(Vector3(0, 0.03, 0), Vector3(2.0, 0.07, 2.2), 0.04, MB.rgb("4a4652"))
+	b.cbox(Vector3(0, 0.05, 0), Vector3(1.8, 0.05, 2.0), 0.03, MB.rgb("5c5866"))
+	for k in 3:
+		var z := 0.55 - k * 0.55
+		for sgn in [-1.0, 1.0]:
+			var bs := Basis(Vector3.UP, sgn * 0.75)
+			b.box(Vector3(sgn * 0.28, 0.085, z - 0.05), Vector3(0.78, 0.04, 0.16), MB.glow("ffb84d" if k != 1 else "ff7a4d"), bs)
+	for sgn in [-1.0, 1.0]:
+		b.box(Vector3(sgn * 0.92, 0.085, 0), Vector3(0.08, 0.04, 2.0), MB.glow("fff0a8"))
+	return b.commit()
+
 static func _m_bridge() -> ArrayMesh:
 	# one 1.6 long plank section along -Z, 2.2 wide, top at y=0
 	var b := MB.new()

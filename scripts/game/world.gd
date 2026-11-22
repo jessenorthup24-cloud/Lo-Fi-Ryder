@@ -78,6 +78,9 @@ var station_count := 0
 var next_biome_v := 420.0
 var next_fuel_v := 40.0
 var next_coin_v := 14.0
+var pads: Array = []
+var chases: Array = []       # {v_start, v_end, parked, yaw, done}
+var next_chase_v := 320.0
 var next_marker := 100
 var biome_bag: Array = []
 var cur_biome := "countryside"
@@ -97,9 +100,9 @@ func setup(g: Node, material: ShaderMaterial, font: Font) -> void:
 		for nm in DECOR[b]:
 			if not pools.has(nm):
 				pools[nm] = _pool(nm, 260 if DECOR[b][nm][1] < 0.8 else 24, false, DECOR[b][nm][2] != "flat", DECOR[b][nm][3])
-	for nm in ["coin", "fuel", "ramp", "bridge", "station", "arch", "marker", "lamp", "windmill_blades"]:
+	for nm in ["coin", "fuel", "ramp", "bridge", "station", "arch", "marker", "lamp", "windmill_blades", "pad"]:
 		if not pools.has(nm):
-			var cap := {"coin": 260, "fuel": 24, "ramp": 24, "bridge": 80, "station": 6, "arch": 2, "marker": 6, "lamp": 60, "windmill_blades": 24}[nm] as int
+			var cap := {"coin": 260, "fuel": 24, "ramp": 24, "bridge": 80, "station": 6, "arch": 2, "marker": 6, "lamp": 60, "windmill_blades": 24, "pad": 30}[nm] as int
 			pools[nm] = _pool(nm, cap, false, nm != "coin")
 	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	noise.frequency = 0.16
@@ -137,6 +140,7 @@ func reset(seed_in: int, force_biome := "") -> void:
 		m["label"].queue_free()
 	tiles.clear(); stripes.clear(); stripe_items.clear(); falling.clear(); knocked.clear()
 	props_hash.clear(); coins.clear(); fuels.clear(); surfaces.clear(); stations.clear()
+	pads.clear(); chases.clear()
 	markers.clear(); lamps.clear(); windmills.clear(); segments.clear()
 	amp_phase = Vector3(rng.randf() * TAU, rng.randf() * TAU, rng.randf() * TAU)
 	gen_s = int(floor(-16.0 / D))
@@ -147,6 +151,7 @@ func reset(seed_in: int, force_biome := "") -> void:
 	station_count = 0
 	next_fuel_v = 36.0
 	next_coin_v = 16.0
+	next_chase_v = rng.randf_range(300.0, 420.0)
 	next_marker = 100
 	difficulty = 0.0
 	biome_bag = BIOMES.duplicate()
@@ -366,9 +371,39 @@ func _add_station(v: float) -> void:
 		_hash_add(prop)
 		_stripe_add(st["s"], prop)
 
+## A police chase: a cruiser waits beside the road, then the stretch ahead has boost pads.
+func _plan_chase(seg: Dictionary) -> void:
+	var vs: float = seg["v0"] + 10.0
+	var length := rng.randf_range(360.0, 480.0)
+	var side := 1.0 if rng.randf() < 0.5 else -1.0
+	var pv := vs - 8.0
+	var t := tangent(pv)
+	var p := pos_at(pv, side * minf(2.6, float(seg["w"]) - 1.2))
+	chases.append({"v_start": vs, "v_end": vs + length, "parked": p, "yaw": atan2(-t.x, -t.z), "done": false})
+	var v := vs + 16.0
+	while v < vs + length - 10.0:
+		_add_pad(v, rng.randf_range(-1.6, 1.6))
+		v += rng.randf_range(30.0, 40.0)
+	next_chase_v = vs + length + rng.randf_range(380.0, 620.0)
+
+func _add_pad(v: float, off: float) -> void:
+	var slot: int = pools["pad"].alloc()
+	if slot < 0:
+		return
+	var t := tangent(v)
+	var p := pos_at(v, off)
+	var pad := {"kind": "pad", "pos": p, "fwd": t, "side": Vector3(-t.z, 0, t.x), "slot": slot, "s": _stripe_of(v), "used": false, "checked": false}
+	pools["pad"].put(slot, Transform3D(Basis(Vector3.UP, atan2(-t.x, -t.z)), p))
+	pads.append(pad)
+	_stripe_add(pad["s"], pad)
+
 func _plan_items(seg: Dictionary) -> void:
 	var v0: float = seg["v0"]
 	var v1: float = seg["v1"]
+	if v0 >= next_chase_v and seg.get("kind", "") in ["plain", "holes", "stunt"] and not seg["narrow_end"]:
+		_plan_chase(seg)
+	elif v0 > 120.0 and rng.randf() < 0.18:
+		_add_pad(rng.randf_range(v0 + 6.0, v1 - 6.0), rng.randf_range(-1.5, 1.5))
 	# coins: lines and wiggles along the racing line
 	while next_coin_v < v1 - 4.0:
 		if next_coin_v > v0 + 2.0:
@@ -558,7 +593,7 @@ func _gen_stripe(s: int) -> void:
 		if winter_ice and rule == 1 and dist < 3.0 and noise.get_noise_2d(u * 0.7 + 50.0, v * 0.7) > 0.25:
 			top = P.ICE
 			surface = "ice"
-		var tile := {"key": key, "pos": pos, "y": jitter, "s": s, "state": 0, "t": 0.0, "surface": surface,
+		var tile := {"key": key, "pos": pos, "y": jitter, "s": s, "state": 0, "t": 0.0, "surface": surface, "top": top,
 			"slot": -1, "under": -1, "rot": Vector3.ZERO, "spin": Vector3.ZERO, "vy": 0.0}
 		var pool_name := "water" if rule == 2 else "tile"
 		tile["pool"] = pool_name
@@ -706,6 +741,30 @@ func ramp_at(p: Vector3) -> Dictionary:
 			return s
 	return {}
 
+## What the tyres are rolling on, for the sound: road, grass, gravel, wood or snow.
+func roll_at(p: Vector3, winter: bool) -> String:
+	for s in surfaces:
+		var rel: Vector3 = p - s["origin"]
+		var f: float = rel.x * s["fwd"].x + rel.z * s["fwd"].z
+		var sd: float = rel.x * s["side"].x + rel.z * s["side"].z
+		if f >= -0.05 and f <= s["len"] + 0.05 and absf(sd) <= s["half_w"] and not s.get("falling", false):
+			return "wood"
+	for st in stations:
+		if p.distance_to(st["pos"]) < 2.6:
+			return "road"
+	var t = tiles.get(_key(p))
+	if t == null:
+		return "road"
+	var top: int = t.get("top", P.GRASS)
+	match top:
+		P.PATH, P.SAND, P.HAY:
+			return "snow" if winter and top != P.SAND else "gravel"
+		P.PLANK:
+			return "wood"
+		P.STONE, P.ICE, P.CLOUD, P.METAL, P.WALL:
+			return "road"
+	return "snow" if winter else "grass"
+
 func surface_at(p: Vector3) -> String:
 	var t = tiles.get(_key(p))
 	if t == null:
@@ -797,6 +856,13 @@ func collect(p: Vector3, magnet: float, dt: float) -> Array:
 			f["taken"] = true
 			pools["fuel"].release(f["slot"])
 			out.append({"type": "fuel", "pos": f["pos"]})
+	for pad in pads:
+		if pad["used"] or not pad["checked"]:
+			continue
+		var rp: Vector3 = p - pad["pos"]
+		if absf(rp.y) < 0.8 and absf(rp.dot(pad["fwd"])) < 1.15 and absf(rp.dot(pad["side"])) < 1.15:
+			pad["used"] = true
+			out.append({"type": "boost", "pos": pad["pos"]})
 	for st in stations:
 		if st["used"]:
 			continue
@@ -827,6 +893,7 @@ func tick(dt: float, car_v: float, crumble_speed: float, crumbling: bool, time: 
 	_tick_falling(dt)
 	_tick_knocked(dt)
 	_tick_coins(dt, time)
+	_tick_pads()
 	for wm in windmills:
 		if wm["state"] == 0 and wm.has("blades"):
 			var yaw: float = wm["yaw"]
@@ -858,6 +925,9 @@ func _crumble_stripe(s: int) -> void:
 				it["fy"] = 0.0
 				it["fvy"] = 0.0
 				falling.append(it)
+			elif it.get("kind", "") == "pad":
+				pools["pad"].release(it["slot"])
+				pads.erase(it)
 			elif it.has("taken"):
 				if not it["taken"]:
 					it["fall"] = true
@@ -998,6 +1068,25 @@ func _tick_knocked(dt: float) -> void:
 			done.append(pr)
 	for pr in done:
 		knocked.erase(pr)
+
+func _tick_pads() -> void:
+	for pad in pads.duplicate():
+		if pad["checked"] or pad["s"] >= gen_s - 1:
+			continue
+		pad["checked"] = true
+		var g := ground_at(pad["pos"])
+		var bad := g == NO_GROUND or water_at(pad["pos"])
+		# keep pads on flat ground: not on a ramp, not at a drop
+		for o in [-1.6, 0.0, 1.6]:
+			var q: Vector3 = pad["pos"] + pad["fwd"] * o
+			if ground_at(q) == NO_GROUND or not ramp_at(q).is_empty():
+				bad = true
+		if bad:
+			pools["pad"].release(pad["slot"])
+			pads.erase(pad)
+			continue
+		pad["pos"].y = g
+		pools["pad"].put(pad["slot"], Transform3D(Basis(Vector3.UP, atan2(-pad["fwd"].x, -pad["fwd"].z)), pad["pos"]))
 
 func _tick_coins(dt: float, time: float) -> void:
 	var done := []

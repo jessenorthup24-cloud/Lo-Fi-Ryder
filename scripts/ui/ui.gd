@@ -37,6 +37,11 @@ var hud_coins: PanelContainer
 var hud_combo: Label
 var arrow_l: Control
 var arrow_r: Control
+var chase_box: PanelContainer
+var chase_label: Label
+var chase_bar: ProgressBar
+var chase_dots: Array = []
+var _chase_t := 0.0
 var _fuel_flash := 0.0
 var _passed_best := false
 # garage refs
@@ -311,6 +316,37 @@ func _build_hud() -> void:
 	fuel_back.add_child(hud_fuel)
 	hud_best = K.outlined(K.label("", 24, Color.WHITE, 600), Color(0.29, 0.23, 0.2, 0.8), 8)
 	mid.add_child(hud_best)
+	# police chase banner
+	chase_box = PanelContainer.new()
+	var csb := K.box(Color("3b4f9e"), 30, 6, Color("273673"), 18)
+	csb.content_margin_top = 8
+	csb.content_margin_bottom = 10
+	chase_box.add_theme_stylebox_override("panel", csb)
+	chase_box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	chase_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var cv := VBoxContainer.new()
+	cv.add_theme_constant_override("separation", 6)
+	cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chase_box.add_child(cv)
+	var ch := HBoxContainer.new()
+	ch.add_theme_constant_override("separation", 10)
+	ch.alignment = BoxContainer.ALIGNMENT_CENTER
+	ch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cv.add_child(ch)
+	for col in [Color("ff5a5a"), Color("6f8dff")]:
+		var dot := Panel.new()
+		dot.custom_minimum_size = Vector2(18, 18)
+		dot.add_theme_stylebox_override("panel", K.box(col, 9, 0, Color.TRANSPARENT, 0))
+		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ch.add_child(dot)
+		chase_dots.append(dot)
+	chase_label = K.label("Stay ahead", 28, Color.WHITE, 650)
+	ch.add_child(chase_label)
+	chase_bar = K.bar(260, 12, Color("ff5a5a"), Color("27346a"))
+	chase_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	cv.add_child(chase_bar)
+	chase_box.visible = false
+	mid.add_child(chase_box)
 	hud_coins = K.pill("coin", "0", 32)
 	hud_coins.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	row.add_child(hud_coins)
@@ -400,6 +436,27 @@ func hud_update(dt: float, dist: int, fuel: float, coins: int, best: int, combo:
 	if best > 0 and not _passed_best:
 		hud_best.text = "Best %s" % K.fmt(best)
 	hud_combo.text = ""
+
+func chase_show(on: bool) -> void:
+	if chase_box == null:
+		return
+	if on and not chase_box.visible:
+		chase_box.visible = true
+		chase_box.pivot_offset = chase_box.size * 0.5
+		chase_box.scale = Vector2(0.6, 0.6)
+		chase_box.create_tween().tween_property(chase_box, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	elif not on:
+		chase_box.visible = false
+
+## left: meters to go; danger: 0 (far) .. 1 (right behind you)
+func chase_update(dt: float, left: int, danger: float) -> void:
+	_chase_t += dt
+	chase_label.text = "Stay ahead · %s m" % K.fmt(left)
+	chase_bar.value = danger
+	var on := int(_chase_t * 6.0) % 2 == 0
+	chase_dots[0].modulate.a = 1.0 if on else 0.25
+	chase_dots[1].modulate.a = 0.25 if on else 1.0
+	chase_box.modulate = Color(1, 1, 1).lerp(Color(1.0, 0.75, 0.75), danger * (0.5 + 0.5 * sin(_chase_t * 14.0)) if danger > 0.6 else 0.0)
 
 func passed_best() -> void:
 	if _passed_best:

@@ -38,6 +38,7 @@ var falling := false
 var splashed := false
 var active := false        # false on the title screen: the car idles
 var slow := 1.0            # brief slow-down after knocking things over
+var boost_t := 0.0         # seconds of boost-pad speed left
 var surface := "ground"
 
 # tuning from upgrades / weather
@@ -109,7 +110,21 @@ func set_car(d: Dictionary) -> void:
 func body_material() -> ShaderMaterial:
 	return body.material_override
 
+## 0..1 strength of the current boost (eases out over its last second).
+func boost_k() -> float:
+	return smoothstep(0.0, 1.0, boost_t)
+
+## Drove over a boost pad: a kick of speed that fades over ~1.8 s.
+func boost() -> void:
+	boost_t = 1.8
+	slow = 1.0
+	if grounded:
+		var f := forward()
+		var vf := vel.dot(f)
+		vel += f * maxf(0.0, CRUISE * 1.45 - vf)
+
 func place(p: Vector3, heading: float) -> void:
+	boost_t = 0.0
 	position = p
 	yaw = heading
 	vel = Vector3.ZERO
@@ -150,7 +165,8 @@ func step(dt: float) -> void:
 	steer_smooth = move_toward(steer_smooth, steer, dt * 7.0)
 	var f := forward()
 	var r := right()
-	var target := CRUISE * slow if fuel > 0.0 else 0.0
+	boost_t = maxf(0.0, boost_t - dt)
+	var target := CRUISE * slow * (1.0 + 0.6 * boost_k()) if fuel > 0.0 else 0.0
 	if not active:
 		target = 0.0
 	slow = move_toward(slow, 1.0, dt * 0.8)
