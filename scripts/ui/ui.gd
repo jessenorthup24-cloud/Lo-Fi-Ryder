@@ -24,6 +24,7 @@ var wipe_mat: ShaderMaterial
 
 # title refs
 var title_logo: Control
+var recent_pops: Array = []
 var title_best: Label
 var title_coins: PanelContainer
 var title_tap: Label
@@ -59,6 +60,8 @@ var g_tab_cars: Button
 var g_tab_up: Button
 var g_cars_box: Control
 var g_up_box: VBoxContainer
+var g_cars_card: Panel
+var g_svc: SubViewportContainer
 var g_mat: ShaderMaterial
 var g_drag := 0.0
 var g_spin := 0.0
@@ -182,14 +185,14 @@ func _build_title() -> void:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	title_logo.add_child(row)
 	var word := "Lo-Fi Ryder"
-	var cols := [Color("ff8a6b"), Color("ffb85c"), Color("ffd166"), Color("ffd166"), Color("8fd19e"), Color("ffffff"),
-		Color("6ec6ff"), Color("8f9dff"), Color("b99cff"), Color("f59fd0"), Color("ff8a6b")]
+	var cols := [Color("ffb36b"), Color("ffd166"), Color("fff0a0"), Color("fff0a0"), Color("8ff5c8"), Color("ffffff"),
+		Color("8ff5ff"), Color("8fc2ff"), Color("b39bff"), Color("f59fd0"), Color("ff9a8a")]
 	for i in word.length():
-		var ch := K.outlined(K.label(word[i], 104, cols[i], 700), K.INK, 22)
+		var ch := K.outlined(K.label(word[i], 104, cols[i], 700), Color("2a1f45"), 22)
 		ch.set_meta("i", i)
 		ch.pivot_offset = Vector2(30, 60)
 		row.add_child(ch)
-	var sub := K.outlined(K.label("a cozy little drive", 34, Color.WHITE, 600), Color(0.29, 0.23, 0.2, 0.85), 10)
+	var sub := K.outlined(K.label("a lo-fi drive after the end", 34, Color.WHITE, 600), Color(0.12, 0.08, 0.22, 0.85), 10)
 	title_logo.add_child(sub)
 	title_best = K.outlined(K.label("", 30, Color.WHITE, 600), Color(0.29, 0.23, 0.2, 0.85), 10)
 	title_logo.add_child(K.spacer(14))
@@ -493,7 +496,16 @@ func popup(text: String, world_pos: Vector3, col := Color.WHITE, size := 34, sub
 		vb.add_child(K.outlined(K.label(sub, int(size * 0.7), Color.WHITE, 650), K.INK, 9))
 	popups.add_child(vb)
 	vb.size = Vector2(420, 0)
-	vb.position = sp - Vector2(210, 120 + randf_range(0, 30))
+	# if another popup went up here a moment ago, stack above it instead of on top of it
+	var now := Time.get_ticks_msec()
+	var lift := 0.0
+	for rp in recent_pops:
+		if now - int(rp[0]) < 700 and (rp[1] as Vector2).distance_to(sp) < 140.0:
+			lift += 58.0
+	recent_pops.append([now, sp])
+	if recent_pops.size() > 8:
+		recent_pops.pop_front()
+	vb.position = sp - Vector2(210, 120 + lift + randf_range(0, 14))
 	vb.pivot_offset = Vector2(210, 30)
 	vb.scale = Vector2(0.4, 0.4)
 	var t := create_tween()
@@ -595,9 +607,7 @@ func show_over(r: Dictionary) -> void:
 		th.alignment = BoxContainer.ALIGNMENT_CENTER
 		th.add_theme_constant_override("separation", 8)
 		th.add_child(Icon.new("trophy", K.SUN_DK, 34))
-		var tl := K.label(" · ".join(names.slice(0, 3)) + (" +%d more" % (names.size() - 3) if names.size() > 3 else ""), 26, K.INK, 650)
-		tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		tl.custom_minimum_size = Vector2(480, 0)
+		var tl := K.label(" · ".join(names.slice(0, 2)) + ("  +%d more" % (names.size() - 2) if names.size() > 2 else ""), 26, K.INK, 650)
 		th.add_child(tl)
 		vb.add_child(th)
 	# missions
@@ -903,23 +913,21 @@ func open_pause() -> void:
 func _build_garage() -> void:
 	garage = _full(Control.MOUSE_FILTER_STOP)
 	garage.visible = false
+	# the galaxy behind everything
 	var bg := ColorRect.new()
-	bg.color = K.CREAM
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var gm := ShaderMaterial.new()
+	gm.shader = load("res://shaders/galaxy_ui.gdshader")
+	bg.material = gm
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	garage.add_child(bg)
-	# soft stripes
-	var stripes := ColorRect.new()
-	stripes.name = "Stripes"
-	stripes.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	stripes.offset_bottom = 780
-	stripes.color = Color("ffe9d1")
-	garage.add_child(stripes)
-	# 3D showroom
+	# 3D showroom: your car on a little floating island
 	var svc := SubViewportContainer.new()
-	svc.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	svc.offset_top = 120
-	svc.offset_bottom = 120 + 640
+	svc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	svc.offset_top = 210
+	svc.offset_bottom = -500
 	svc.stretch = true
+	g_svc = svc
 	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	garage.add_child(svc)
 	g_view = SubViewport.new()
@@ -946,26 +954,45 @@ func _build_garage() -> void:
 	sun.shadow_enabled = true
 	g_world_root.add_child(sun)
 	var cam := Camera3D.new()
-	cam.fov = 30
-	cam.position = Vector3(0, 2.4, 5.8)
-	cam.rotation_degrees = Vector3(-21, 0, 0)
+	cam.fov = 36
+	cam.keep_aspect = Camera3D.KEEP_WIDTH
+	cam.position = Vector3(0, 2.3, 7.2)
+	cam.rotation_degrees = Vector3(-17, 0, 0)
 	g_world_root.add_child(cam)
 	g_mat = ShaderMaterial.new()
 	g_mat.shader = load("res://shaders/toon.gdshader")
 	g_mat.set_shader_parameter("palette", PAL.make_texture())
 	g_mat.set_shader_parameter("haze", 0.0)
+	g_mat.set_shader_parameter("rim_color", Color("b39bff"))
+	var island_mat: ShaderMaterial = g_mat.duplicate()
+	island_mat.set_shader_parameter("decay", 0.8)
+	island_mat.set_shader_parameter("night", 1.0)
 	g_turntable = Node3D.new()
 	g_world_root.add_child(g_turntable)
 	var tt := MeshInstance3D.new()
 	var mb := preload("res://scripts/core/mesh_builder.gd").new()
-	mb.cyl(Vector3(0, -0.12, 0), 1.75, 0.24, mb.pal(PAL.GRASS), 40)
-	mb.cyl(Vector3(0, -0.45, 0), 1.6, 0.44, mb.pal(PAL.DIRT), 40, Basis(), 1.3)
-	mb.cyl(Vector3(0, -0.95, 0), 1.2, 0.6, mb.pal(PAL.DIRT_DARK), 12, Basis(), 0.0, false)
-	for i in 10:
-		var a := TAU * i / 10.0
-		mb.sphere(Vector3(cos(a) * 1.55, 0.06, sin(a) * 1.55), 0.12, mb.pal(PAL.FLOWER_A if i % 2 == 0 else PAL.FLOWER_B), 6, 4)
+	# a chunk of old road on a floating island: grass rim, hanging rock, glowing buds pushing through
+	mb.cyl(Vector3(0, -0.12, 0), 1.8, 0.24, mb.pal(PAL.GRASS), 36)
+	mb.cyl(Vector3(0, 0.005, 0), 1.25, 0.02, mb.pal(PAL.PATH), 24)
+	for k in 3:
+		var a := 0.6 + k * 2.1
+		mb.box(Vector3(cos(a) * 0.7, 0.02, sin(a) * 0.7), Vector3(0.5, 0.012, 0.035), mb.pal(PAL.ASPHALT_DK), Basis(Vector3.UP, a + 0.9))
+	mb.cyl(Vector3(0, -0.5, 0), 1.65, 0.52, mb.pal(PAL.DIRT), 36, Basis(), 1.2)
+	mb.cyl(Vector3(0, -1.25, 0), 1.15, 1.0, mb.pal(PAL.DIRT_DARK), 14, Basis(), 0.25, false)
+	mb.cyl(Vector3(0.2, -2.0, 0.1), 0.3, 0.6, mb.pal(PAL.DIRT_DARK), 8, Basis(), 0.0, false)
+	var buds := ["8ff5ff", "ff8fd8", "fff07a", "a8ff9e", "c9a8ff"]
+	for i in 14:
+		var a := TAU * i / 14.0 + 0.2
+		var r := 1.5 + 0.18 * sin(i * 2.7)
+		mb.cyl(Vector3(cos(a) * r, 0.1, sin(a) * r), 0.015, 0.2, mb.pal(PAL.TUFT), 3)
+		mb.sphere(Vector3(cos(a) * r, 0.22, sin(a) * r), 0.06, mb.glow(buds[i % buds.size()]), 6, 4)
+	for c in [[1.15, 0.12, -0.95, 0.2], [-1.25, 0.1, -0.7, 0.16], [-0.9, 0.1, 1.1, 0.14]]:
+		mb.cbox(Vector3(c[0], c[1], c[2]), Vector3(c[3] * 2.0, c[3] * 1.3, c[3] * 1.7), 0.03, mb.pal(PAL.CONCRETE), Basis(Vector3.UP, c[0] * 2.0))
+	mb.cyl(Vector3(-1.4, 0.35, -0.75), 0.035, 0.7, mb.pal(PAL.TRUNK), 6)
+	mb.sphere(Vector3(-1.4, 0.78, -0.75), 0.26, mb.pal(PAL.LEAF_A), 8, 5)
+	mb.sphere(Vector3(-1.25, 0.7, -0.62), 0.16, mb.pal(PAL.BLOSSOM), 7, 4)
 	tt.mesh = mb.commit()
-	tt.material_override = g_mat
+	tt.material_override = island_mat
 	g_turntable.add_child(tt)
 	g_car = Node3D.new()
 	g_car.rotation.y = PI
@@ -983,7 +1010,7 @@ func _build_garage() -> void:
 	var back := K.round_button("back", K.PAPER, Color("e2d3c2"), 86)
 	_tap(back, func(): game.close_garage())
 	tb.add_child(back)
-	var tl := K.label("Garage", 50, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT)
+	var tl := K.outlined(K.label("Garage", 52, Color.WHITE, 700, HORIZONTAL_ALIGNMENT_LEFT), Color(0.1, 0.06, 0.2, 0.6), 10)
 	tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tb.add_child(tl)
 	g_coins = K.pill("coin", "0")
@@ -1002,13 +1029,22 @@ func _build_garage() -> void:
 	_tap(g_tab_up, func(): _garage_tab(false))
 	tabs.add_child(g_tab_cars)
 	tabs.add_child(g_tab_up)
-	# cars panel (bottom)
+	# cars panel (bottom), on its own card
+	g_cars_card = Panel.new()
+	g_cars_card.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	g_cars_card.offset_top = -500
+	g_cars_card.offset_left = 22
+	g_cars_card.offset_right = -22
+	g_cars_card.offset_bottom = -24
+	g_cars_card.add_theme_stylebox_override("panel", K.box(K.PAPER, 44, 6, Color("d9c9b8"), 0))
+	g_cars_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	garage.add_child(g_cars_card)
 	g_cars_box = VBoxContainer.new()
 	g_cars_box.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	g_cars_box.offset_top = -520
+	g_cars_box.offset_top = -482
 	g_cars_box.offset_left = 40
 	g_cars_box.offset_right = -40
-	g_cars_box.offset_bottom = -50
+	g_cars_box.offset_bottom = -44
 	g_cars_box.add_theme_constant_override("separation", 14)
 	garage.add_child(g_cars_box)
 	var nav := HBoxContainer.new()
@@ -1064,6 +1100,8 @@ func hide_garage() -> void:
 
 func _garage_tab(cars: bool) -> void:
 	g_cars_box.visible = cars
+	g_cars_card.visible = cars
+	g_svc.visible = cars
 	g_up_box.visible = not cars
 	var sel := [g_tab_cars, g_tab_up] if cars else [g_tab_up, g_tab_cars]
 	for i in 2:

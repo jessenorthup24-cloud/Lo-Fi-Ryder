@@ -16,7 +16,7 @@ config/version="1.0"
 run/main_scene="res://boot/boot.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.png"
-boot_splash/bg_color=Color(0.996, 0.945, 0.871, 1)
+boot_splash/bg_color=Color(0.08, 0.05, 0.18, 1)
 boot_splash/show_image=false
 config/quit_on_go_back=false
 
@@ -51,4 +51,4 @@ textures/vram_compression/import_etc2_astc=true
 anti_aliasing/quality/msaa_3d=2
 lights_and_shadows/directional_shadow/size=2048
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=1
-environment/defaults/default_clear_color=Color(0.996, 0.945, 0.871, 1)
+environment/defaults/default_clear_color=Color(0.08, 0.05, 0.18, 1)

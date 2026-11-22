@@ -261,7 +261,8 @@ func _start_run() -> void:
 	ach_run_coins = 0
 	ach_t = 0.0
 	run = {"dist": 0, "coins": 0, "drift": 0.0, "near": 0, "clean": 0, "spins": 0, "spin720": 0, "stations": 0,
-		"knocks": 0, "jumps": 0, "night": 0.0, "regions": 0, "weather": 0.0, "air_max": 0.0, "chases": 0, "boosts": 0}
+		"knocks": 0, "jumps": 0, "night": 0.0, "regions": 0, "weather": 0.0, "air_max": 0.0, "chases": 0, "boosts": 0,
+		"decks": 0, "grind": 0.0, "hops": 0, "planks": 0, "tracks": 0, "gauntlets": 0, "police_fell": 0}
 	biomes_seen.clear()
 	_apply_upgrades()
 	car.active = true
@@ -581,7 +582,7 @@ func _process(delta: float) -> void:
 	sound.tick(dt, {"speed": car.speed(), "grounded": car.grounded, "active": running and car.active and not car.dead,
 		"drift": drift_amt, "air_t": car.air_time, "boost": car.boost_k(), "empty": car.fuel <= 0.0 and running,
 		"roll": world.roll_at(car.position, atmos.season_idx == 3), "windy": atmos.windy, "rainy": atmos.rain,
-		"siren": chase_siren(), "siren_close": chase_closeness(), "pace": car.pace})
+		"siren": chase_siren(), "siren_close": chase_closeness(), "pace": car.pace, "grind": car.grinding and state == RUN})
 	if state == RUN:
 		ui.hud_update(dt, int(max_v), car.fuel, run_coins, best_target, 1.0 + minf(chain - 1, 8) * 0.25 if chain > 1 else 1.0)
 	_harness()
@@ -642,8 +643,6 @@ func _sim(dt: float) -> void:
 		if grind_fx_t <= 0.0:
 			grind_fx_t = 0.05
 			fx.burst(car.position + Vector3(0, -0.05, 0) - car.forward() * 0.4, ["ffd27a", "ff9a3d", "fff3b0"], 3, 2.5, 3.0, 0.35)
-			if randf() < 0.35:
-				sfx("skid_road", -11.0, randf_range(1.6, 1.9))
 			buzz(8, 0.35)
 	for gt in world.gauntlets:
 		if gt["done"]:
@@ -899,6 +898,9 @@ func _chase_tick(dt: float, cv: float) -> void:
 
 const CATCH_SAFE := 2.0
 var wall_hits := 0
+var perf_acc := 0.0
+var perf_n := 0
+var perf_max := 0.0
 var grind_fx_t := 0.0
 var canyon_seg: Dictionary = {}
 var gauntlet_msg_t := 0.0
@@ -957,6 +959,8 @@ func _dust_color() -> Color:
 	elif car.surface == "dirt":
 		slot = World.ROUGH_TOP.get(b, PAL.PATH)
 		return PAL.color(slot, atmos.season).lightened(0.12)
+	elif car.surface == "slick":
+		return Color("f0b88c")
 	return PAL.color(slot, atmos.season).lightened(0.35)
 
 func _finish_run(why: String) -> void:
@@ -1287,6 +1291,15 @@ func _warp(v: float) -> void:
 	_cam_update(1.0, true)
 
 func _harness() -> void:
+	if args.has("perf") and state == RUN:
+		perf_acc += Performance.get_monitor(Performance.TIME_PROCESS)
+		perf_n += 1
+		perf_max = maxf(perf_max, Performance.get_monitor(Performance.TIME_PROCESS))
+		if perf_n >= 300:
+			print("PERF v=%d avg=%.2fms max=%.2fms seg=%s" % [int(max_v), perf_acc / perf_n * 1000.0, perf_max * 1000.0, world.segment_at(world.v_of(car.position)).get("kind", "")])
+			perf_acc = 0.0
+			perf_n = 0
+			perf_max = 0.0
 	if args.has("trace") and frames == 5:
 		var segs := []
 		for sg in world.segments:

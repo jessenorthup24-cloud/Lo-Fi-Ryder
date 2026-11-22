@@ -651,7 +651,9 @@ func _plan_gauntlet(v0: float, d: float) -> void:
 ## mid-size lumps and a little grit; in a canyon the sides climb into rock walls. Fades to flat at both ends.
 func terra_h(p: Vector3, seg: Dictionary) -> float:
 	var v := v_of(p)
-	var du := u_of(p) - center(v)
+	return _terra_h(p, seg, v, u_of(p) - center(v))
+
+func _terra_h(p: Vector3, seg: Dictionary, v: float, du: float) -> float:
 	var canyon: bool = seg.get("kind", "") == "rough"
 	var fade := smoothstep(float(seg["v0"]), float(seg["v0"]) + 7.0, v) * (1.0 - smoothstep(float(seg["v1"]) - 7.0, float(seg["v1"]), v))
 	var big := noise.get_noise_2d(p.x * 0.55, p.z * 0.55)
@@ -660,9 +662,10 @@ func terra_h(p: Vector3, seg: Dictionary) -> float:
 	var h: float
 	if canyon:
 		h = 0.45 + big * 0.85 + mid * 0.34 + fine * 0.035
-		var wd := absf(du) - (float(seg["w"]) - 2.6)
+		var wd := absf(du) - (float(seg["w"]) - 3.2)
 		if wd > 0.0:
-			h += pow(wd, 1.5) * (0.85 + 0.35 * mid)
+			var k := clampf(wd / 3.6, 0.0, 1.0)
+			h += pow(sin(k * PI), 0.75) * (2.1 + 0.8 * mid) + (0.25 if k >= 1.0 else 0.0)
 	else:
 		h = 0.35 + big * 0.62 + mid * 0.34 + fine * 0.04
 		h += smoothstep(1.5, 4.5, absf(du)) * 0.35 * (mid + 1.0)   # rougher off the worn track
@@ -683,15 +686,20 @@ func _build_terra(s: int, list: Array) -> void:
 		var grass_hi := MB.pal(P.GRASS_FOREST if biome != "seaside" else P.SAND)
 		var soil := MB.pal(P.SOIL if biome != "seaside" else P.SAND_SIDE)
 		var track := MB.pal(P.DIRT if biome != "seaside" else P.SAND_SIDE)
-		var tile_du := u_of(pos) - center(v_of(pos))
 		var side_col := MB.rgb("b8734f") if canyon else MB.pal(BIOME_SIDE[biome])
+		var tv := v_of(pos)
+		var tdu := u_of(pos) - center(tv)
 		var hs := []
 		for a in n + 1:
 			var row := []
 			for c in n + 1:
-				var q := pos + Vector3(-T * 0.5 + a * step, 0, -T * 0.5 + c * step)
-				row.append(terra_h(q, seg))
+				var ox := -T * 0.5 + a * step
+				var oz := -T * 0.5 + c * step
+				var q := pos + Vector3(ox, 0, oz)
+				# (v and u shift linearly across a tile: no need to redo the centreline per vertex)
+				row.append(_terra_h(q, seg, tv + ox * F.x + oz * F.z, tdu + ox * S.x + oz * S.z))
 			hs.append(row)
+		var rim := absf(tdu) > float(seg["w"]) - 1.6 or tv < float(seg["v0"]) + 2.5 or tv > float(seg["v1"]) - 2.5
 		var nrm := func(a: int, c: int) -> Vector3:
 			var hx: float = float(hs[mini(a + 1, n)][c]) - float(hs[maxi(a - 1, 0)][c])
 			var hz: float = float(hs[a][mini(c + 1, n)]) - float(hs[a][maxi(c - 1, 0)])
@@ -716,7 +724,7 @@ func _build_terra(s: int, list: Array) -> void:
 				else:
 					# a worn dirt track down the middle; bare soil on the steep bits and in the hollows,
 					# darker grass on the crests, so the lumps read
-					var qdu := tile_du + (a + 0.5 - n * 0.5) * step * 0.7071 - (c + 0.5 - n * 0.5) * step * 0.7071
+					var qdu := tdu + ((a + 0.5) * step - T * 0.5) * S.x + ((c + 0.5) * step - T * 0.5) * S.z
 					if absf(qdu) < 1.25 + 0.3 * sin(hm * 7.0):
 						col = track
 					elif flat < 0.93 or hm < 0.12:
@@ -727,8 +735,8 @@ func _build_terra(s: int, list: Array) -> void:
 						col = grass
 				b.tri(p00, p10, p11, n00, n10, n11, col)
 				b.tri(p00, p11, p01, n00, n11, n01, col)
-		# skirts on every side (hidden under neighbours, visible at the rim)
-		for e in 4:
+		# skirts at the rim and the ends (inside, the neighbours' ground covers the seams)
+		for e in (4 if rim else 0):
 			for k in n:
 				var a0: Vector2i
 				var a1: Vector2i
@@ -1821,6 +1829,8 @@ func roll_at(p: Vector3, winter: bool) -> String:
 	var t = tiles.get(_key(p))
 	if t == null:
 		return "road"
+	if t.has("terra"):
+		return "gravel"
 	var top: int = t.get("top", P.GRASS)
 	match top:
 		P.PATH, P.SAND, P.HAY:
@@ -2268,10 +2278,13 @@ func _tick_coins(dt: float, time: float) -> void:
 			continue
 		if not c["checked"] and c["s"] < gen_s - 1:
 			c["checked"] = true
-			if ground_at(c["pos"]) == NO_GROUND:
+			var cg := ground_at(c["pos"])
+			if cg == NO_GROUND:
 				pools["coin"].release(c["slot"])
 				c["taken"] = true
 				continue
+			# sit on uneven ground instead of inside it
+			c["pos"].y = maxf(c["pos"].y, cg + 0.5)
 		if c["fall"]:
 			c["vel"].y -= 16.0 * dt
 			c["pos"] += c["vel"] * dt

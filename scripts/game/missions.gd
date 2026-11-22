@@ -20,6 +20,9 @@ const TYPES := {
 	"air": ["Stay in the air {n} s in one jump", [1, 1.1, 1.2, 1.3], "air_max"],
 	"chase": ["Escape {n} police chases", [1, 1, 2, 3], "chases"],
 	"boost": ["Hit {n} boost pads in one run", [3, 5, 8, 12], "boosts"],
+	"decks": ["Cross {n} bridges or tracks in one run", [1, 2, 3, 4], "decks"],
+	"grind": ["Grind {n} m of rail in one run", [10, 20, 35, 50], "grind"],
+	"hops": ["Hop {n} times on rough ground", [2, 4, 6, 10], "hops"],
 }
 
 var save  # save.gd instance

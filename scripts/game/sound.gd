@@ -41,6 +41,7 @@ var skid_road: AudioStreamPlayer
 var skid_dirt: AudioStreamPlayer
 var air: AudioStreamPlayer
 var siren: AudioStreamPlayer
+var grind: AudioStreamPlayer
 var wind: AudioStreamPlayer
 var rain: AudioStreamPlayer
 var _t := 0.0
@@ -71,6 +72,7 @@ func setup() -> void:
 	skid_dirt = _loop("skid_dirt")
 	air = _loop("air_rush")
 	siren = _loop("siren")
+	grind = _loop("grind")
 	wind = _loop("wind")
 	rain = _loop("rain")
 	set_engine("small", 1.0)
@@ -269,6 +271,10 @@ func tick(dt: float, v: Dictionary) -> void:
 		skid_road.pitch_scale = 0.9 + drift * 0.2
 	var air_t: float = v.get("air_t", 0.0)
 	_ease_db(air, clampf(air_t * 2.0, 0.0, 1.0) * clampf(k, 0.0, 1.2) * 0.5 if not grounded and active else 0.0, dt, 6.0)
+	var gv: float = 1.0 if v.get("grind", false) else 0.0
+	_ease_db(grind, gv * 0.55, dt, 18.0)
+	if grind.stream:
+		grind.pitch_scale = 0.85 + speed / 30.0
 	var sv: float = v.get("siren", 0.0)
 	_ease_db(siren, sv * (0.35 + 0.45 * float(v.get("siren_close", 0.0))), dt, 5.0)
 	if siren.stream:
@@ -277,7 +283,7 @@ func tick(dt: float, v: Dictionary) -> void:
 	_ease_db(rain, float(v.get("rainy", 0.0)) * 0.4, dt, 2.0)
 
 func silence_loops() -> void:
-	for p in eng + [skid_road, skid_dirt, air, siren, wind, rain] + rolls.values():
+	for p in eng + [skid_road, skid_dirt, air, siren, grind, wind, rain] + rolls.values():
 		if p.stream:
 			p.volume_db = -80.0
 
