@@ -13,7 +13,12 @@ islands that crumble away behind you, while the days, seasons and weather roll b
 ## How to play
 
 - Hold the left or right arrow to steer (anywhere on that half of the screen counts). A quick tap is a
-  gentle turn; holding winds up to full lock, which drifts.
+  gentle turn; holding winds up to full lock and throws the tail out into a drift. Let go of a long
+  drift for a little speed kick.
+- The run keeps speeding up the farther you get (about 32 km/h at the start, ~50 km/h by 900 m).
+- Bumping rocks and walls glances you along them; if you ever get wedged, the car hops back to the road.
+- Challenge pieces span long drops: skinny plank bridges on stilts, and twisty toy race tracks with
+  candy kerbs and little hills. They crumble away behind you, piece by piece.
 - In the air, hold an arrow to spin the car. Land straight for a clean landing bonus.
 - The run ends if you drive off an edge, land in the water, or run out of fuel. Grab red cans and drive
   through gas stations to refuel.
@@ -26,6 +31,8 @@ islands that crumble away behind you, while the days, seasons and weather roll b
 - Score = distance + style (drifts, near misses, air, spins, clean landings) + 5 per coin.
 - Coins buy cars and upgrades in the Garage. Missions pay out extra coins. The Daily run gives everyone
   the same road for the day, and your best daily attempt comes back as a ghost.
+- Trophies: 33 achievements (distance, speed, drifts, stunts, bridges, chases, regions, garage) that
+  each pay coins once. They unlock live during a run.
 
 ## Project layout
 
@@ -36,6 +43,7 @@ islands that crumble away behind you, while the days, seasons and weather roll b
 | `scripts/game/world.gd` | Terrain generation, crumbling, props, pickups, ground queries |
 | `scripts/game/car.gd` | Car physics and toy-like body animation |
 | `scripts/game/police.gd` | The chase cruiser (follows your breadcrumb trail) |
+| `scripts/game/achievements.gd` | Trophy list, lifetime stats, unlock checks |
 | `scripts/game/people.gd` | Toy people: watch, wave, cheer, hop aside |
 | `scripts/game/atmos.gd` | Day/night, seasons, weather, sky and the far parallax layer |
 | `scripts/core/` | Palette (season colors), mesh builder, every model built in code |
@@ -54,6 +62,8 @@ There are no autoloads and no `class_name`s, so an update pack can replace any s
 godot --path . -- --auto              # autopilot drives
 godot --path . -- --run --hour=22 --weather=rain --biome=seaside --season=2
 godot --path . -- --garage --coins=5000
+godot --path . -- --run --deck=plank --warp=deck   # jump onto a plank bridge (or --deck=track)
+godot --path . -- --auto --biome=forest --hug=4.2  # autopilot grinds along the rim walls
 xvfb-run godot --path . -- --auto --shot=/tmp/x.png --frames=200   # screenshot, then quit
 ```
 

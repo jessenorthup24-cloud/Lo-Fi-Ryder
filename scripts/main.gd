@@ -15,6 +15,7 @@ const CARS := preload("res://scripts/game/cars.gd")
 const UI := preload("res://scripts/ui/ui.gd")
 const Police := preload("res://scripts/game/police.gd")
 const K := preload("res://scripts/ui/kit.gd")
+const Ach := preload("res://scripts/game/achievements.gd")
 
 enum { TITLE, RUN, DYING, OVER, GARAGE, PAUSED }
 
@@ -96,6 +97,11 @@ func _ready() -> void:
 	save = SaveData.new()
 	if not args.has("fresh"):
 		save.load_data()
+	# trophies came in an update: seed the run bests from what the save already knows
+	var st: Dictionary = save.data["stats"]
+	if not st.has("max_dist"):
+		st["max_dist"] = int(save.data["best_dist"])
+		st["max_score"] = int(save.data["best"])
 	missions = Missions.new(save)
 	missions.ensure()
 	ads = Ads.new()
@@ -155,8 +161,16 @@ func _ready() -> void:
 	else:
 		state = TITLE
 		ui.show_title()
+		# unlock anything an existing save already earned (cars, upgrades, past runs)
+		get_tree().create_timer(1.2).timeout.connect(func():
+			if state == TITLE:
+				ach_check()
+				ui.refresh_title())
 	if args.has("warp"):
-		_warp(float(args["warp"]))
+		if String(args["warp"]).begins_with("deck") and not world.decks.is_empty():
+			_warp(float(world.decks[0]["va"]) + float(String(args["warp"]).trim_prefix("deck") if String(args["warp"]) != "deck" else "8"))
+		else:
+			_warp(float(args["warp"]))
 	if args.has("chase"):
 		world._plan_until(1600.0)
 		if not world.chases.is_empty():
@@ -190,6 +204,7 @@ func build_label() -> String:
 func _new_world(s: int, is_daily: bool) -> void:
 	seed_value = s
 	daily = is_daily
+	world.force_deck = String(args.get("deck", ""))
 	world.reset(s, String(args.get("biome", "")))
 	fx.clear()
 	var rng := RandomNumberGenerator.new()
@@ -232,6 +247,11 @@ func _start_run() -> void:
 	death = ""
 	low_fuel_warned = false
 	coin_streak = 0
+	car.pace = 1.0
+	next_gear = 1.1
+	ach_run = []
+	ach_run_coins = 0
+	ach_t = 0.0
 	run = {"dist": 0, "coins": 0, "drift": 0.0, "near": 0, "clean": 0, "spins": 0, "spin720": 0, "stations": 0,
 		"knocks": 0, "jumps": 0, "night": 0.0, "regions": 0, "weather": 0.0, "air_max": 0.0, "chases": 0, "boosts": 0}
 	biomes_seen.clear()
@@ -426,6 +446,26 @@ func car_event(kind: String, d: Dictionary) -> void:
 			if t > 0.45:
 				var c: int = d["chain"]
 				_style(int(t * 12.0 * (1.0 + c * 0.25)), "Drift" if c == 0 else "Drift chain x%d" % (c + 1), car.position, K.SUN, "%.1fs" % t)
+				run["drift_max"] = maxf(float(run.get("drift_max", 0.0)), t)
+				run["max_chain"] = maxi(int(run.get("max_chain", 0)), c + 1)
+			if t > 0.8 and state == RUN:
+				car.drift_boost(t)
+				sfx("boost", -10.0 + minf(t, 3.0) * 1.5, 1.25)
+				buzz(30, 0.5)
+				fx.puff(car.position - car.forward() * 0.8 + Vector3(0, 0.2, 0), Color("ffd37a"), 0.45, -car.forward() * 2.0, 0.4)
+				fx.puff(car.position - car.forward() * 0.8 + Vector3(0, 0.2, 0), Color("ff9a5a"), 0.35, -car.forward() * 2.5, 0.35)
+		"wall":
+			var hit: float = d["impact"]
+			wall_hits += 1
+			sfx("bonk", -9.0 + minf(hit, 9.0) * 0.5, randf_range(0.92, 1.08))
+			buzz(22, clampf(0.25 + hit * 0.05, 0.25, 0.6))
+			fx.puff(d["pos"], Color("fff4e0"), 0.4, Vector3(0, 1.2, 0), 0.4)
+		"hop":
+			if args.has("auto"):
+				print("HOP at v=", snappedf(world.v_of(car.position), 0.1), " u=", snappedf(world.u_of(car.position) - world.center(world.v_of(car.position)), 0.1))
+			sfx("launch", -4.0, 1.25)
+			buzz(30, 0.5)
+			fx.puff(d["pos"], Color("fff4e0"), 0.5, Vector3(0, 1.0, 0), 0.5)
 		"off_edge":
 			pass
 		"dead":
@@ -434,6 +474,9 @@ func car_event(kind: String, d: Dictionary) -> void:
 				chase_state = "over"
 				ui.chase_show(false)
 			death = String(d["why"])
+			if args.has("auto"):
+				var sg: Dictionary = world.segment_at(world.v_of(car.position))
+				print("DEATH ", death, " v=", int(world.v_of(car.position)), " seg=", sg["type"], "/", sg.get("kind", ""), " u=", snappedf(world.u_of(car.position) - world.center(world.v_of(car.position)), 0.1), " spd=", snappedf(car.speed(), 0.1), " pace=", snappedf(car.pace, 0.01), " drift=", snappedf(car.drift, 0.01))
 			state = DYING
 			dying_t = 0.0
 			if death == "splash":
@@ -501,7 +544,7 @@ func _process(delta: float) -> void:
 	sound.tick(dt, {"speed": car.speed(), "grounded": car.grounded, "active": running and car.active and not car.dead,
 		"drift": drift_amt, "air_t": car.air_time, "boost": car.boost_k(), "empty": car.fuel <= 0.0 and running,
 		"roll": world.roll_at(car.position, atmos.season_idx == 3), "windy": atmos.windy, "rainy": atmos.rain,
-		"siren": chase_siren(), "siren_close": chase_closeness()})
+		"siren": chase_siren(), "siren_close": chase_closeness(), "pace": car.pace})
 	if state == RUN:
 		ui.hud_update(dt, int(max_v), car.fuel, run_coins, best_target, 1.0 + minf(chain - 1, 8) * 0.25 if chain > 1 else 1.0)
 	_harness()
@@ -513,11 +556,25 @@ func _sim(dt: float) -> void:
 		crumble_delay -= dt
 	elif state == TITLE:
 		car.steer = 0.0
+	if state == RUN:
+		ach_t += dt
+		if ach_t > 0.5:
+			ach_t = 0.0
+			_ach_announce(Ach.check(save.data, _ach_live()))
+		var want_pace: float = world.pace_at(max_v)
+		car.pace = move_toward(car.pace, want_pace, dt * 0.05)
+		if want_pace >= next_gear:
+			next_gear += 0.1
+			if max_v > 50.0:
+				ui.toast("Faster!  %d km/h" % int(Car.CRUISE * want_pace * 3.6), "wind", K.SUN, K.INK, 1.4)
+				sfx("boost", -9.0, 0.8)
+				buzz(25, 0.4)
+	police.pace = car.pace
 	car.step(dt)
 	var cv := world.v_of(car.position)
 	var crumble_on := state == RUN and crumble_delay <= 0.0
 	var gap := cv - world.crumble_v
-	var cspeed := lerpf(6.0, 7.4, world.difficulty) + clampf((gap - 32.0) * 0.3, 0.0, 6.0)
+	var cspeed := lerpf(6.0, 7.4, world.difficulty) * lerpf(1.0, car.pace, 0.9) + clampf((gap - 32.0) * 0.3, 0.0, 6.0)
 	world.tick(dt, maxf(cv, max_v), cspeed, crumble_on, time, car.position, car.vel)
 	honk_cd -= dt
 	if world.honk_pending:
@@ -543,10 +600,29 @@ func _sim(dt: float) -> void:
 		run["dist"] = int(max_v)
 		if best_target > 0 and style + int(max_v) + run_coins * 5 > best_target:
 			ui.passed_best()
+	# deck challenges: a heads-up as one comes into view, a reward for making it across
+	for dk in world.decks:
+		if dk["done"]:
+			continue
+		var plank: bool = dk["style"] == "plank"
+		if not dk.get("warned", false) and cv > float(dk["va"]) - 26.0:
+			dk["warned"] = true
+			ui.toast("Tightrope bridge ahead!" if plank else "Race track ahead!", "flag", K.SUN if plank else K.CORAL, K.INK if plank else Color.WHITE, 1.8)
+		if max_v > float(dk["vb"]) + 1.0 and car.grounded and not car.dead:
+			dk["done"] = true
+			var length: float = float(dk["vb"]) - float(dk["va"])
+			run["decks"] = int(run.get("decks", 0)) + 1
+			run["planks" if plank else "tracks"] = int(run.get("planks" if plank else "tracks", 0)) + 1
+			_style(int(length * (3.0 if plank else 2.4)), "Tightrope!" if plank else "Track run!", car.position, K.SUN if plank else K.CORAL, "%dm" % int(length))
+			sfx("spin", -2.0, 1.1)
+			buzz(50, 0.7)
+			fx.burst(car.position + Vector3(0, 0.6, 0), ["ffc94d", "ff7a6b", "fff3b0"] if plank else ["ef5b4c", "f7f3ea", "ffcf4d"], 12, 3.5, 4.0)
+			if args.has("auto"):
+				print("DECK CROSSED ", dk["style"], " len=", int(length), " at v=", int(cv))
 	# fuel
 	if car.active and car.speed() > 0.5:
 		var before := car.fuel
-		car.fuel = maxf(0.0, car.fuel - dt / fuel_cap)
+		car.fuel = maxf(0.0, car.fuel - dt * (1.0 + (car.pace - 1.0) * 0.5) / fuel_cap)
 		if before > 0.2 and car.fuel <= 0.2 and not low_fuel_warned:
 			low_fuel_warned = true
 			ui.toast("Low fuel!", "fuel", K.CORAL, Color.WHITE, 1.6)
@@ -572,6 +648,7 @@ func _sim(dt: float) -> void:
 	if car.dead:
 		return
 	# scenery
+	solid_cd -= dt
 	for e in world.collide(car.position, Car.RADIUS, car.vel, car.forward()):
 		match e["type"]:
 			"knock":
@@ -589,13 +666,10 @@ func _sim(dt: float) -> void:
 				if randf() < 0.35:
 					ui.popup(["Bonk!", "Oops!", "Boop!", "Whoops!"][randi() % 4], e["pos"] + Vector3(0, 1.0, 0), Color.WHITE, 30)
 			"solid":
-				var n: Vector3 = e["normal"]
-				car.position += n * e["depth"]
-				var vn := car.vel.dot(n)
-				if vn < 0.0:
-					car.vel -= n * vn * 1.4
-					car.vel *= 0.8
-					sfx("bonk")
+				var hit := car.push_solid(e["normal"], e["depth"], dt)
+				if hit > 1.5 and solid_cd <= 0.0:
+					solid_cd = 0.4
+					sfx("bonk", -3.0 + minf(hit, 9.0) * 0.3)
 					buzz(40, 0.8)
 					shake = maxf(shake, 0.2)
 			"near":
@@ -746,6 +820,12 @@ func _chase_tick(dt: float, cv: float) -> void:
 	police.tick(dt, atmos.night)
 
 const CATCH_SAFE := 2.0
+var wall_hits := 0
+var ach_t := 0.0
+var next_gear := 1.1
+var solid_cd := 0.0
+var slow_t := 0.0
+var slow_max := 0.0
 
 func _chase_end(escaped: bool) -> void:
 	if args.has("auto"):
@@ -801,8 +881,14 @@ func _finish_run(why: String) -> void:
 	var s = save.data
 	s["coins"] = int(s["coins"]) + run_coins
 	s["runs"] = int(s["runs"]) + 1
-	s["stats"]["distance"] = float(s["stats"]["distance"]) + dist
-	s["stats"]["coins"] = int(s["stats"]["coins"]) + run_coins
+	var live := _ach_live()
+	if daily:
+		live["daily_runs"] = 1
+	var ach_before := int(s["coins"])
+	Ach.fold(s, live)
+	var ach_late := Ach.check(s, {})
+	var ach_coins := int(s["coins"]) - ach_before + ach_run_coins
+	var ach_new: Array = ach_run.duplicate() + ach_late
 	var record := false
 	if daily:
 		var d = s["daily"]
@@ -832,9 +918,41 @@ func _finish_run(why: String) -> void:
 		fx.burst(car.position + Vector3(0, 1.0, 0), ["ff7a6b", "ffc94d", "3db5a6", "a998f2", "6ec6ff"], 40, 6.0, 8.0, 1.6)
 	var result := {"why": why, "dist": dist, "style": style, "coins": run_coins, "score": score, "record": record,
 		"best": int(s["daily"]["best"]) if daily else int(s["best"]), "mission_coins": mc, "missions": shown_missions,
-		"run": run.duplicate(), "daily": daily, "date": today()}
+		"run": run.duplicate(), "daily": daily, "date": today(), "ach": ach_new, "ach_coins": ach_coins}
 	await get_tree().create_timer(0.35).timeout
 	ui.show_over(result)
+	_ach_announce(ach_late)
+
+# ------------------------------------------------------------------ achievements
+
+var ach_run: Array = []     # unlocked during the current run (already paid)
+var ach_run_coins := 0
+
+## The current run's counters, keyed like the lifetime stats.
+func _ach_live() -> Dictionary:
+	return {"distance": max_v, "max_dist": max_v, "max_kmh": Car.CRUISE * car.pace * 3.6 + 0.01,
+		"coins": run_coins, "max_coins_run": run_coins,
+		"drift": run["drift"], "max_drift": run.get("drift_max", 0.0), "max_chain": run.get("max_chain", 0),
+		"jumps": run["jumps"], "spin720": run["spin720"], "spins": run["spins"], "clean": run["clean"],
+		"near": run["near"], "knocks": run["knocks"], "planks": run.get("planks", 0), "tracks": run.get("tracks", 0),
+		"decks": run.get("decks", 0), "chases": run["chases"], "max_regions": run["regions"], "stations": run["stations"],
+		"night": run["night"], "weather": run["weather"], "max_score": int(max_v) + style + run_coins * 5}
+
+func _ach_announce(list: Array) -> void:
+	if list.is_empty():
+		return
+	for a in list:
+		ui.toast("%s  +%d" % [a["name"], int(a["reward"])], "trophy", K.SUN, K.INK, 2.6)
+		if state == RUN:
+			ach_run.append(a)
+			ach_run_coins += int(a["reward"])
+	sfx("mission", -2.0, 1.12)
+	buzz(70, 0.8)
+	save.save()
+
+## Garage and upgrade achievements (called by the UI after buying).
+func ach_check() -> void:
+	_ach_announce(Ach.check(save.data, {}))
 
 # ------------------------------------------------------------------ camera
 
@@ -842,7 +960,7 @@ func _cam_update(dt: float, snap: bool) -> void:
 	var target := car.position
 	if car.dead and car.falling:
 		target = Vector3(car.position.x, maxf(car.position.y, -1.5), car.position.z)
-	var lead := world.F * (4.4 if chase_state != "on" else 1.6) + Vector3(car.vel.x, 0, car.vel.z) * 0.16
+	var lead := world.F * ((4.4 if chase_state != "on" else 1.6) + (car.pace - 1.0) * 3.0) + Vector3(car.vel.x, 0, car.vel.z) * 0.16
 	if state == TITLE or state == GARAGE:
 		lead = world.F * 2.0
 	var want := Vector3(target.x, maxf(target.y * 0.6, -1.0), target.z) + lead
@@ -850,7 +968,7 @@ func _cam_update(dt: float, snap: bool) -> void:
 		cam_focus = want
 	else:
 		cam_focus = cam_focus.lerp(want, 1.0 - exp(-dt * 4.0))
-	var want_size := CAM_SIZE + (1.0 if not car.grounded and not car.dead else 0.0) + (1.2 if chase_state == "on" else 0.0)
+	var want_size := CAM_SIZE + (1.0 if not car.grounded and not car.dead else 0.0) + (1.2 if chase_state == "on" else 0.0) + (car.pace - 1.0) * 2.2
 	if state == TITLE:
 		want_size = CAM_SIZE - 1.8
 	cam_size = want_size if snap else lerpf(cam_size, want_size, 1.0 - exp(-dt * 2.0))
@@ -1038,13 +1156,17 @@ func _auto_steer() -> float:
 	var v := world.v_of(car.position)
 	var best_off := 0.0
 	var best_score := -999.0
-	for off in [0.0, -1.2, 1.2, -2.4, 2.4]:
+	var aim := float(args.get("hug", "0"))
+	var offs := [0.0, -1.2, 1.2, -2.4, 2.4]
+	if args.has("hug"):
+		offs = [aim, aim * 0.85, aim * 0.7, aim * 0.5, 0.0]
+	for off in offs:
 		var sc := 0.0
 		for k in [3.0, 5.5, 8.0]:
 			var q := world.pos_at(v + k, off)
 			if world.ground_at(q) == World.NO_GROUND and world.ramp_at(q).is_empty():
 				sc -= 3.0
-		sc -= absf(off) * 0.3
+		sc -= absf(off - aim) * 0.3
 		if sc > best_score:
 			best_score = sc
 			best_off = off
@@ -1072,6 +1194,12 @@ func _warp(v: float) -> void:
 	_cam_update(1.0, true)
 
 func _harness() -> void:
+	if args.has("trace") and state == RUN and frames % 6 == 0:
+		var cv := world.v_of(car.position)
+		print("TR t=%.2f v=%.1f u=%.2f spd=%.2f yaw=%.2f drift=%.2f gr=%s steer=%.2f g=%.2f stuck=%.2f" % [run_t, cv, world.u_of(car.position) - world.center(cv), car.speed(), car.yaw, car.drift, car.grounded, car.steer, world.ground_at(car.position), car.stuck_t])
+	if args.has("auto") and state == RUN and car.fuel > 0.0:
+		slow_t = slow_t + get_process_delta_time() if car.speed() < 2.0 else 0.0
+		slow_max = maxf(slow_max, slow_t)
 	if args.has("shot"):
 		var at := int(args.get("frames", "90"))
 		if frames == at:
@@ -1081,7 +1209,7 @@ func _harness() -> void:
 			if not args.has("keep"):
 				get_tree().quit()
 	if args.has("quit_after") and (run_t > float(args["quit_after"]) or (state == OVER and ui.over.visible)):
-		print("RESULT t=%.1f dist=%d style=%d coins=%d dead=%s why=%s state=%d tiles=%d" % [run_t, int(max_v), style, run_coins, car.dead, death, state, world.tiles.size()])
+		print("RESULT t=%.1f dist=%d style=%d coins=%d dead=%s why=%s state=%d tiles=%d walls=%d stuck=%.2f" % [run_t, int(max_v), style, run_coins, car.dead, death, state, world.tiles.size(), wall_hits, slow_max])
 		get_tree().quit()
 	if args.has("over") and frames == 40 and state == RUN:
 		max_v = 412.0
@@ -1097,6 +1225,13 @@ func _harness() -> void:
 			"missions": ui.open_missions()
 			"settings": ui.open_settings()
 			"daily": ui.open_daily()
+			"trophies":
+				for id in ["first_run", "d500", "plank1", "drift3", "coins500"]:
+					save.data["ach"][id] = true
+				save.data["stats"]["max_dist"] = 812
+				save.data["stats"]["distance"] = 6400
+				save.data["stats"]["chases"] = 2
+				ui.open_achievements()
 			"pause":
 				pause()
 	if args.has("auto") and state == OVER and args.has("loops"):

@@ -217,7 +217,8 @@ func tick(dt: float, v: Dictionary) -> void:
 	var speed: float = v.get("speed", 0.0)
 	var active: bool = v.get("active", false)
 	var grounded: bool = v.get("grounded", true)
-	var k := clampf(speed / 9.0, 0.0, 2.0)
+	var pace: float = v.get("pace", 1.0)
+	var k := clampf(speed / (9.0 * pace), 0.0, 2.0)
 	# where the RPM wants to be
 	var target: float
 	if not active:
@@ -230,6 +231,7 @@ func tick(dt: float, v: Dictionary) -> void:
 		target = lerpf(R[1], R[2], 0.62 * minf(k, 1.0)) + maxf(0.0, k - 1.0) * (R[3] - R[2]) * 1.2
 		target *= 1.0 + float(v.get("drift", 0.0)) * 0.09
 		target += float(v.get("boost", 0.0)) * (R[3] - R[2]) * 0.55
+		target *= 1.0 + (pace - 1.0) * 0.14
 	rpm = lerpf(rpm, target, 1.0 - exp(-dt * (5.0 if target > rpm else 2.6)))
 	rpm = clampf(rpm, R[0] * 0.8, R[3] * 1.15)
 	# crossfade the two layers around the current RPM and bend their pitch to match

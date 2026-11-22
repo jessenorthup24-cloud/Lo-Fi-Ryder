@@ -100,6 +100,58 @@ static func _m_bridge() -> ArrayMesh:
 	b.box(Vector3(1.08, 0.46, -0.8), Vector3(0.04, 0.04, 1.6), MB.rgb("e9d2b0"))
 	return b.commit()
 
+# ---- deck challenge pieces: 1 m long along -Z (scaled to length per piece), top at y = 0
+
+static func _m_deck_plank() -> ArrayMesh:
+	# a skinny plank walkway section, 1.44 wide
+	var b := MB.new()
+	var cols := [p(P.PLANK), p(P.PLANK), p(P.WOOD_DARK), p(P.PLANK)]
+	for i in 4:
+		var z := -0.125 - i * 0.25
+		b.cbox(Vector3([0.02, -0.03, 0.0, 0.03][i], -0.05, z), Vector3(1.44 + [0.0, 0.06, -0.04, 0.03][i], 0.1, 0.22), 0.02, cols[i])
+	for sgn in [-1.0, 1.0]:
+		b.box(Vector3(sgn * 0.55, -0.16, -0.5), Vector3(0.1, 0.12, 1.02), p(P.WOOD_DARK))
+	return b.commit()
+
+static func _m_deck_stilt() -> ArrayMesh:
+	# tall stilts down into the haze, a cross brace, and two little lantern posts at the edges
+	var b := MB.new()
+	for sgn in [-1.0, 1.0]:
+		b.box(Vector3(sgn * 0.52, -3.7, -0.1), Vector3(0.13, 7.2, 0.13), p(P.WOOD_DARK))
+		b.box(Vector3(sgn * 0.8, 0.12, -0.1), Vector3(0.09, 0.42, 0.09), p(P.WOOD_DARK))
+		b.box(Vector3(sgn * 0.8, 0.38, -0.1), Vector3(0.13, 0.11, 0.13), MB.glow("ffd27a"))
+	b.box(Vector3(0, -1.2, -0.1), Vector3(1.5, 0.08, 0.08), p(P.WOOD_DARK), Basis(Vector3.BACK, 0.55))
+	b.box(Vector3(0, -2.9, -0.1), Vector3(1.5, 0.08, 0.08), p(P.WOOD_DARK), Basis(Vector3.BACK, -0.55))
+	b.box(Vector3(0, -0.28, -0.1), Vector3(1.24, 0.1, 0.14), p(P.WOOD_DARK))
+	return b.commit()
+
+static func _track(red: bool) -> ArrayMesh:
+	# a toy race-track section, 2.4 wide: slate deck, candy kerbs, dashed centre line
+	var b := MB.new()
+	b.box(Vector3(0, -0.07, -0.5), Vector3(2.4, 0.14, 1.02), MB.rgb("56607a"))
+	b.box(Vector3(0, -0.24, -0.5), Vector3(2.24, 0.2, 1.0), MB.rgb("3d455a"))
+	var kc := MB.rgb("ef5b4c") if red else MB.rgb("f7f3ea")
+	for sgn in [-1.0, 1.0]:
+		b.box(Vector3(sgn * 1.08, 0.015, -0.5), Vector3(0.24, 0.06, 1.02), kc)
+		b.box(Vector3(sgn * 1.22, -0.06, -0.5), Vector3(0.05, 0.2, 1.02), MB.rgb("ffcf4d"))
+	if red:
+		b.box(Vector3(0, 0.005, -0.5), Vector3(0.1, 0.02, 0.55), MB.rgb("f7f3ea"))
+	return b.commit()
+
+static func _m_deck_track_a() -> ArrayMesh:
+	return _track(true)
+
+static func _m_deck_track_b() -> ArrayMesh:
+	return _track(false)
+
+static func _m_deck_stand() -> ArrayMesh:
+	# a chunky toy track stand under the deck
+	var b := MB.new()
+	b.box(Vector3(0, -0.4, -0.1), Vector3(1.9, 0.14, 0.26), MB.rgb("ff9a3d"))
+	b.cyl(Vector3(0, -3.6, -0.1), 0.17, 6.4, MB.rgb("ffcf4d"), 10)
+	b.cyl(Vector3(0, -0.62, -0.1), 0.26, 0.3, MB.rgb("ff9a3d"), 10)
+	return b.commit()
+
 static func _m_station() -> ArrayMesh:
 	# a little roadside gas stop beside the pad; origin = pad center, building on +X
 	var b := MB.new()

@@ -6,6 +6,7 @@ const M := preload("res://scripts/core/models.gd")
 const CARS := preload("res://scripts/game/cars.gd")
 
 const BASE_SPEED := 10.0     # you cruise at 9: it gains about 1 m/s unless you boost
+var pace := 1.0              # matches the car's speed-up over the run
 const CATCH_GAP := 1.4
 const LOST_GAP := 42.0
 
@@ -165,7 +166,7 @@ func tick(dt: float, night: float) -> void:
 			body.position.y = sin(t * 20.0) * 0.004
 		"chasing":
 			var g := gap()
-			var want := BASE_SPEED + (1.2 if g > 24.0 else 0.0)
+			var want := BASE_SPEED * pace + (1.2 if g > 24.0 else 0.0)
 			speed = move_toward(speed, want, dt * 5.0)
 			s = minf(s + speed * dt, trail_s)
 			var at := _at(s)

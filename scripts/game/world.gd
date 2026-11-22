@@ -69,6 +69,13 @@ var props_hash := {}    # Vector2i (2x2 m cells) -> Array of props
 var coins: Array = []
 var fuels: Array = []
 var surfaces: Array = []   # ramps and bridges: {kind, origin, fwd, side, len, half_w, height, launch, s}
+var surf_cells := {}       # Vector2i (4 m cell) -> Array of surfaces touching it
+var bends: Array = []      # extra S-curves in the centerline over deck challenges: {va, vb, amp, k}
+var decks: Array = []      # deck challenges: {style, va, vb}
+var last_deck_v := 0.0
+var force_deck := ""       # testing: make the first challenge this style, early
+const SURF_CELL := 4.0
+const NO_SURFS: Array = []
 var stations: Array = []
 var markers: Array = []
 var lamps: Array = []
@@ -115,9 +122,11 @@ func setup(g: Node, material: ShaderMaterial, font: Font) -> void:
 		for nm in DECOR[b]:
 			if not pools.has(nm):
 				pools[nm] = _pool(nm, 260 if DECOR[b][nm][1] < 0.8 else 24, false, DECOR[b][nm][2] != "flat", DECOR[b][nm][3])
-	for nm in ["coin", "fuel", "ramp", "bridge", "station", "arch", "marker", "lamp", "windmill_blades", "pad"]:
+	for nm in ["coin", "fuel", "ramp", "bridge", "station", "arch", "marker", "lamp", "windmill_blades", "pad",
+			"deck_plank", "deck_track_a", "deck_track_b", "deck_stilt", "deck_stand"]:
 		if not pools.has(nm):
-			var cap := {"coin": 260, "fuel": 24, "ramp": 24, "bridge": 80, "station": 6, "arch": 2, "marker": 6, "lamp": 60, "windmill_blades": 24, "pad": 30}[nm] as int
+			var cap := {"coin": 260, "fuel": 24, "ramp": 24, "bridge": 80, "station": 6, "arch": 2, "marker": 6, "lamp": 60, "windmill_blades": 24, "pad": 30,
+				"deck_plank": 220, "deck_track_a": 130, "deck_track_b": 130, "deck_stilt": 50, "deck_stand": 50}[nm] as int
 			pools[nm] = _pool(nm, cap, false, nm != "coin")
 	for nm in TILE_POOLS:
 		pools[nm] = _pool(nm, TILE_POOLS[nm], true)
@@ -161,6 +170,8 @@ func reset(seed_in: int, force_biome := "") -> void:
 		m["label"].queue_free()
 	tiles.clear(); stripes.clear(); stripe_items.clear(); falling.clear(); knocked.clear()
 	props_hash.clear(); coins.clear(); fuels.clear(); surfaces.clear(); stations.clear()
+	surf_cells.clear(); bends.clear(); decks.clear()
+	last_deck_v = 0.0
 	pads.clear(); chases.clear()
 	places.clear(); anims.clear()
 	people.clear()
@@ -201,11 +212,20 @@ func _shuffle(a: Array) -> void:
 
 # ------------------------------------------------------------------ geometry helpers
 
+## Cruise multiplier at distance v: the run keeps getting faster (1.0 at the start, ~1.5 by 800 m, ~1.8 late).
+func pace_at(v: float) -> float:
+	return 1.0 + 0.8 * (1.0 - exp(-maxf(v, 0.0) / 800.0))
+
 func center(v: float) -> float:
 	var a := clampf(1.5 + maxf(v, 0.0) / 160.0, 1.5, 6.0)
 	if v < 10.0:
 		a *= clampf((v + 10.0) / 20.0, 0.0, 1.0)
-	return a * (0.62 * sin(v / 23.0 + amp_phase.x) + 0.38 * sin(v / 11.7 + amp_phase.y)) - a * (0.62 * sin(amp_phase.x) + 0.38 * sin(amp_phase.y)) * clampf(1.0 - v / 30.0, 0.0, 1.0)
+	var c := a * (0.62 * sin(v / 23.0 + amp_phase.x) + 0.38 * sin(v / 11.7 + amp_phase.y)) - a * (0.62 * sin(amp_phase.x) + 0.38 * sin(amp_phase.y)) * clampf(1.0 - v / 30.0, 0.0, 1.0)
+	for b in bends:
+		if v > b["va"] and v < b["vb"]:
+			var t: float = (v - b["va"]) / (b["vb"] - b["va"])
+			c += b["amp"] * sin(PI * b["k"] * t) * sin(PI * t)
+	return c
 
 func tangent(v: float) -> Vector3:
 	var dc := (center(v + 0.5) - center(v - 0.5))
@@ -244,6 +264,10 @@ func _plan_until(v_target: float) -> void:
 		_plan_next()
 
 func _plan_next() -> void:
+	while not bends.is_empty() and float(bends[0]["vb"]) < plan_v - 260.0:
+		bends.pop_front()
+	while not decks.is_empty() and float(decks[0]["vb"]) < plan_v - 260.0:
+		decks.pop_front()
 	var d := clampf(plan_v / 2600.0, 0.0, 1.0)
 	var v0 := plan_v
 	# biome change: a crossing, then the new biome
@@ -267,6 +291,19 @@ func _plan_next() -> void:
 		station_count += 1
 		next_station_v = sv + clampf(210.0 + station_count * 26.0, 210.0, 440.0)
 		_add_land(plan_v, 14.0, d, "plain")
+		return
+	# deck challenges: a long skinny plank bridge or a twisty toy race track over the drop
+	var deck_ok := v0 > 150.0 and v0 - last_deck_v > 110.0 and v0 + 90.0 < next_biome_v
+	if force_deck != "" and v0 > 30.0 and last_deck_v == 0.0:
+		deck_ok = true
+	if deck_ok and (rng.randf() < 0.2 + d * 0.12 or (force_deck != "" and last_deck_v == 0.0)):
+		var style := "plank" if rng.randf() < 0.5 else "track"
+		if force_deck != "" and last_deck_v == 0.0:
+			style = force_deck
+		_add_land(v0, rng.randf_range(16.0, 24.0), d, "plain", true)
+		_add_deck(plan_v, style, d)
+		last_deck_v = plan_v
+		_add_land(plan_v, rng.randf_range(20.0, 30.0), d, "plain")
 		return
 	var len := rng.randf_range(26.0, 52.0) * lerpf(1.0, 0.75, d)
 	var roll := rng.randf()
@@ -347,6 +384,7 @@ func _add_ramp(v_top: float, u_off: float, launch: float, gap_ramp: bool) -> voi
 	surf["slot"] = pools["ramp"].alloc()
 	pools["ramp"].put(surf["slot"], Transform3D(Basis(Vector3.UP, yaw), origin))
 	surfaces.append(surf)
+	_surf_add(surf)
 	_stripe_add(s, surf)
 	if not gap_ramp:
 		for k in 4:
@@ -369,9 +407,141 @@ func _add_bridge(va: float, vb: float) -> void:
 		pools["bridge"].put(slot, Transform3D(Basis(Vector3.UP, yaw), a + dir * (k * 1.6)))
 		surf["slots"].append(slot)
 	surfaces.append(surf)
+	_surf_add(surf)
 	_stripe_add(_stripe_of(va + length * 0.5), surf)
 	for k in int(length / 1.6):
 		_add_coin(a + dir * (0.8 + k * 1.6) + Vector3(0, 0.5, 0), _stripe_of(va + k * 1.6))
+
+## A deck challenge across a long drop. "plank": a skinny wooden bridge on stilts that sags and sways
+## through gentle S-bends. "track": a toy race track with candy kerbs, tighter bends and little hills.
+## Built from short straight pieces, each its own surface, so they crumble away one by one behind you.
+func _add_deck(v0: float, style: String, d: float) -> void:
+	var plank := style == "plank"
+	var L := (rng.randf_range(34.0, 48.0) if plank else rng.randf_range(42.0, 60.0)) + d * 16.0
+	var speed := 9.0 * pace_at(v0 + L * 0.5) * 1.05
+	var r_min := maxf(6.0, speed * (0.62 if plank else 0.48))
+	var k := rng.randi_range(2, 3) if plank else rng.randi_range(3, 5)
+	var wv := PI * float(k) / L
+	var amp := minf(rng.randf_range(2.2, 3.6) if plank else rng.randf_range(2.6, 4.4), 1.0 / (r_min * wv * wv))
+	amp = minf(amp, 0.85 / wv)   # keep the steepest bit under ~40°
+	if rng.randf() < 0.5:
+		amp = -amp
+	bends.append({"va": v0, "vb": v0 + L, "amp": amp, "k": k})
+	segments.append({"v0": v0, "v1": v0 + L, "type": "gap", "biome": cur_biome, "w": 0.0, "holes": [], "density": 0.0,
+		"narrow_end": false, "kind": "deck_" + style})
+	decks.append({"style": style, "va": v0, "vb": v0 + L, "done": false})
+	var half := 0.72 if plank else 1.2
+	var sag := rng.randf_range(0.35, 0.7) if plank else 0.0
+	var hill := (rng.randf_range(0.5, 1.1) if rng.randf() < 0.7 else 0.0) if not plank else 0.0
+	var humps := rng.randi_range(1, 2)
+	var yfn := func(vv: float) -> float:
+		var t := clampf((vv - v0) / L, 0.0, 1.0)
+		return -sag * sin(PI * t) if plank else hill * pow(sin(PI * float(humps) * t), 2.0)
+	var vv := v0 - 1.4
+	var idx := 0
+	while vv < v0 + L + 1.4:
+		var step := 1.0
+		var a := pos_at(vv, 0.0)
+		var b := pos_at(vv + step, 0.0)
+		a.y = yfn.call(vv)
+		b.y = yfn.call(vv + step)
+		var dir := b - a
+		dir.y = 0.0
+		var length := dir.length()
+		dir /= length
+		var side := Vector3(-dir.z, 0, dir.x)
+		var yaw := atan2(-dir.x, -dir.z)
+		var pitch := atan2(b.y - a.y, length)
+		var pool_name := "deck_plank" if plank else ("deck_track_a" if idx % 2 == 0 else "deck_track_b")
+		var basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, pitch)
+		var s := _stripe_of(vv + step * 0.5)
+		var surf := {"kind": "deck", "style": style, "origin": a, "fwd": dir, "side": side, "len": length, "half_w": half,
+			"y0": a.y, "y1": b.y, "pad": 0.22, "height": 0.0, "launch": 0.0, "s": s, "pool": pool_name, "slot": -1,
+			"x_pool": "", "x_slot": -1, "basis": basis, "roll": "wood" if plank else "road"}
+		surf["slot"] = pools[pool_name].alloc()
+		if surf["slot"] >= 0:
+			pools[pool_name].put(surf["slot"], Transform3D(basis * Basis.from_scale(Vector3(1, 1, length + 0.12)), a - dir * 0.06))
+		# stilts / track stands every few pieces (not on the island overlap)
+		if idx % (5 if plank else 6) == 2 and vv > v0 + 1.0 and vv < v0 + L - 2.0:
+			var xp := "deck_stilt" if plank else "deck_stand"
+			var xs: int = pools[xp].alloc()
+			if xs >= 0:
+				surf["x_pool"] = xp
+				surf["x_slot"] = xs
+				pools[xp].put(xs, Transform3D(Basis(Vector3.UP, yaw), a))
+		surfaces.append(surf)
+		_surf_add(surf)
+		_stripe_add(s, surf)
+		vv += step
+		idx += 1
+	# coins down the middle, a fuel can halfway on the long ones
+	var cv := v0 + 4.0
+	while cv < v0 + L - 3.0:
+		var cp := pos_at(cv, 0.0)
+		cp.y = yfn.call(cv) + 0.5
+		_add_coin(cp, _stripe_of(cv))
+		cv += 2.6
+	if L > 44.0:
+		var fp := pos_at(v0 + L * 0.5 + 1.3, 0.0)
+		fp.y = yfn.call(v0 + L * 0.5 + 1.3)
+		_add_fuel(fp, _stripe_of(v0 + L * 0.5 + 1.3))
+	plan_v = v0 + L
+
+## Spatial index for surfaces (ramps, bridges, deck pieces): which 4 m cells each one touches.
+func _surf_add(s: Dictionary) -> void:
+	var o: Vector3 = s["origin"]
+	var f: Vector3 = s["fwd"]
+	var sd: Vector3 = s["side"]
+	var pad := 0.35
+	var hw: float = s["half_w"] + pad
+	var a: Vector3 = o - f * pad
+	var b: Vector3 = o + f * (float(s["len"]) + pad)
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for c in [a + sd * hw, a - sd * hw, b + sd * hw, b - sd * hw]:
+		lo = Vector2(minf(lo.x, c.x), minf(lo.y, c.z))
+		hi = Vector2(maxf(hi.x, c.x), maxf(hi.y, c.z))
+	var cells := []
+	for cx in range(int(floor(lo.x / SURF_CELL)), int(floor(hi.x / SURF_CELL)) + 1):
+		for cz in range(int(floor(lo.y / SURF_CELL)), int(floor(hi.y / SURF_CELL)) + 1):
+			var key := Vector2i(cx, cz)
+			if not surf_cells.has(key):
+				surf_cells[key] = []
+			surf_cells[key].append(s)
+			cells.append(key)
+	s["cells"] = cells
+
+func _surf_remove(s: Dictionary) -> void:
+	for key in s.get("cells", []):
+		if surf_cells.has(key):
+			surf_cells[key].erase(s)
+			if surf_cells[key].is_empty():
+				surf_cells.erase(key)
+	surfaces.erase(s)
+
+func _surfs_at(p: Vector3) -> Array:
+	return surf_cells.get(Vector2i(int(floor(p.x / SURF_CELL)), int(floor(p.z / SURF_CELL))), NO_SURFS)
+
+## The deck piece under p (or {}).
+func deck_at(p: Vector3) -> Dictionary:
+	for s in _surfs_at(p):
+		if s["kind"] != "deck" or s.get("falling", false):
+			continue
+		var rel: Vector3 = p - s["origin"]
+		var f: float = rel.x * s["fwd"].x + rel.z * s["fwd"].z
+		if f < -0.22 or f > s["len"] + 0.22:
+			continue
+		var sd: float = rel.x * s["side"].x + rel.z * s["side"].z
+		if absf(sd) <= s["half_w"]:
+			return s
+	return {}
+
+## The deck challenge spanning progress v (or {}).
+func deck_span(v: float) -> Dictionary:
+	for dk in decks:
+		if v >= dk["va"] and v <= dk["vb"]:
+			return dk
+	return {}
 
 func _add_station(v: float) -> void:
 	var t := tangent(v)
@@ -1072,7 +1242,7 @@ func _gen_stripe(s: int) -> void:
 			pool_name = "tile_rock"
 			top = P.MOSS
 			side = P.ROCK
-			height = 0.7 + _hash(i, j, 15) * 1.1
+			height = 0.7 + _hash(i, j, 15) * 0.8
 		var tile := {"key": key, "pos": pos, "y": height, "s": s, "state": 0, "t": 0.0, "surface": surface, "top": top,
 			"slot": -1, "under": -1, "rot": Vector3.ZERO, "spin": Vector3.ZERO, "vy": 0.0, "place": in_place, "bits": -1,
 			"ry": 0.0 if pool_name == "tile_rock" else height, "sy": height if pool_name == "tile_rock" else 1.0}
@@ -1208,19 +1378,23 @@ func ground_at(p: Vector3) -> float:
 	var t = tiles.get(key)
 	if t != null and t["state"] < 2 and t["surface"] != "water":
 		h = t["y"]
-	for s in surfaces:
+	for s in _surfs_at(p):
 		var rel: Vector3 = p - s["origin"]
 		var f: float = rel.x * s["fwd"].x + rel.z * s["fwd"].z
-		if f < -0.05 or f > s["len"] + 0.05:
+		var pad: float = s.get("pad", 0.05)
+		if f < -pad or f > s["len"] + pad:
 			continue
 		var sd: float = rel.x * s["side"].x + rel.z * s["side"].z
 		if absf(sd) > s["half_w"]:
 			continue
 		if s.get("falling", false):
 			continue
-		var y: float = s["height"] * clampf(f / s["len"], 0.0, 1.0) if s["kind"] == "ramp" else 0.0
-		if s["kind"] == "ramp":
-			y += _tile_y_under(s["origin"])
+		var y := 0.0
+		match s["kind"]:
+			"ramp":
+				y = s["height"] * clampf(f / s["len"], 0.0, 1.0) + _tile_y_under(s["origin"])
+			"deck":
+				y = lerpf(s["y0"], s["y1"], clampf(f / s["len"], 0.0, 1.0))
 		h = maxf(h, y)
 	return h
 
@@ -1230,7 +1404,7 @@ func _tile_y_under(p: Vector3) -> float:
 
 ## The ramp under a point (or {}), so the car knows when it leaves a kicker's lip.
 func ramp_at(p: Vector3) -> Dictionary:
-	for s in surfaces:
+	for s in _surfs_at(p):
 		if s["kind"] != "ramp":
 			continue
 		var rel: Vector3 = p - s["origin"]
@@ -1242,12 +1416,13 @@ func ramp_at(p: Vector3) -> Dictionary:
 
 ## What the tyres are rolling on, for the sound: road, grass, gravel, wood or snow.
 func roll_at(p: Vector3, winter: bool) -> String:
-	for s in surfaces:
+	for s in _surfs_at(p):
 		var rel: Vector3 = p - s["origin"]
 		var f: float = rel.x * s["fwd"].x + rel.z * s["fwd"].z
 		var sd: float = rel.x * s["side"].x + rel.z * s["side"].z
-		if f >= -0.05 and f <= s["len"] + 0.05 and absf(sd) <= s["half_w"] and not s.get("falling", false):
-			return "wood"
+		var pad: float = s.get("pad", 0.05)
+		if f >= -pad and f <= s["len"] + pad and absf(sd) <= s["half_w"] and not s.get("falling", false):
+			return s.get("roll", "wood")
 	for st in stations:
 		if p.distance_to(st["pos"]) < 2.6:
 			return "road"
@@ -1266,8 +1441,8 @@ func roll_at(p: Vector3, winter: bool) -> String:
 
 func surface_at(p: Vector3) -> String:
 	var t = tiles.get(_key(p))
-	if t == null:
-		return "none"
+	if t == null or t["state"] >= 2:
+		return "deck" if not deck_at(p).is_empty() else "none"
 	return t["surface"]
 
 func water_at(p: Vector3) -> bool:
@@ -1375,7 +1550,7 @@ func collect(p: Vector3, magnet: float, dt: float) -> Array:
 
 ## Distance along the edge-normal to the nearest drop, sampled to the car's sides.
 func edge_skim(p: Vector3, side: Vector3) -> bool:
-	if ground_at(p) == NO_GROUND:
+	if ground_at(p) == NO_GROUND or not deck_at(p).is_empty():
 		return false
 	return ground_at(p + side * 0.95) == NO_GROUND or ground_at(p - side * 0.95) == NO_GROUND
 
@@ -1424,7 +1599,7 @@ func _crumble_stripe(s: int) -> void:
 		stripes.erase(s)
 	if stripe_items.has(s):
 		for it in stripe_items[s]:
-			if it.has("kind") and (it["kind"] == "ramp" or it["kind"] == "bridge"):
+			if it.has("kind") and (it["kind"] == "ramp" or it["kind"] == "bridge" or it["kind"] == "deck"):
 				it["falling"] = true
 				it["ft"] = 0.0
 				it["fy"] = 0.0
@@ -1510,7 +1685,16 @@ func _tick_falling(dt: float) -> void:
 			var off := Vector3(0, t["fy"], 0)
 			var yaw := atan2(-t["fwd"].x, -t["fwd"].z)
 			var tilt := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, -t["fy"] * 0.04)
-			if t["kind"] == "ramp":
+			if t["kind"] == "deck":
+				if not t.has("spin"):
+					t["spin"] = Vector3(randf_range(-0.9, 0.9), randf_range(-0.4, 0.4), randf_range(-0.9, 0.9))
+				var rot := Basis.from_euler(t["spin"] * (t["ft"] - 0.4))
+				var bb: Basis = rot * t["basis"]
+				if t["slot"] >= 0:
+					pools[t["pool"]].put(t["slot"], Transform3D(bb * Basis.from_scale(Vector3(1, 1, t["len"] + 0.12)), t["origin"] - t["fwd"] * 0.06 + off))
+				if t["x_slot"] >= 0:
+					pools[t["x_pool"]].put(t["x_slot"], Transform3D(rot * Basis(Vector3.UP, yaw), t["origin"] + off))
+			elif t["kind"] == "ramp":
 				pools["ramp"].put(t["slot"], Transform3D(tilt, t["origin"] + off))
 			elif t["kind"] == "bridge":
 				for k in t["slots"].size():
@@ -1518,13 +1702,19 @@ func _tick_falling(dt: float) -> void:
 			elif t["kind"] == "station":
 				pools["station"].put(t["slot"], Transform3D(tilt, t["pos"] + off))
 			if t["fy"] < -40.0:
-				if t["kind"] == "ramp":
+				if t["kind"] == "deck":
+					if t["slot"] >= 0:
+						pools[t["pool"]].release(t["slot"])
+					if t["x_slot"] >= 0:
+						pools[t["x_pool"]].release(t["x_slot"])
+					_surf_remove(t)
+				elif t["kind"] == "ramp":
 					pools["ramp"].release(t["slot"])
-					surfaces.erase(t)
+					_surf_remove(t)
 				elif t["kind"] == "bridge":
 					for sl in t["slots"]:
 						pools["bridge"].release(sl)
-					surfaces.erase(t)
+					_surf_remove(t)
 				else:
 					pools["station"].release(t["slot"])
 					stations.erase(t)

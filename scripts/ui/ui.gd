@@ -7,6 +7,7 @@ const CARS := preload("res://scripts/game/cars.gd")
 const M := preload("res://scripts/core/models.gd")
 const PAL := preload("res://scripts/core/palette.gd")
 const Missions := preload("res://scripts/game/missions.gd")
+const Ach := preload("res://scripts/game/achievements.gd")
 const SaveData := preload("res://scripts/game/save.gd")
 
 var game: Node
@@ -204,21 +205,22 @@ func _build_title() -> void:
 	title.add_child(bottom)
 	var buttons := HBoxContainer.new()
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	buttons.add_theme_constant_override("separation", 26)
+	buttons.add_theme_constant_override("separation", 14)
 	buttons.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bottom.add_child(buttons)
 	var defs := [["car", "Garage", K.CORAL, K.CORAL_DK, func(): game.open_garage()],
 		["flag", "Missions", K.TEAL, K.TEAL_DK, func(): open_missions()],
 		["calendar", "Daily", K.SUN, K.SUN_DK, func(): open_daily()],
+		["trophy", "Trophies", K.SKY, Color("4a9fd6"), func(): open_achievements()],
 		["gear", "Settings", K.LILAC, K.LILAC_DK, func(): open_settings()]]
 	for d in defs:
 		var vb := VBoxContainer.new()
 		vb.add_theme_constant_override("separation", 6)
 		vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var b := K.round_button(d[0], d[2], d[3], 112, Color.WHITE)
+		var b := K.round_button(d[0], d[2], d[3], 100, Color.WHITE)
 		_tap(b, d[4])
 		vb.add_child(b)
-		var cap := K.outlined(K.label(d[1], 26, Color.WHITE, 600), Color(0.29, 0.23, 0.2, 0.85), 8)
+		var cap := K.outlined(K.label(d[1], 24, Color.WHITE, 600), Color(0.29, 0.23, 0.2, 0.85), 8)
 		vb.add_child(cap)
 		buttons.add_child(vb)
 		if d[1] == "Missions":
@@ -229,7 +231,7 @@ func _build_title() -> void:
 			sb.content_margin_bottom = 0
 			badge.add_theme_stylebox_override("panel", sb)
 			badge.add_child(mission_badge)
-			badge.position = Vector2(76, -8)
+			badge.position = Vector2(68, -8)
 			badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			b.add_child(badge)
 			b.set_meta("badge", badge)
@@ -238,7 +240,7 @@ func _build_title() -> void:
 			var sb2 := K.box(K.CORAL, 14, 0, Color.TRANSPARENT, 0)
 			daily_dot.add_theme_stylebox_override("panel", sb2)
 			daily_dot.size = Vector2(26, 26)
-			daily_dot.position = Vector2(84, 0)
+			daily_dot.position = Vector2(74, 0)
 			daily_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			b.add_child(daily_dot)
 	title_tap = K.outlined(K.label("Tap to drive · hold the arrows to steer", 34, Color.WHITE, 650), Color(0.29, 0.23, 0.2, 0.9), 12)
@@ -577,12 +579,27 @@ func show_over(r: Dictionary) -> void:
 	var rows := [["Distance", "%s m" % K.fmt(r["dist"])], ["Style", "+%s" % K.fmt(r["style"])], ["Coins", "+%s" % K.fmt(r["coins"])]]
 	if r.get("mission_coins", 0) > 0:
 		rows.append(["Missions", "+%s coins" % K.fmt(r["mission_coins"])])
+	if r.get("ach_coins", 0) > 0:
+		rows.append(["Trophies", "+%s coins" % K.fmt(r["ach_coins"])])
 	if r.get("daily", false):
 		rows.push_front(["Daily run", r.get("date", "")])
 	for row in rows:
 		grid.add_child(K.label(row[0], 30, K.INK_SOFT, 500, HORIZONTAL_ALIGNMENT_LEFT))
 		grid.add_child(K.label(row[1], 30, K.INK, 650, HORIZONTAL_ALIGNMENT_RIGHT))
 	vb.add_child(grid)
+	if not r.get("ach", []).is_empty():
+		var names := []
+		for a in r["ach"]:
+			names.append(a["name"])
+		var th := HBoxContainer.new()
+		th.alignment = BoxContainer.ALIGNMENT_CENTER
+		th.add_theme_constant_override("separation", 8)
+		th.add_child(Icon.new("trophy", K.SUN_DK, 34))
+		var tl := K.label(" · ".join(names.slice(0, 3)) + (" +%d more" % (names.size() - 3) if names.size() > 3 else ""), 26, K.INK, 650)
+		tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tl.custom_minimum_size = Vector2(480, 0)
+		th.add_child(tl)
+		vb.add_child(th)
 	# missions
 	var ml := VBoxContainer.new()
 	ml.add_theme_constant_override("separation", 6)
@@ -709,6 +726,69 @@ func open_missions() -> void:
 	var ok := K.button("Got it", K.TEAL, K.TEAL_DK, 38, 0, 92)
 	_tap(ok, close_sheet)
 	vb.add_child(ok)
+
+func open_achievements() -> void:
+	var data: Dictionary = game.save.data
+	var vb: VBoxContainer = await _sheet("Trophies", "trophy", K.SKY)
+	vb.add_child(K.label("%d of %d unlocked" % [Ach.count(data), Ach.LIST.size()], 28, K.INK_SOFT, 550))
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(600, minf(760.0, root.get_viewport_rect().size.y - 520.0))
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vb.add_child(sc)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 10)
+	sc.add_child(list)
+	# unlocked first, then the closest to done
+	var rows := []
+	for a in Ach.LIST:
+		var got := Ach.unlocked(data, a["id"])
+		var prog := clampf(Ach.value(a, data, {}) / Ach.target(a), 0.0, 1.0)
+		rows.append([a, got, prog])
+	rows.sort_custom(func(x, y): return (1 if x[1] else 0) > (1 if y[1] else 0) or (x[1] == y[1] and x[2] > y[2]))
+	for r in rows:
+		list.add_child(_ach_row(r[0], r[1], r[2]))
+	var ok := K.button("Got it", K.SKY, Color("4a9fd6"), 38, 0, 92)
+	_tap(ok, close_sheet)
+	vb.add_child(ok)
+
+func _ach_row(a: Dictionary, got: bool, prog: float) -> Control:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", K.box(Color("fff1cf") if got else Color("f6ede2"), 22, 0, Color.TRANSPARENT, 14))
+	p.mouse_filter = Control.MOUSE_FILTER_PASS
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 12)
+	hb.mouse_filter = Control.MOUSE_FILTER_PASS
+	p.add_child(hb)
+	var badge := PanelContainer.new()
+	badge.add_theme_stylebox_override("panel", K.box(K.SUN if got else Color("e6d8c8"), 26, 0, Color.TRANSPARENT, 8))
+	badge.add_child(Icon.new(a["icon"] if got else "lock", Color.WHITE if got else K.INK_SOFT, 36))
+	badge.mouse_filter = Control.MOUSE_FILTER_PASS
+	hb.add_child(badge)
+	var vb := VBoxContainer.new()
+	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_theme_constant_override("separation", 2)
+	vb.mouse_filter = Control.MOUSE_FILTER_PASS
+	hb.add_child(vb)
+	vb.add_child(K.label(a["name"], 28, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT))
+	var dl := K.label(a["desc"], 22, K.INK_SOFT, 500, HORIZONTAL_ALIGNMENT_LEFT)
+	dl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(dl)
+	if not got and Ach.target(a) > 1.0:
+		var b := K.bar(260, 10, K.SKY)
+		b.value = prog
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vb.add_child(b)
+	var rw := HBoxContainer.new()
+	rw.add_theme_constant_override("separation", 4)
+	rw.mouse_filter = Control.MOUSE_FILTER_PASS
+	if got:
+		rw.add_child(Icon.new("check", K.TEAL, 34))
+	else:
+		rw.add_child(Icon.new("coin", K.INK, 28))
+		rw.add_child(K.label(str(a["reward"]), 24, K.INK, 650))
+	hb.add_child(rw)
+	return p
 
 func open_daily() -> void:
 	var vb: VBoxContainer = await _sheet("Daily Run", "calendar", K.SUN)
@@ -1091,6 +1171,7 @@ func _garage_action() -> void:
 		game.sfx("purchase")
 		game.buzz(60, 0.9)
 		_confetti_garage()
+		game.ach_check()
 	_garage_refresh()
 
 func _confetti_garage() -> void:
@@ -1170,6 +1251,7 @@ func _buy_upgrade(u: String) -> void:
 	s.save()
 	game.sfx("upgrade")
 	game.buzz(50, 0.8)
+	game.ach_check()
 	_build_upgrades()
 
 func _garage_input(e: InputEvent) -> void:

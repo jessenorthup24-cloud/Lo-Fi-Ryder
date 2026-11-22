@@ -39,7 +39,12 @@ var splashed := false
 var active := false        # false on the title screen: the car idles
 var slow := 1.0            # brief slow-down after knocking things over
 var boost_t := 0.0         # seconds of boost-pad speed left
+var wall_cd := 0.0         # cooldown between wall-bump sounds
+var stuck_t := 0.0         # how long we've been crawling while trying to drive
+var wall_t := 0.0          # >0 just after touching a wall
+var wall_dir := Vector3.ZERO  # the glancing direction off that wall
 var surface := "ground"
+var pace := 1.0            # cruise multiplier: the run speeds up the farther you get
 
 # tuning from upgrades / weather
 var grip_mul := 1.0
@@ -114,6 +119,14 @@ func body_material() -> ShaderMaterial:
 func boost_k() -> float:
 	return smoothstep(0.0, 1.0, boost_t)
 
+## Let go of a long drift: a little kick of speed (the longer the drift, the bigger).
+func drift_boost(t: float) -> void:
+	if not grounded or dead:
+		return
+	boost_t = maxf(boost_t, clampf(0.35 + t * 0.25, 0.45, 1.0))
+	var f := forward()
+	vel += f * clampf(1.2 + t * 0.8, 1.2, 3.2)
+
 ## Drove over a boost pad: a kick of speed that fades over ~1.8 s.
 func boost() -> void:
 	boost_t = 1.8
@@ -125,6 +138,8 @@ func boost() -> void:
 
 func place(p: Vector3, heading: float) -> void:
 	boost_t = 0.0
+	wall_cd = 0.0
+	stuck_t = 0.0
 	position = p
 	yaw = heading
 	vel = Vector3.ZERO
@@ -166,36 +181,68 @@ func step(dt: float) -> void:
 	var f := forward()
 	var r := right()
 	boost_t = maxf(0.0, boost_t - dt)
-	var target := CRUISE * slow * (1.0 + 0.6 * boost_k()) if fuel > 0.0 else 0.0
+	var target := CRUISE * pace * slow * (1.0 + 0.6 * boost_k()) if fuel > 0.0 else 0.0
 	if not active:
 		target = 0.0
 	slow = move_toward(slow, 1.0, dt * 0.8)
 	var turned := 0.0
 	if grounded:
 		var spd := speed()
-		var vf := vel.dot(f)
-		var vl := vel.dot(r)
 		var accel := 2.4 if fuel > 0.0 else 0.9
-		vf += (target - vf) * accel * dt
-		# steering: faster turns while sliding; very little when nearly stopped
-		var turn_scale := clampf(spd / 4.0, 0.0, 1.0)
-		var drift_amt := smoothstep(0.45, 1.0, absf(steer_smooth)) * float(def.get("drift", 1.0))
-		turned = steer_smooth * TURN * turn_scale * (1.0 + drift_amt * 0.35) * dt
+		# steering: a tap carves, holding the arrow throws the tail out into a drift
+		var turn_scale := clampf(spd / 4.0, 0.4 if active else 0.0, 1.0)
+		var drift_amt := clampf(smoothstep(0.3, 0.95, absf(steer_smooth)) * float(def.get("drift", 1.0)), 0.0, 1.2)
+		turned = steer_smooth * TURN * (0.85 + 0.15 * pace) * turn_scale * (1.0 + drift_amt * 0.45) * dt
+		# never stay pinned: crawling while trying to drive swings the nose back toward the road,
+		# overriding the thumb (the velocity turns with the car, so it can pull away)
+		if active and fuel > 0.0 and spd < 1.6:
+			stuck_t += dt
+		else:
+			stuck_t = maxf(0.0, stuck_t - dt * 2.0)
+		wall_t -= dt
+		if stuck_t > 0.45:
+			var to := wall_dir if wall_t > 0.0 else _to_road()
+			turned = angle_difference(atan2(-to.x, -to.z), yaw) * (1.0 - exp(-dt * 6.0))
 		yaw -= turned
+		# traction: how much of the velocity swings round with the nose; the rest keeps sliding
+		var icy := surface == "ice"
+		var traction := lerpf(0.92, 0.4, clampf(drift_amt, 0.0, 1.0)) * (0.55 if icy else 1.0)
+		if stuck_t > 0.45:
+			traction = 1.0
+		vel = vel.rotated(Vector3.UP, -turned * traction)
+		var vf := vel.dot(forward())
+		var vl := vel.dot(right())
+		vf += (target - vf) * accel * dt
+		if stuck_t > 1.5:
+			# still wedged: a little toy hop back toward the road
+			stuck_t = 0.0
+			var to := _to_road()
+			yaw = atan2(-to.x, -to.z)
+			vf = 4.5
+			vl = 0.0
+			vel.y = 6.0
+			grounded = false
+			air_time = 0.0
+			spin_acc = 0.0
+			game.car_event("hop", {"pos": position})
 		# recover from a sideways landing: swing the nose round to where we're going
 		if recover > 0.0:
 			recover -= dt
 			if spd > 1.0:
 				var vdir := atan2(-vel.x, -vel.z)
 				yaw = lerp_angle(yaw, vdir, 1.0 - exp(-dt * 7.0))
-		var grip := lerpf(7.6, 1.7, clampf(drift_amt, 0.0, 1.0)) * grip_mul * float(def.get("grip", 1.0)) * weather_grip
-		if surface == "ice":
-			grip *= 0.28
+		var grip := lerpf(8.0, 3.6, clampf(drift_amt, 0.0, 1.0)) * grip_mul * float(def.get("grip", 1.0)) * weather_grip
+		if icy:
+			grip *= 0.32
+		var vl0 := absf(vl)
 		vl *= exp(-grip * dt)
+		# a slide carries its momentum: some of the sideways speed scrubbed off comes back as forward speed
+		if fuel > 0.0 and active:
+			vf += (vl0 - absf(vl)) * 0.55 * clampf(drift_amt, 0.0, 1.0)
 		var nf := forward()
 		var nr := right()
 		vel = nf * vf + nr * vl + Vector3(0, vel.y, 0)
-		vel += wind * (1.0 - wind_resist) * dt * 0.85
+		vel += wind * (1.0 - wind_resist) * dt * (0.3 if surface == "deck" else 0.85)
 		drift = atan2(vel.dot(nr), maxf(0.1, vel.dot(nf)))
 	else:
 		vel.y -= GRAVITY * dt
@@ -209,9 +256,71 @@ func step(dt: float) -> void:
 	_move(dt)
 	_drift_logic(dt)
 
+## Something taller than a curb at p (rocks, ledges, a kicker's side): we slide along it, never climb it.
+func _wall(p: Vector3, mv: Vector3, y: float) -> bool:
+	var flat := Vector3(mv.x, 0, mv.z)
+	if flat.length_squared() > 0.000001:
+		p += flat.normalized() * 0.3
+	var g: float = world.ground_at(p)
+	return g != NO_GROUND and g > y + 0.45
+
+## Bumped a wall with normal n: lose the speed going into it and turn to run along it, away from it.
+func _hit_wall(n: Vector3, dt: float, notify := true) -> void:
+	var into := -Vector3(vel.x, 0, vel.z).dot(n)
+	if into > 0.0:
+		vel += n * into * 1.12
+	if grounded:
+		var t := Vector3(-n.z, 0, n.x)
+		var road := _to_road()
+		if t.dot(forward()) + t.dot(road) * 0.6 < 0.0:
+			t = -t
+		var d := (t + n * 0.45).normalized()
+		wall_dir = d
+		wall_t = 0.2
+		if stuck_t <= 0.45:
+			yaw = lerp_angle(yaw, atan2(-d.x, -d.z), 1.0 - exp(-dt * 9.0))
+		drift *= 0.5
+	if notify and wall_cd <= 0.0 and into > 1.5:
+		wall_cd = 0.4
+		game.car_event("wall", {"pos": position - n * 0.4, "impact": into})
+
+## Flat unit vector from the car toward the road a little way ahead.
+func _to_road() -> Vector3:
+	var to: Vector3 = world.pos_at(world.v_of(position) + 5.0, 0.0) - position
+	to.y = 0.0
+	return to.normalized() if to.length() > 0.3 else forward()
+
+## Pressed against a solid prop (normal n, overlap depth): pop out and glance off it.
+## Returns how hard we were driving into it.
+func push_solid(n: Vector3, depth: float, dt: float) -> float:
+	position += n * depth
+	var into := -Vector3(vel.x, 0, vel.z).dot(n)
+	_hit_wall(n, dt, false)
+	return into
+
 func _move(dt: float) -> void:
+	wall_cd -= dt
 	var old := position
-	var np := position + vel * dt
+	var mv := vel * dt
+	var np := old + mv
+	# walls: slide along whichever axis is free (tiles are axis-aligned squares)
+	var gold: float = world.ground_at(old)
+	var inside := gold != NO_GROUND and gold > old.y + 0.45
+	if not inside and _wall(np, mv, old.y):
+		var mx := Vector3(mv.x, mv.y, 0)
+		var mz := Vector3(0, mv.y, mv.z)
+		var ok_x := absf(mv.x) > 0.0001 and not _wall(old + mx, mx, old.y)
+		var ok_z := absf(mv.z) > 0.0001 and not _wall(old + mz, mz, old.y)
+		if ok_x and (not ok_z or absf(mv.x) >= absf(mv.z)):
+			np = old + mx
+			_hit_wall(Vector3(0, 0, -signf(mv.z)), dt)
+		elif ok_z:
+			np = old + mz
+			_hit_wall(Vector3(-signf(mv.x), 0, 0), dt)
+		else:
+			np = Vector3(old.x, old.y + mv.y, old.z)
+			var back := -Vector3(mv.x, 0, mv.z)
+			_hit_wall(back.normalized() if back.length_squared() > 0.000001 else -forward(), dt)
 	var ramp_before: Dictionary = world.ramp_at(position) if grounded else {}
 	var g: float = world.ground_at(np)
 	surface = world.surface_at(np)

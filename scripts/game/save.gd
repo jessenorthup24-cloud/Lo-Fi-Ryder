@@ -34,6 +34,7 @@ static func defaults() -> Dictionary:
 		"ghost": [],
 		"daily_ghost": [],
 		"stats": {"distance": 0.0, "coins": 0, "drift": 0.0, "spins": 0, "jumps": 0},
+		"ach": {},
 	}
 
 func load_data() -> void:
