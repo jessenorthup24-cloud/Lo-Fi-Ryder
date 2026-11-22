@@ -82,6 +82,7 @@ jobs:
             echo "music branch is up to date ($HASH)"
           else
             rm -rf /tmp/music && mkdir -p /tmp/music
+            command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null)
             python3 tools/music/prepare_music.py tools/music/sources.json /tmp/music
             echo "$HASH" > /tmp/music/stamp
             cp tools/music/sources.json /tmp/music/

@@ -17,7 +17,7 @@ import tempfile
 import zipfile
 
 AUDIO = (".mp3", ".ogg", ".wav", ".flac", ".m4a")
-MIN_S, MAX_S = 75.0, 330.0
+MIN_S, MAX_S = 75.0, 420.0
 
 
 def log(out, msg):
@@ -39,8 +39,15 @@ def slug(s):
     return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")[:48] or "track"
 
 
+def bare(name):
+    t = os.path.basename(name)
+    while os.path.splitext(t)[1].lower() in AUDIO:
+        t = os.path.splitext(t)[0]
+    return t
+
+
 def nice_title(name):
-    t = os.path.splitext(os.path.basename(name))[0]
+    t = bare(name)
     t = re.sub(r"^\d+[\s._-]*", "", t)
     t = re.sub(r"(?i)holizna(cc0)?|[-_ ]*\(?cc0\)?", "", t)
     t = re.sub(r"[_]+", " ", t).strip(" -_")
@@ -74,12 +81,23 @@ def main():
                         files.append(os.path.join(root, n))
         else:
             files.append(dl)
-        files.sort()
-        log(out, "OK %s: %d bytes, %d audio files" % (url, size, len(files)))
+        # the same song often ships as both .mp3 and .ogg: keep one (prefer ogg)
+        by_name = {}
+        for f in sorted(files):
+            k = bare(f).lower()
+            if k not in by_name or f.lower().endswith(".ogg"):
+                by_name[k] = f
+        files = sorted(by_name.values())
+        log(out, "OK %s: %d bytes, %d songs" % (url, size, len(files)))
+        wanted = [w.lower() for w in s.get("pick", [])]
+        if wanted:
+            files = sorted(files, key=lambda f: next((i for i, w in enumerate(wanted) if w in bare(f).lower()), 999))
         picked = 0
         for f in files:
             dur = duration(f)
             log(out, "   %6.1fs  %s" % (dur, os.path.basename(f)))
+            if wanted and not any(w in bare(f).lower() for w in wanted):
+                continue
             if picked >= int(s.get("max", 3)) or not (MIN_S <= dur <= MAX_S):
                 continue
             title = s.get("title") if len(files) == 1 and s.get("title") else nice_title(f)
@@ -87,7 +105,7 @@ def main():
             dst = os.path.join(out, "tracks", name)
             enc = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", f, "-vn",
                                   "-af", "loudnorm=I=-17:TP=-1.5:LRA=11,afade=t=in:d=0.8",
-                                  "-ac", "2", "-ar", "44100", "-c:a", "libvorbis", "-q:a", "2", dst],
+                                  "-ac", "2", "-ar", "44100", "-c:a", "libvorbis", "-q:a", "1.5", dst],
                                  capture_output=True, text=True)
             if enc.returncode != 0:
                 log(out, "   encode failed: %s" % enc.stderr[:300])

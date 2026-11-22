@@ -1,9 +1,52 @@
 {
-  "note": "CC0 lo-fi hip hop for Lo-Fi Ryder. The build downloads these, keeps tracks 75-330 s long (up to `max` per source), normalizes loudness and encodes OGG. Results are cached on the `music` branch.",
+  "note": "CC0 lo-fi hip hop for Lo-Fi Ryder. The build downloads these, keeps tracks 75-420 s long (up to `max` per source), normalizes loudness and encodes OGG. Results are cached on the `music` branch.",
   "sources": [
-    {"url": "https://opengameart.org/sites/default/files/happy_lo-fi_lofi_collection.zip", "artist": "HoliznaCC0", "album": "Happy Lo-Fi (Lofi Collection)", "page": "https://opengameart.org/content/happy-lo-fi-lofi-collection", "license": "CC0", "max": 5},
-    {"url": "https://opengameart.org/sites/default/files/chill_beats.zip", "artist": "HoliznaCC0", "album": "Chill Beats Collection", "page": "https://opengameart.org/content/chill-beats-collection", "license": "CC0", "max": 4},
-    {"url": "https://opengameart.org/sites/default/files/ChillLofi.ogg", "artist": "omfgdude", "album": "Chill lofi inspired", "page": "https://opengameart.org/content/chill-lofi-inspired", "license": "CC0", "max": 1, "title": "Chill Lofi"},
-    {"url": "https://opengameart.org/sites/default/files/lofiagain.ogg", "artist": "omfgdude", "album": "Lofi again", "page": "https://opengameart.org/content/lofi-again", "license": "CC0", "max": 1, "title": "Lofi Again"}
+    {
+      "url": "https://opengameart.org/sites/default/files/happy_lo-fi_lofi_collection.zip",
+      "artist": "HoliznaCC0",
+      "album": "Happy Lo-Fi (Lofi Collection)",
+      "page": "https://opengameart.org/content/happy-lo-fi-lofi-collection",
+      "license": "CC0",
+      "max": 5,
+      "pick": [
+        "Blue Skies",
+        "Clouds",
+        "New Shoes",
+        "Poor, But Happy",
+        "Puppy Love"
+      ]
+    },
+    {
+      "url": "https://opengameart.org/sites/default/files/chill_beats.zip",
+      "artist": "HoliznaCC0",
+      "album": "Chill Beats Collection",
+      "page": "https://opengameart.org/content/chill-beats-collection",
+      "license": "CC0",
+      "max": 4,
+      "pick": [
+        "City In The Rearview",
+        "Autumn",
+        "Dream Pop",
+        "Families"
+      ]
+    },
+    {
+      "url": "https://opengameart.org/sites/default/files/ChillLofi.ogg",
+      "artist": "omfgdude",
+      "album": "Chill lofi inspired",
+      "page": "https://opengameart.org/content/chill-lofi-inspired",
+      "license": "CC0",
+      "max": 1,
+      "title": "Chill Lofi"
+    },
+    {
+      "url": "https://opengameart.org/sites/default/files/lofiagain.ogg",
+      "artist": "omfgdude",
+      "album": "Lofi again",
+      "page": "https://opengameart.org/content/lofi-again",
+      "license": "CC0",
+      "max": 1,
+      "title": "Lofi Again"
+    }
   ]
 }
