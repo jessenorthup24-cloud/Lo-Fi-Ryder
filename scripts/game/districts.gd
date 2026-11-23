@@ -251,7 +251,7 @@ static func _row(I, road: String, side: float, from_t: float, to_t: float, names
 		if I.is_free(c, Vector2(sz.x * 0.5, sz.z * 0.5), yaw):
 			I.put(nm, c.x, c.y, yaw, 1.0, col, -10000.0, landmark)
 			I.block_rect(c, Vector2(sz.x * 0.5, sz.z * 0.5), yaw, 1.5)
-			out.append({"name": nm, "c": c, "yaw": yaw, "n": nrm, "size": sz})
+			out.append({"name": nm, "c": c, "yaw": yaw, "n": nrm, "size": sz, "edge": setback - float(r["w"]) * 0.5})
 			k = kc + int(ceil((sz.x * 0.5 + rr.randf_range(gap.x, gap.y)) / I.CELL))
 		else:
 			k += 2
@@ -360,11 +360,6 @@ static func _town(I, rr: RandomNumberGenerator) -> void:
 				if not _in_city(p) or _near_junction(I, p, 11.0):
 					continue
 				I.put_breakable("k_retro_detail-light-single", p.x, p.y, _yaw_to(-sp["n"] * side), 1.0, 0.3)
-		for sp2 in _along(I, road, hw - 1.4, 22.0, 12.0):
-			var p2: Vector2 = sp2["p"]
-			if road == "Main Street" or not _in_city(p2) or _near_junction(I, p2, 15.0) or rr.randf() < 0.4:
-				continue
-			I.put("k_car_" + PARKED[rr.randi_range(0, PARKED.size() - 1)], p2.x, p2.y, _yaw_to(sp2["t"]), 1.0, "box")
 		for sp3 in _along(I, road, (hw + 1.4) * (1.0 if rr.randf() < 0.5 else -1.0), 40.0, 9.0):
 			var p3: Vector2 = sp3["p"]
 			if _in_city(p3) and rr.randf() < 0.5 and not _near_junction(I, p3, 9.0):
@@ -547,22 +542,25 @@ static func _suburbs(I, rr: RandomNumberGenerator) -> void:
 		var nrm: Vector2 = h["n"]
 		var sz: Vector3 = h["size"]
 		var along := Vector2(-nrm.y, nrm.x)
-		# driveway with a car, a mailbox, a tree, a fenced back yard
-		var dw := c - nrm * (sz.z * 0.5 + 2.6) + along * (sz.x * 0.5 + 2.2)
-		I.decal(dw, Vector2(1.7, 3.0), _yaw_to(nrm), P.CONCRETE)
-		if rr.randf() < 0.55:
-			I.put("k_car_" + PARKED[rr.randi_range(0, 5)], dw.x, dw.y, _yaw_to(-nrm if rr.randf() < 0.5 else nrm), 1.0, "box")
-		var mb := c - nrm * (sz.z * 0.5 + 5.2) - along * (sz.x * 0.25)
+		# a driveway up the side of the house with the car on it, a mailbox at the kerb, a fenced back yard
+		var front := c - nrm * (sz.z * 0.5)                   # middle of the house front
+		var edge := float(h.get("edge", 3.0))                 # front of the house to the road's edge
+		var side := along * (sz.x * 0.5 + 2.2)
+		I.decal(front + side - nrm * (edge * 0.5 - 1.6), Vector2(1.6, edge * 0.5 + 1.6), _yaw_to(nrm), P.CONCRETE)
+		if rr.randf() < 0.6:
+			var dc := front + side + nrm * 2.6
+			I.put("k_car_" + PARKED[rr.randi_range(0, 5)], dc.x, dc.y, _yaw_to(-nrm if rr.randf() < 0.5 else nrm), 1.0, "box")
+		var mb := front - nrm * (edge - 0.8) - along * (sz.x * 0.25)
 		I.put_breakable("mailbox", mb.x, mb.y, _yaw_to(-nrm), 2.2, 0.35)
 		var back := c + nrm * (sz.z * 0.5 + 5.5)
 		if I.is_free(back, Vector2(4.7, 4.7), _yaw_to(nrm)):
 			I.put("k_sub_fence-3x3", back.x, back.y, _yaw_to(-nrm), 1.0, "box")
 			I.block_rect(back, Vector2(4.8, 4.8), _yaw_to(nrm), 0.5)
-		var tp := c - nrm * (sz.z * 0.5 + 3.0) - along * (sz.x * 0.5 + 1.5)
+		var tp := front - nrm * (edge * 0.5) - along * (sz.x * 0.5 + 1.2)
 		if not I.is_blocked(tp.x, tp.y):
 			I.put("k_sub_tree-large" if rr.randf() < 0.6 else "k_castle_tree-small", tp.x, tp.y, rr.randf() * TAU, rr.randf_range(0.85, 1.1), "cyl")
 		if rr.randf() < 0.3:
-			_pet(I, ["dog", "cat", "bunny"][rr.randi_range(0, 2)], dw.x + along.x * 2.0, dw.y + along.y * 2.0)
+			_pet(I, ["dog", "cat", "bunny"][rr.randi_range(0, 2)], front.x + side.x - nrm.x * 1.2, front.y + side.y - nrm.y * 1.2)
 		if rr.randf() < 0.35:
 			_person(I, mb.x + along.x * 1.5, mb.y + along.y * 1.5)
 		if I.season == 3 and rr.randf() < 0.3:
@@ -635,7 +633,7 @@ static func _castle(I, rr: RandomNumberGenerator) -> void:
 	for k in 14:
 		var a := rr.randf() * TAU
 		var p := c + Vector2(cos(a), sin(a)) * rr.randf_range(60.0, 140.0)
-		if not I.is_blocked(p.x, p.y):
+		if I.is_free(p, Vector2(3.0, 3.0), 0.0):
 			I.put(["k_castle_rocks-large", "k_castle_rocks-small"][k % 2], p.x, p.y, rr.randf() * TAU, rr.randf_range(0.7, 1.2), "box")
 
 static func _forest(I, rr: RandomNumberGenerator) -> void:
@@ -690,7 +688,8 @@ static func _farm(I, rr: RandomNumberGenerator) -> void:
 		I.put("scarecrow", c.x, c.y, rr.randf() * TAU, 3.0, "cyl")
 		for k in 5:
 			var hp := c + Vector2(rr.randf_range(-hs.x, hs.x), rr.randf_range(-hs.y, hs.y)) * 0.85
-			I.put_breakable("hay", hp.x, hp.y, rr.randf() * TAU, 2.6, 1.0)
+			if I.is_free(hp, Vector2(1.6, 1.6), 0.0):
+				I.put_breakable("hay", hp.x, hp.y, rr.randf() * TAU, 2.6, 1.0)
 		for k in int(hs.x / 3.0):
 			var sp := Vector2(c.x - hs.x + 1.5 + k * 6.0, c.y - hs.y - 1.0)
 			if not I.is_blocked(sp.x, sp.y):
@@ -728,8 +727,8 @@ static func _bowl(I, rr: RandomNumberGenerator) -> void:
 			I.put("k_arena_column", cp.x, cp.y, 0.0, 1.0, "box", y, true)
 			I.put("k_arena_banner", cp.x + cx * 0.0, cp.y - cz * 3.5, _yaw_to(Vector2(0, -cz)), 1.0, "", y)
 	# grandstands with a crowd on the north side
-	for k in 5:
-		var sp := c + Vector2(-40 + k * 20.0, -hs.y - 9.0)
+	for k in 4:
+		var sp := c + Vector2([-46.0, -24.0, 24.0, 46.0][k], -hs.y - 9.0)
 		I.put("k_arena_stairs", sp.x, sp.y, PI, 1.8, "box")
 		for q in 2:
 			_person(I, sp.x + (q - 0.5) * 3.0, sp.y + 1.0, "stand", PI, 1.8)
@@ -929,7 +928,7 @@ static func _roadside(I, rr: RandomNumberGenerator) -> void:
 			for s in _along(I, road, 5.6 * side, 9.0, 3.0 if side > 0 else 7.0):
 				var p: Vector2 = s["p"]
 				# barrier posts on the outside of bends
-				if rr.randf() < 0.55 and I.height_at(p.x, p.y) > 0.5:
+				if rr.randf() < 0.55 and I.height_at(p.x, p.y) > 0.5 and not _near_junction(I, p, 14.0):
 					I.put_breakable("k_retro_detail-barrier-type-a", p.x, p.y, _yaw_to(s["t"]) + PI * 0.5, 1.0, 0.5)
 
 # ---------------------------------------------------------------- the green stuff
@@ -960,7 +959,7 @@ static func scatter(I) -> void:
 						nm = "k_surv_tree-autumn-tall"
 					var sc := rr.randf_range(0.8, 1.25) * (2.8 if nm == "pine_tall" else 1.0)
 					I.put(nm, x, z, rr.randf() * TAU, sc, "cyl")
-				elif roll < dens + 0.06:
+				elif roll < dens + 0.06 and I.is_free(Vector2(x, z), Vector2(1.8, 1.8), 0.0):
 					I.put(["k_forest_rocks-low", "k_surv_rock-b", "k_surv_rock-c"][rr.randi_range(0, 2)], x, z, rr.randf() * TAU, rr.randf_range(0.8, 1.4), "box")
 				elif roll < dens + 0.12:
 					I.put("k_forest_plant", x, z, rr.randf() * TAU, rr.randf_range(0.9, 1.4), "")

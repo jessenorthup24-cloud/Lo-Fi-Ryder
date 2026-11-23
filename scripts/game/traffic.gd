@@ -17,6 +17,7 @@ var cars: Array = []
 var ends := {}          # "road:end" -> [[road index, sample, dir], ...] where you can carry on
 var rng := RandomNumberGenerator.new()
 var shapes := {}
+var honk := Vector3.INF     # where a car honked this frame (main plays it)
 
 func setup(isl: Node, material: Material) -> void:
 	island = isl
@@ -43,7 +44,7 @@ func setup(isl: Node, material: Material) -> void:
 		body.add_child(cs)
 		body.add_child(mi)
 		add_child(body)
-		var c := {"id": i, "body": body, "r": 0, "s": 0.0, "dir": 1, "v": 0.0, "len": ab.size.z, "wait": 0.0}
+		var c := {"id": i, "body": body, "r": 0, "s": 0.0, "dir": 1, "v": 0.0, "len": ab.size.z, "wait": 0.0, "hit": 0.0, "honked": false}
 		cars.append(c)
 		_place_random(c, Vector3(-80, 0, 60), 0.0, 260.0)
 
@@ -132,7 +133,20 @@ func _put(c: Dictionary) -> void:
 	var b := Basis.looking_at(fwd.normalized(), Vector3.UP)
 	(c["body"] as Node3D).global_transform = Transform3D(b, p)
 
+## You ran into someone: they stop for a few seconds (and let you know about it).
+func hit(p: Vector3) -> bool:
+	for c in cars:
+		var bn: Node3D = c["body"]
+		if bn.global_position.distance_to(p) < float(c["len"]) * 0.5 + 3.6:
+			if float(c["hit"]) <= 0.0:
+				honk = bn.global_position
+			c["hit"] = 3.5
+			c["v"] = 0.0
+			return true
+	return false
+
 func tick(dt: float, player: Vector3, player_vel: Vector3) -> void:
+	honk = Vector3.INF
 	# where everyone is heading next
 	var heads := []
 	for c in cars:
@@ -151,11 +165,16 @@ func tick(dt: float, player: Vector3, player_vel: Vector3) -> void:
 		var want: float = SPEED.get(r["kind"], 10.0)
 		var look: float = 6.0 + c["len"] * 0.5 + float(c["v"]) * 0.9
 		var blocked := false
+		var by_you := false
 		# you
 		var tp := player - pos
 		tp.y = 0.0
 		var ahead_d := tp.dot(fwd)
 		if ahead_d > 0.0 and ahead_d < look + 4.0 and absf(tp.dot(Vector3(-fwd.z, 0, fwd.x))) < 3.2:
+			blocked = true
+			by_you = true
+		if float(c["hit"]) > 0.0:
+			c["hit"] = float(c["hit"]) - dt
 			blocked = true
 		# other cars (the lower number goes first if two are waiting on each other)
 		if not blocked:
@@ -180,8 +199,13 @@ func tick(dt: float, player: Vector3, player_vel: Vector3) -> void:
 		if blocked:
 			want = 0.0
 			c["wait"] += dt
+			# kept waiting by you: a toot
+			if by_you and float(c["wait"]) > 2.5 and not c["honked"] and tp.length() < 30.0:
+				c["honked"] = true
+				honk = pos
 		else:
 			c["wait"] = 0.0
+			c["honked"] = false
 		c["v"] = move_toward(c["v"], want, dt * (7.0 if want < c["v"] else 3.0))
 		c["s"] += float(c["dir"]) * float(c["v"]) * dt / island.CELL
 		var n: int = (r["pts"] as PackedVector2Array).size()

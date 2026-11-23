@@ -57,6 +57,10 @@ var drift_len := 0.0
 var combo := 1
 var combo_t := 0.0
 var coin_frac := 0.0
+var close := INF            # how near a wall or car the drift is running (m)
+var close_t := 0.0
+var close_shown := false
+var prox_t := 0.0
 var skid_acc := {}
 var smoke_t := 0.0
 # challenges
@@ -83,6 +87,8 @@ var last_pos := Vector3.ZERO
 var road_hint := Vector3.ZERO
 var bump_cd := 0.0
 var auto := {}
+var auto_stuck := 0.0
+var auto_back := 0.0
 
 func _ready() -> void:
 	_parse_args()
@@ -373,6 +379,9 @@ func _process(dt: float) -> void:
 	var cp := car.global_position
 	island.tick(dt, cp, car.linear_velocity)
 	traffic.tick(dt, cp, car.linear_velocity)
+	if traffic.honk != Vector3.INF and state == DRIVE:
+		var hd: float = traffic.honk.distance_to(cp)
+		sfx("horn_lo" if randf() < 0.5 else "horn_hi", clampf(-4.0 - hd * 0.3, -16.0, -4.0), randf_range(0.95, 1.08))
 	fx.tick(dt)
 	_coins_tick(dt)
 	_markers_tick(dt)
@@ -416,6 +425,20 @@ func _controls(dt: float) -> void:
 	if autopilot:
 		_autopilot(dt)
 		return
+	if args.has("demo"):
+		# a scripted drift for screenshots: get going, flick it, hold it
+		var dt2 := time - float(auto.get("demo0", time))
+		auto["demo0"] = float(auto.get("demo0", time))
+		var go := float(args.get("demo", "1"))
+		if go < 2.0:
+			go = 2.6
+		car.throttle = 1.0
+		car.steer_in = 1.0 if dt2 > go else 0.0
+		car.handbrake = 1.0 if dt2 > go and dt2 < go + 0.3 else 0.0
+		car.brake = 0.0
+		if args.has("autodebug") and frames % 15 == 0:
+			print("demo t=%.2f v=%.0f slip=%.0f drift=%.2f on=%s pts=%.0f x%d close=%.1f" % [dt2, car.speed * 3.6, rad_to_deg(car.slip), car.drift, drift_on, drift_pts, combo, close])
+		return
 	var l := 1.0 if held.get("left", false) else 0.0
 	var r := 1.0 if held.get("right", false) else 0.0
 	car.steer_in = r - l
@@ -457,7 +480,8 @@ func _drive(dt: float) -> void:
 	ui.hud_update({"kmh": kmh, "gear": car.gear, "rpm": car.rpm, "drift": drift_pts, "combo": combo, "combo_t": combo_t,
 		"drifting": drift_on, "coins": int(save.data["coins"]), "place": place_now, "clock": atmos.clock_text(),
 		"zone": zone, "zone_t": zone_t, "zone_pts": zone_pts, "trial": trial, "trial_t": trial_t, "trial_gate": trial_gate,
-		"trial_pts": trial_pts, "car_pos": p, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip))})
+		"trial_pts": trial_pts, "car_pos": p, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip)),
+		"close": drift_on and close < 1.6 and car.drift > 0.2})
 
 # ------------------------------------------------------------------ drifting
 
@@ -468,12 +492,27 @@ func _drift(dt: float) -> void:
 			drift_on = true
 			drift_pts = 0.0
 			drift_len = 0.0
+			close_t = 0.0
+			close_shown = false
 			if combo_t > 0.0:
 				combo = mini(combo + 1, 10)
 		drift_off_t = 0.0
 		drift_len += dt
+		# skimming a wall, a parked car or the traffic: half as much again
+		prox_t -= dt
+		if prox_t <= 0.0:
+			prox_t = 0.08
+			close = _proximity()
+		var near := close < 1.6 and car.drift > 0.2
+		if near:
+			close_t += dt
+			if close_t > 0.3 and not close_shown:
+				close_shown = true
+				ui.popup_text("Close!", K.SUN)
+				sfx("near", -4.0)
+				save.add_stat("close_calls", 1)
 		var ang := rad_to_deg(absf(car.slip))
-		drift_pts += dt * ang * 0.85 * maxf(car.speed, 0.0) * 0.55
+		drift_pts += dt * ang * 0.65 * maxf(car.speed, 0.0) * (1.5 if near else 1.0)
 		# hold it long enough and the multiplier ticks up too
 		if drift_len > 3.0:
 			drift_len -= 3.0
@@ -512,6 +551,25 @@ func _bank() -> void:
 		sfx("near", -2.0)
 	sfx("coin", -6.0, 1.0 + minf(total / 20000.0, 0.5))
 
+## How close the car's sides and tail run to a wall or another car (m), out to 2 m; INF if nothing.
+func _proximity() -> float:
+	var xf := car.global_transform
+	var w: float = float(car.info["width"]) * 0.5
+	var l: float = float(car.info["length"]) * 0.5
+	var space := get_world_3d().direct_space_state
+	var o := xf.origin + xf.basis.y * 0.8
+	var best := INF
+	for d in [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0.6, 0, 0.8), Vector3(-0.6, 0, 0.8)]:
+		var dir: Vector3 = xf.basis * d
+		var ext: float = absf(d.x) * w + absf(d.z) * l
+		ext = minf(ext, w / maxf(absf(d.x), 0.01)) if d.z != 0.0 and d.x != 0.0 else ext
+		var q := PhysicsRayQueryParameters3D.create(o, o + dir * (ext + 2.0), 1 | 2)
+		q.exclude = [car.get_rid()]
+		var h := space.intersect_ray(q)
+		if not h.is_empty() and (h["normal"] as Vector3).y < 0.6:
+			best = minf(best, o.distance_to(h["position"]) - ext)
+	return best
+
 ## A crash loses the drift in progress.
 func _break_drift(show := true) -> void:
 	if drift_on and drift_pts * combo > 200 and show:
@@ -531,6 +589,8 @@ func _on_bump(strength: float) -> void:
 	buzz(int(clampf(strength * 6.0, 20.0, 90.0)), clampf(strength / 12.0, 0.2, 1.0))
 	if strength > 7.0:
 		_break_drift()
+	if strength > 3.0:
+		traffic.hit(car.global_position)
 
 # ------------------------------------------------------------------ smoke, marks, knock-overs
 
@@ -567,6 +627,11 @@ func _effects(dt: float) -> void:
 				fx.puff(wp + Vector3(0, 0.3, 0), col, randf_range(1.2, 2.0) * (0.6 + car.drift * 0.6), -car.linear_velocity * 0.15 + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)), 1.4, 1.0)
 		else:
 			skid_acc.erase(i)
+	# scraping a wall throws sparks
+	if car.wall_t > 0.15 and car.linear_velocity.length() > 5.0 and smoke_t > 0.04:
+		for k in 2:
+			fx.puff(car.wall_pos + Vector3(0, randf_range(0.1, 0.6), 0), Color(1.0, 0.82, 0.42), randf_range(0.18, 0.32),
+				-car.linear_velocity * 0.25 + Vector3(randf_range(-1.5, 1.5), randf_range(0.5, 2.0), randf_range(-1.5, 1.5)), 0.35, 0.0)
 	if smoke_t > 0.05:
 		smoke_t = 0.0
 
@@ -980,7 +1045,8 @@ func _sound(dt: float) -> void:
 	if car.linear_velocity.length() < 3.0:
 		skid *= car.linear_velocity.length() / 3.0
 	sound.tick(dt, {"speed": absf(car.speed), "active": active, "grounded": car.grounded > 0, "drift": maxf(skid, car.wheelspin),
-		"air_t": car.air_t, "rpm_k": car.rpm, "throttle": car.throttle, "roll": roll, "pace": 2.6})
+		"air_t": car.air_t, "rpm_k": car.rpm, "throttle": car.throttle, "roll": roll, "pace": 2.6,
+		"grind": active and car.wall_t > 0.12 and car.linear_velocity.length() > 3.0})
 
 # ------------------------------------------------------------------ input
 
@@ -1101,3 +1167,20 @@ func _autopilot(dt: float) -> void:
 	car.throttle = 1.0 if car.speed < vmax else 0.0
 	car.brake = 1.0 if car.speed > vmax + 5.0 else 0.0
 	car.handbrake = 1.0 if (bend > 0.6 and car.speed > 14.0 and int(time) % 7 < 3) else 0.0
+	# wedged against something: back out of it
+	if absf(car.speed) < 1.0 and car.throttle > 0.5:
+		auto_stuck += dt
+	elif auto_back <= 0.0:
+		auto_stuck = 0.0
+	if auto_stuck > 1.5:
+		auto_stuck = 0.0
+		auto_back = 1.6
+	if auto_back > 0.0:
+		auto_back -= dt
+		car.throttle = 0.0
+		car.brake = 1.0
+		car.handbrake = 0.0
+		car.steer_in = -car.steer_in
+	if args.has("autodebug") and frames % 60 == 0:
+		print("auto t=%.0f p=(%.0f,%.0f) v=%.0f slip=%.0f road=%s steer=%.2f thr=%.0f br=%.0f hb=%.0f gr=%d" % [time, p.x, p.z, car.speed * 3.6,
+			rad_to_deg(car.slip), r2["name"], car.steer_in, car.throttle, car.brake, car.handbrake, car.grounded])

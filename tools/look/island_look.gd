@@ -22,6 +22,7 @@ const VIEWS := {
 	"spawn": [Vector3(-262, 60, 20), Vector3(-262, 0, 61), 60.0],
 	"carpark": [Vector3(-230, 40, 70), Vector3(-230, 0, 30), 55.0],
 	"harbourtop": [Vector3(-420, 130, 162.1), Vector3(-420, 0, 162), 60.0],
+	"bowltop": [Vector3(175, 150, 205.1), Vector3(175, 0, 205), 60.0],
 	"spawntop": [Vector3(-262, 140, 61.1), Vector3(-262, 0, 61), 60.0],
 }
 

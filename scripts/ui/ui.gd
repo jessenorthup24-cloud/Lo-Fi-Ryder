@@ -191,7 +191,7 @@ func _build_title() -> void:
 		l.set_meta("i", i)
 		row.add_child(l)
 		i += 1
-	left.add_child(K.outlined(K.label("drift around a cozy little island", 34, Color.WHITE, 650, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 10))
+	left.add_child(K.outlined(K.label("drift the streets of a little island town", 34, Color.WHITE, 650, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 10))
 	left.add_child(K.spacer(26))
 	var go := K.button("Drive", K.CORAL, K.CORAL_DK, 50, 360, 112, "play")
 	_tap(go, func(): transition(func(): game.start_drive()))
@@ -444,7 +444,7 @@ func hud_update(d: Dictionary) -> void:
 		_drift_show = 1.0
 		drift_lbl.text = K.fmt(int(pts * combo))
 		combo_lbl.text = "x%d" % combo
-		angle_lbl.text = "%d°" % int(d["angle"])
+		angle_lbl.text = ("%d°  ·  close ×1.5" if d.get("close", false) else "%d°") % int(d["angle"])
 		combo_bar.value = 1.0
 	elif _bank_t <= 0.0:
 		combo_bar.value = clampf(float(d["combo_t"]) / 2.2, 0.0, 1.0)
@@ -866,8 +866,9 @@ func show_help() -> void:
 	for line in [
 		["left", "Steer with the arrows on the left."],
 		["play", "GAS and BRAKE on the right. Hold BRAKE when stopped to reverse."],
-		["tire", "Tap DRIFT (the handbrake) while steering to swing the tail out, then keep the gas down and steer into the slide."],
-		["star", "Drifts score points and coins. Chain them for a bigger multiplier. Don't crash mid-drift!"],
+		["tire", "Tap DRIFT (the handbrake) while steering to swing the tail out. Keep the gas down and hold the steering into the turn to hold the slide."],
+		["right", "Steer the other way with the gas down to swing into a drift the other way. Let go of steering, or ease off the gas, to straighten up."],
+		["star", "Drifts score points and coins. Chain them for a bigger multiplier, and skim walls and cars for a close bonus. Don't crash mid-drift!"],
 		["flag", "Drive into an orange ring for a drift zone, a blue ring for a time trial, a purple ring for a drift run. Hidden coins are dotted all over the island."],
 	]:
 		var hb := HBoxContainer.new()

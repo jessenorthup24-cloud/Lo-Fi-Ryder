@@ -33,6 +33,8 @@ var blocked := PackedByteArray()   # roads, lots and buildings: no scattering he
 var roads: Array = []
 var lots: Array = []
 var flats: Array = []              # [center, half size (Vector2), blend] areas kept flat
+var audit_on := false       # tools: record where things are put, to check none sit in the road
+var audit: Array = []
 var raises: Array = []      # [centre, half size, height, falloff]: ground built up level (the harbour quay)
 var season := 1
 var mat: ShaderMaterial
@@ -754,6 +756,12 @@ func put(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, col := "box", 
 				y = minf(y, height_at(x + w.x, z + w.z))
 			y -= 0.05
 	var xf := Transform3D(bs, Vector3(x, y, z))
+	if audit_on and col != "":
+		var pts := [Vector2(x + cen.x, z + cen.z)]
+		for o in [] if col == "cyl" else [Vector3(ab.position.x, 0, ab.position.z), Vector3(ab.end.x, 0, ab.position.z), Vector3(ab.position.x, 0, ab.end.z), Vector3(ab.end.x, 0, ab.end.z)]:
+			var w2: Vector3 = bs * o
+			pts.append(Vector2(x + w2.x, z + w2.z))
+		audit.append([name, pts])
 	if landmark:
 		if not far_statics.has(name):
 			far_statics[name] = []
@@ -778,6 +786,8 @@ func put(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, col := "box", 
 
 ## Something you can knock over (lamps, benches, cones...). It springs back once you're gone.
 func put_breakable(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, r := 0.5, y := -10000.0) -> void:
+	if audit_on:
+		audit.append([name, [Vector2(x, z)]])
 	if not pools.has(name):
 		var p: Pool = Pool.new()
 		p.setup(M.get_mesh(name), 200, mat, false, true)

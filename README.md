@@ -17,12 +17,14 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - Landscape, third-person chase camera (tap the camera button for near or far).
 - Controls: steer left and right on the left; brake, gas and the handbrake (DRIFT) on the right.
   Hold brake when stopped to reverse.
-- Drifting: at speed, tap the handbrake (or turn in hard on the gas) to kick the rear out, then hold the
-  gas and steer to hold the angle. Steer into the drift for more angle, against it to straighten up.
-  Drift assist (Settings) helps hold the angle.
+- Drifting: at speed, tap the handbrake (DRIFT) while steering to kick the rear out, then hold the gas
+  and keep steering into the turn to hold the angle. Steer the other way with the gas down to swing
+  into a drift the other way. Let go of steering, or ease off the gas, to straighten up. Drift assist
+  (Settings) helps hold the angle.
 - Points build with angle and speed. Keep drifting to raise the combo (up to x10); chain drifts within
   a moment of each other to keep it going. A drift banks once you're straight again, and every 120
-  points of a banked drift is a coin. Hitting something hard loses the drift you were holding.
+  points of a banked drift is a coin. Drifting within a metre or so of a wall, a parked car or the
+  traffic scores half as much again. Hitting something hard loses the drift you were holding.
 - Challenges, marked on the map and on the road:
   - Drift zones (orange rings): score as much as you can inside the zone before the clock runs out.
     The Drift Bowl, the town square, the harbour lot, the farmyard, the beach car park and the skate
@@ -32,7 +34,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   - Hidden coins are tucked around the island, and finding all 12 places counts toward trophies.
 - The garage: 18 cars (each with its own power, top speed, grip and drift), plus four upgrades that
   work on every car you own (engine, turbo, tyres, steering angle).
-- 27 trophies, each paying coins once.
+- 29 trophies, each paying coins once.
 - If you flip, land in the water or get stuck, the car is put back on the road.
 
 ## The world
@@ -65,7 +67,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `shaders/` | Toon shader with the season palette, sea, wipe |
 | `tools/kenney/bake_kenney.gd` | Bakes the chosen Kenney kit models into `assets/kenney/` (people posed, arms loose) |
 | `tools/look/` | Look-dev: `island_look.gd` photographs parts of the island, `kgrid.gd` makes a model contact sheet |
-| `tools/test/` | `drive_test.gd` (headless handling tests), `collide_test.gd`, `probe.gd` (ground heights) |
+| `tools/test/` | `handling.gd` (handling report with phone-style inputs), `road_audit.gd` (nothing solid in the road), `collide_test.gd`, `probe.gd` (ground heights) |
 | `tools/audio/`, `tools/music/` | Sound synthesis scripts; the CC0 music list the build fetches |
 
 There are no autoloads and no `class_name`s, so an update pack can replace any script before it loads.
@@ -78,7 +80,8 @@ godot --path . -- --drive --at=harbour --hour=21 # start at a zone, trial, place
 godot --path . -- --garage=up --fresh            # garage on the Upgrades tab, fresh save
 godot --path . -- --drive --season=3             # 0 spring, 1 summer, 2 autumn, 3 winter
 xvfb-run godot --path . -- --drive --shot=/tmp/x.png --shot_at=200 --quit_after=30
-godot --headless --path . -s res://tools/test/drive_test.gd   # handling scenarios
+godot --headless --path . -s res://tools/test/handling.gd -- bug,hotrod all   # handling report
+godot --headless --path . -s res://tools/test/road_audit.gd                  # props in the road
 ```
 
 ## Later: Play Store and ads

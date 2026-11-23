@@ -51,6 +51,13 @@ var _slide := 0.0
 var _hb_t := 0.0
 var _last_slip := 0.0
 var _gear_cd := 0.0
+var _rev_t := 0.0            # how long the brake has been held at a standstill
+var vis_steer := 0.0
+var wall_t := 0.0            # just touched a wall (counts down)
+var wall_pos := Vector3.ZERO  # where it last touched one
+var _swing_dir := 0.0        # the side the last drift went (+1 right), for swinging into the next one
+var _swing_t := 0.0         # what the front wheels show (they point into the slide when drifting)
+const DRIFT_PACE := 19.0     # m/s (about 68 km/h): a held drift settles around here
 const GEARS := [0.0, 8.5, 15.0, 22.0, 29.5, 37.0, 46.0, 60.0]
 const TRAVEL := 0.28
 const REST := 0.32           # ray starts this far above the wheel centre
@@ -101,7 +108,7 @@ func setup(def: Dictionary, mat: Material, isl: Node) -> void:
 	can_sleep = false
 	continuous_cd = true
 	var pm := PhysicsMaterial.new()
-	pm.friction = 0.35
+	pm.friction = 0.08          # slide along walls rather than being yanked round by them
 	pm.bounce = 0.05
 	physics_material_override = pm
 	contact_monitor = true
@@ -120,6 +127,30 @@ func tune(def: Dictionary, up: Dictionary) -> void:
 	mu = 1.12 * def.get("grip", 1.0) * (1.0 + 0.035 * int(up.get("tyres", 0)))
 	rear_grip = 0.97 - (def.get("drift", 1.0) - 1.0) * 0.25
 	steer_lock = deg_to_rad(34.0 + 2.5 * int(up.get("steering", 0)))
+
+## Walls and cars push you about, but never roll you over or send you spinning like a top.
+func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
+	var wall := false
+	for i in st.get_contact_count():
+		if absf(st.get_contact_local_normal(i).y) < 0.6:
+			wall = true
+			wall_pos = st.get_contact_local_position(i)
+			break
+	if wall:
+		wall_t = 0.3
+		# scraping along costs a little speed
+		st.linear_velocity *= 0.994
+	if wall_t <= 0.0:
+		return
+	# for a moment after a knock the car won't tip: rolling and pitching are held right down
+	var upv := st.transform.basis.y
+	var av := st.angular_velocity
+	var yaw_part := upv * av.dot(upv)
+	var tip := av - yaw_part
+	tip = tip * (0.4 if wall else 0.8)
+	if tip.length() > 0.7:
+		tip = tip.normalized() * 0.7
+	st.angular_velocity = yaw_part * (0.97 if wall else 1.0) + tip
 
 func place(xf: Transform3D) -> void:
 	global_transform = xf
@@ -185,15 +216,24 @@ func _physics_process(dt: float) -> void:
 	if grounded == 0 or wheelspin > 0.3:
 		rpm_target = minf(1.0, rpm_target + throttle * 0.5)
 	rpm = lerpf(rpm, maxf(rpm_target, throttle * 0.25), 1.0 - exp(-dt * 10.0))
-	var reverse := brake > 0.1 and speed < 0.8 and throttle < 0.1
+	# holding the brake at a standstill backs up, after a beat (so braking to a stop doesn't reverse)
+	if brake > 0.1 and speed < 0.8 and throttle < 0.1:
+		_rev_t += dt
+	else:
+		_rev_t = 0.0
+	var reverse := _rev_t > 0.45 or (brake > 0.1 and speed < -0.5 and throttle < 0.1)
 	var drive := 0.0
 	if throttle > 0.0:
 		drive = throttle * minf(engine_force, engine_force * power_speed / maxf(gv, 1.0))
+		# sideways, most of the power goes into wheelspin and smoke
+		drive *= lerpf(1.0, 0.5, drift * clampf((vs - DRIFT_PACE + 6.0) / 6.0, 0.0, 1.0))
 		if _gear_cd > 0.2:
 			drive *= 0.35
 	elif reverse:
 		drive = -brake * engine_force * 0.45 * clampf(1.0 - (-speed) / 9.0, 0.0, 1.0)
 	var braking := 0.0 if reverse else brake
+	if throttle > 0.1 and speed < -1.0:
+		braking = maxf(braking, throttle)   # gas while rolling backwards stops you first
 	# ---- each wheel
 	var space := get_world_3d().direct_space_state
 	grounded = 0
@@ -305,23 +345,39 @@ func _physics_process(dt: float) -> void:
 		if _hb_t > 0.0 and absf(steer_in) > 0.2 and aslip < deg_to_rad(28.0):
 			apply_torque(up * -steer_in * 3600.0 * clampf(_hb_t / 0.45, 0.0, 1.0) * clampf(vs / 12.0, 0.3, 1.0))
 		var holding := (drift > 0.15 or aslip > deg_to_rad(14.0)) and throttle > 0.15 and speed > 3.0
+		# a transition: steer the other way with your foot down and, as the car swings through
+		# straight, the tail lets go again so it carries on into a drift the other way
+		var yaw_to := -angular_velocity.dot(up) * steer_in
+		if _swing_t > 0.0 and throttle > 0.5 and steer_in * _swing_dir < -0.5 and yaw_to > 0.35 \
+				and (aslip < deg_to_rad(4.0) or -signf(slip) == -_swing_dir):
+			_hb_t = 0.35
+			_swing_t = 0.0
+		_swing_t = maxf(0.0, _swing_t - dt)
 		if holding:
 			var dir := -signf(slip)                 # +1: sliding round to the right
+			_swing_dir = dir
+			_swing_t = 0.9
 			var press := steer_in * dir             # +1 into the drift, -1 out of it
-			var target := deg_to_rad(28.0) + press * deg_to_rad(16.0)
+			var target := deg_to_rad(10.0) + maxf(press, 0.0) * deg_to_rad(34.0)   # hands off: it eases out
 			if press < -0.5:
 				target = deg_to_rad(4.0)
 			var err := target - aslip
 			apply_torque(-up * dir * (err * 16000.0 - slip_rate * 5200.0) * assist)
-		elif aslip > deg_to_rad(50.0):
-			apply_torque(-up * signf(slip) * (aslip - deg_to_rad(50.0)) * 30000.0 * assist)
-		# a drift with your foot down doesn't bleed all its speed
+		elif aslip > deg_to_rad(8.0) and speed > 3.0 and (throttle < 0.15 or brake > 0.1):
+			# off the gas or on the brakes: the tyres bite again and it straightens up
+			var dir2 := -signf(slip)
+			apply_torque(-up * dir2 * ((deg_to_rad(1.0) - aslip) * 10000.0 - slip_rate * 4200.0) * assist)
+		if aslip > deg_to_rad(58.0) and speed > 2.0:
+			apply_torque(-up * signf(slip) * (aslip - deg_to_rad(58.0)) * 30000.0 * assist)
+		# a drift with your foot down doesn't bleed all its speed (but settles at a pace that fits
+		# round a street corner instead of building up forever)
 		if drift > 0.1 and throttle > 0.2 and speed > 0.0:
-			apply_central_force(vflat.normalized() * mass * 3.4 * drift * throttle * assist)
+			var keep := clampf((DRIFT_PACE - vs) / 7.0, 0.0, 1.0)
+			apply_central_force(vflat.normalized() * mass * 3.4 * drift * throttle * assist * keep)
 		# calm the yaw a touch when nothing is pressed
 		var yr := angular_velocity.dot(up)
 		if absf(steer_in) < 0.1 and drift < 0.2:
-			apply_torque(-up * yr * 900.0 * assist)
+			apply_torque(-up * yr * (2600.0 if brake > 0.1 else 900.0) * assist)
 	# ---- air: a little spin control, and level out gently
 	if grounded == 0:
 		air_t += dt
@@ -343,10 +399,19 @@ func _physics_process(dt: float) -> void:
 	if dv > 4.5:
 		bumped.emit(dv)
 	_last_v = linear_velocity
+	wall_t = maxf(0.0, wall_t - dt)
+	# just after a knock, keep the wheels down: lean back toward upright if it's tipping
+	if wall_t > 0.0:
+		var tilt2 := up.cross(Vector3.UP)
+		if tilt2.length() > 0.12 and grounded > 0:
+			apply_torque(tilt2 * 14000.0)
 
-func _process(_dt: float) -> void:
+func _process(dt: float) -> void:
 	if wheels.is_empty():
 		return
+	# in a drift the front wheels visibly point the way the car is going
+	var vis_want := lerpf(steer, clampf(slip * 0.85, -steer_lock * 1.15, steer_lock * 1.15), clampf(drift * 1.2, 0.0, 1.0) * 0.7)
+	vis_steer = lerpf(vis_steer, vis_want, 1.0 - exp(-dt * 12.0))
 	for i in 4:
 		var wd: Dictionary = wheels[i]
 		var wn: MeshInstance3D = wheel_nodes[i]
@@ -354,7 +419,7 @@ func _process(_dt: float) -> void:
 		var drop: float = clampf(float(wd["len"]) - REST, -0.2, TRAVEL)
 		var b := Basis()
 		if wd["front"]:
-			b = Basis(Vector3.UP, -steer)
+			b = Basis(Vector3.UP, -vis_steer)
 		b = b * Basis(Vector3.RIGHT, -float(wd["spin"]))
 		wn.transform = Transform3D(b, home - Vector3(0, drop, 0))
 

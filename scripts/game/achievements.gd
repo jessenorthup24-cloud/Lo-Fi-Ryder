@@ -26,6 +26,8 @@ const LIST := [
 	{"id": "zone_gold", "name": "Zone Master", "desc": "Gold in every drift zone", "icon": "trophy", "stat": "zone_golds", "target": 6, "reward": 1500},
 	{"id": "trial1", "name": "On The Clock", "desc": "Finish a trial", "icon": "flag", "stat": "trial_medals", "target": 1, "reward": 100},
 	{"id": "trial_gold", "name": "Trial Ace", "desc": "Gold in every trial", "icon": "trophy", "stat": "trial_golds", "target": 4, "reward": 1500},
+	{"id": "close10", "name": "Paint Trader", "desc": "Drift close to a wall or car 10 times", "icon": "tire", "stat": "close_calls", "target": 10, "reward": 150},
+	{"id": "close100", "name": "Wall Kisser", "desc": "Drift close to a wall or car 100 times", "icon": "trophy", "stat": "close_calls", "target": 100, "reward": 700},
 	{"id": "knock50", "name": "Bull In A China Shop", "desc": "Knock over 50 things", "icon": "leaf", "stat": "knocks", "target": 50, "reward": 80},
 	{"id": "night", "name": "Night Owl", "desc": "Drive 5 km at night", "icon": "moon", "stat": "night", "target": 5000, "reward": 150},
 	{"id": "cars3", "name": "Collector", "desc": "Own 3 cars", "icon": "car", "stat": "owned", "target": 3, "reward": 200},
