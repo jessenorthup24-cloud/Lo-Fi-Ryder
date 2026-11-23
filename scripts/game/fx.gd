@@ -18,8 +18,11 @@ func setup(mat: ShaderMaterial) -> void:
 	puffs = Pool.new()
 	puffs.setup(M.get_mesh("puff"), 220, soft, false, false)
 	add_child(puffs)
+	var marks: ShaderMaterial = mat.duplicate()
+	marks.set_shader_parameter("depth_bias", 0.0009)
+	marks.set_shader_parameter("rim_strength", 0.0)
 	skids = Pool.new()
-	skids.setup(M.get_mesh("skid"), 260, mat, false, false)
+	skids.setup(M.get_mesh("skid"), 1200, marks, false, false)
 	add_child(skids)
 	var b := MB.new()
 	b.cbox(Vector3.ZERO, Vector3(0.14, 0.14, 0.03), 0.02, MB.rgb("ffffff"))
@@ -38,14 +41,19 @@ func puff(p: Vector3, col: Color, size := 0.35, v := Vector3.ZERO, life := 0.7, 
 	puffs.multimesh.set_instance_color(s, col)
 	live_puffs.append({"s": s, "p": p, "v": v + Vector3(0, rise, 0), "t": 0.0, "life": life, "size": size})
 
-func skid(p: Vector3, yaw: float) -> void:
+## A tyre mark: len along yaw, w wide (metres), lying on a surface with normal n.
+func skid(p: Vector3, yaw: float, len := 0.24, w := 0.16, n := Vector3.UP) -> void:
 	var s := skids.alloc()
 	if s < 0:
 		var old = live_skids.pop_front()
 		skids.release(old["s"])
 		s = skids.alloc()
-	live_skids.append({"s": s, "p": p, "yaw": yaw, "t": 0.0})
-	skids.put(s, Transform3D(Basis(Vector3.UP, yaw), p))
+	var b := Basis(Vector3.UP, yaw)
+	if n.dot(Vector3.UP) < 0.999:
+		b = Basis(Quaternion(Vector3.UP, n.normalized())) * b
+	b = b.scaled(Vector3(w / 0.16, 1.0, len / 0.24))
+	live_skids.append({"s": s, "b": b, "p": p, "t": 0.0})
+	skids.put(s, Transform3D(b, p))
 
 func burst(p: Vector3, cols: Array, n := 10, speed := 4.0, up := 4.0, life := 1.1) -> void:
 	for i in n:
@@ -86,12 +94,13 @@ func tick(dt: float) -> void:
 	done.clear()
 	for q in live_skids:
 		q["t"] += dt
-		if q["t"] > 2.6:
+		if q["t"] > 18.0:
 			skids.release(q["s"])
 			done.append(q)
 			continue
-		var k := 1.0 - smoothstep(1.6, 2.6, q["t"])
-		skids.put(q["s"], Transform3D(Basis(Vector3.UP, q["yaw"]).scaled(Vector3(k, 1, 1)), q["p"]))
+		if q["t"] > 14.0:
+			var k := 1.0 - smoothstep(14.0, 18.0, q["t"])
+			skids.put(q["s"], Transform3D((q["b"] as Basis).scaled(Vector3(k, 1, 1)), q["p"]))
 	for q in done:
 		live_skids.erase(q)
 	done.clear()

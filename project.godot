@@ -10,13 +10,13 @@ config_version=5
 
 [application]
 
-config/name="Lo-Fi Ryder"
-config/description="A cozy endless drive across floating islands."
+config/name="Lo-Fi Dryfter"
+config/description="An open-world drift game on a cozy little island."
 config/version="1.0"
 run/main_scene="res://boot/boot.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.png"
-boot_splash/bg_color=Color(0.42, 0.36, 0.68, 1)
+boot_splash/bg_color=Color(0.2, 0.196, 0.188, 1)
 boot_splash/show_image=false
 config/quit_on_go_back=false
 
@@ -26,13 +26,13 @@ general/default_playback_type.web=0
 
 [display]
 
-window/size/viewport_width=720
-window/size/viewport_height=1280
-window/size/window_width_override=405
-window/size/window_height_override=720
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/window_width_override=960
+window/size/window_height_override=540
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/handheld/orientation=1
+window/handheld/orientation=4
 
 [input_devices]
 
@@ -40,6 +40,7 @@ pointing/emulate_touch_from_mouse=true
 
 [physics]
 
+3d/physics_engine="Jolt Physics"
 common/physics_ticks_per_second=60
 common/max_physics_steps_per_frame=4
 
@@ -51,4 +52,4 @@ textures/vram_compression/import_etc2_astc=true
 anti_aliasing/quality/msaa_3d=2
 lights_and_shadows/directional_shadow/size=2048
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=1
-environment/defaults/default_clear_color=Color(0.42, 0.36, 0.68, 1)
+environment/defaults/default_clear_color=Color(0.2, 0.196, 0.188, 1)

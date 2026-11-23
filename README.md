@@ -1,7 +1,9 @@
-# Lo-Fi Ryder
+# Lo-Fi Dryfter
 
-A cozy endless drive for Android, made in Godot 4.7. Steer a little toy car across floating diorama
-islands that crumble away behind you, while the days, seasons and weather roll by and lo-fi music plays.
+An open-world drift game for Android, made in Godot 4.7. Drive a little car around an island town:
+a dense city grid with traffic and people out walking, suburbs, a castle on its hill, forest passes,
+farms, a working harbour and a beach front. Drift for points, bank them for coins, and spend the coins
+on cars and upgrades. The day runs in real time on the island and the season follows your calendar.
 
 ## Getting the game
 
@@ -12,89 +14,86 @@ islands that crumble away behind you, while the days, seasons and weather roll b
 
 ## How to play
 
-- Hold the left or right arrow to steer (anywhere on that half of the screen counts). A quick tap is a
-  gentle turn; holding winds up to full lock and throws the tail out into a drift. Let go of a long
-  drift for a little speed kick.
-- The run keeps speeding up the farther you get (about 32 km/h at the start, ~50 km/h by 900 m).
-- Bumping rocks and walls glances you along them; if you ever get wedged, the car hops back to the road.
-- A cute toy world floating over a pastel galaxy whose nebula colours change with each region, with
-  motes, petals and fireflies drifting by. The cars are the Tiny Car Pack (baked into assets/cars by
-  tools/cars/export_cars.gd from the pack's FBX, which stays outside the repo).
-- Handling: the car has some weight: steering eases in and out, tyres grip up to a limit and then
-  slide (hold an arrow to step the rear out), the body rolls and squats, and it gets light over crests
-  and drops instead of sticking to the ground.
-- Challenge pieces span long drops: plank bridges on stilts, and twisty toy race tracks with candy
-  kerbs and little hills. They crumble away behind you, piece by piece.
-- Offroad sections are real uneven terrain: rolling dirt tracks, and red rock canyons you crawl through
-  (slower on the climbs, the car pitches and rolls and each wheel finds the ground).
-- Gauntlets chain it all: a kicker onto a grind rail (you lock on automatically), down onto a plank
-  bridge, over rough ground and through a red rock canyon.
-- Police cruisers are sloppy drivers: they weave and run wide, and often go over the edge on bridges.
-- In the air, hold an arrow to spin the car. Land straight for a clean landing bonus.
-- The run ends if you drive off an edge, land in the water, or run out of fuel. Grab red cans and drive
-  through gas stations to refuel.
-- Police chases: drive past a parked cruiser and it gives chase along your exact path. Hit the glowing
-  boost pads to stay ahead for the stretch shown on screen. Get away for +40 coins; get caught and you
-  lose 30% of your fuel.
-- The road runs past little places (farms, villages, toy towns, skate parks, ponds, orchards, beaches,
-  piers, cafés, seaside shops, campsites, mountains, cabins, sky castles, sky ruins, balloon ports, cloud
-  gardens) with little people who wave as you pass and cheer your stunts, and cube pets that hop about.
-  They always hop out of the way. In winter there are snowmen, presents and decorated trees, and house
-  windows light up at night.
-- Score = distance + style (drifts, near misses, air, spins, clean landings) + 5 per coin.
-- Coins buy cars and upgrades in the Garage. Missions pay out extra coins. The Daily run gives everyone
-  the same road for the day, and your best daily attempt comes back as a ghost.
-- Trophies: 36 achievements (distance, speed, drifts, stunts, bridges, chases, regions, garage) that
-  each pay coins once. They unlock live during a run.
+- Landscape, third-person chase camera (tap the camera button for near or far).
+- Controls: steer left and right on the left; brake, gas and the handbrake (DRIFT) on the right.
+  Hold brake when stopped to reverse.
+- Drifting: at speed, tap the handbrake (or turn in hard on the gas) to kick the rear out, then hold the
+  gas and steer to hold the angle. Steer into the drift for more angle, against it to straighten up.
+  Drift assist (Settings) helps hold the angle.
+- Points build with angle and speed. Keep drifting to raise the combo (up to x10); chain drifts within
+  a moment of each other to keep it going. A drift banks once you're straight again, and every 120
+  points of a banked drift is a coin. Hitting something hard loses the drift you were holding.
+- Challenges, marked on the map and on the road:
+  - Drift zones (orange rings): score as much as you can inside the zone before the clock runs out.
+    The Drift Bowl, the town square, the harbour lot, the farmyard, the beach car park and the skate
+    park.
+  - Time trials (blue): race through the gates. Drift runs (purple): drift through every gate.
+  - Each has bronze, silver and gold medals that pay out once.
+  - Hidden coins are tucked around the island, and finding all 12 places counts toward trophies.
+- The garage: 18 cars (each with its own power, top speed, grip and drift), plus four upgrades that
+  work on every car you own (engine, turbo, tyres, steering angle).
+- 27 trophies, each paying coins once.
+- If you flip, land in the water or get stuck, the car is put back on the road.
+
+## The world
+
+- 1.2 km square island, built when the game starts (`scripts/game/island.gd` is the land, roads and
+  helpers; `scripts/game/districts.gd` decides what goes where).
+- The city is a grid of named avenues and streets. Every block is filled in neat rows of buildings
+  sized to fit, with shops along Main Street, tall towers downtown, and gardens or car parks in the
+  middle of each block. Nothing is scattered at random inside town.
+- Traffic drives on the right, keeps its distance and gives way to other cars and to you. People walk the
+  pavements, sit on benches, watch you drift and wave.
+- Seasons: autumn colours from September, snow and decorations in winter, blossom in spring. Windows
+  and lamps light up after dusk.
 
 ## Project layout
 
 | Path | What |
 | --- | --- |
 | `boot/` | The over-the-air updater (first scene). Keep it small: the copy inside an installed APK can't update itself. |
-| `scenes/main.tscn`, `scripts/main.gd` | Game states, input, camera, scoring, fuel, missions, ghost |
-| `scripts/game/world.gd` | Terrain generation, crumbling, props, pickups, ground queries |
-| `scripts/game/car.gd` | Car physics and toy-like body animation |
-| `scripts/game/police.gd` | The chase cruiser (follows your breadcrumb trail) |
-| `scripts/game/achievements.gd` | Trophy list, lifetime stats, unlock checks |
-| `scripts/game/people.gd` | Toy people: watch, wave, cheer, hop aside |
-| `scripts/game/atmos.gd` | Day/night, seasons, weather, sky and the far parallax layer |
-| `scripts/core/` | Palette (season colors), mesh builder, every model built in code |
+| `scenes/main.tscn`, `scripts/main.gd` | Game states, input, camera, drift scoring, challenges, saving |
+| `scripts/game/island.gd` | Heightfield, roads (splines cut into the land), lots, colliders, merged static meshes, minimap layer |
+| `scripts/game/districts.gd` | The island plan: districts, blocks, places, challenges and everything placed in them |
+| `scripts/game/drift_car.gd` | Car physics: raycast wheels, tyre model, gearbox, handbrake and drift assist |
+| `scripts/game/traffic.gd` | Traffic cars that follow the roads |
+| `scripts/game/people.gd` | People: stand, sit, walk, watch, wave and hop aside |
+| `scripts/game/atmos.gd` | Day and night, seasons, sky and sun |
+| `scripts/game/achievements.gd`, `save.gd`, `cars.gd` | Trophies, save data, the car list |
+| `scripts/core/` | Palette (season colours), mesh builder, model loading and scales |
 | `scripts/ui/` | All screens (built in code), icons drawn in code |
-| `shaders/` | Toon shader with the season palette, sky, ghost, outline, wipe |
-| `tools/audio/make_audio.py` | Synthesizes the UI and pickup sound effects (`python3 tools/audio/make_audio.py sfx`) |
-| `tools/audio/make_vehicle.py` | Synthesizes the vehicle sounds: 4-layer engines per family, tyres per surface, skids, siren |
-| `tools/music/` | CC0 music list and the script the build uses to fetch, trim and encode it (cached on the `music` branch) |
-| `tools/look/` | Icon renderer and look-dev scripts (`kgrid.gd` renders a contact sheet of baked Kenney models) |
+| `shaders/` | Toon shader with the season palette, sea, wipe |
 | `tools/kenney/bake_kenney.gd` | Bakes the chosen Kenney kit models into `assets/kenney/` (people posed, arms loose) |
+| `tools/look/` | Look-dev: `island_look.gd` photographs parts of the island, `kgrid.gd` makes a model contact sheet |
+| `tools/test/` | `drive_test.gd` (headless handling tests), `collide_test.gd`, `probe.gd` (ground heights) |
+| `tools/audio/`, `tools/music/` | Sound synthesis scripts; the CC0 music list the build fetches |
 
 There are no autoloads and no `class_name`s, so an update pack can replace any script before it loads.
 
 ## Testing without a phone
 
 ```
-godot --path . -- --auto              # autopilot drives
-godot --path . -- --run --hour=22 --weather=rain --biome=seaside --season=2
-godot --path . -- --garage --coins=5000
-godot --path . -- --run --deck=plank --warp=deck   # jump onto a plank bridge (or --deck=track)
-godot --path . -- --auto --biome=forest --hug=4.2  # autopilot grinds along the rim walls
-godot --path . -- --auto --kind=gauntlet --warp=kind   # jump to a gauntlet (or --kind=rough / dirt)
-xvfb-run godot --path . -- --auto --shot=/tmp/x.png --frames=200   # screenshot, then quit
+godot --path . -- --auto                         # autopilot drives the roads
+godot --path . -- --drive --at=harbour --hour=21 # start at a zone, trial, place name or x,z[,yaw]
+godot --path . -- --garage=up --fresh            # garage on the Upgrades tab, fresh save
+godot --path . -- --drive --season=3             # 0 spring, 1 summer, 2 autumn, 3 winter
+xvfb-run godot --path . -- --drive --shot=/tmp/x.png --shot_at=200 --quit_after=30
+godot --headless --path . -s res://tools/test/drive_test.gd   # handling scenarios
 ```
 
 ## Later: Play Store and ads
 
 - The CI builds a **debug** APK signed with `tools/android/debug.keystore` (so updates install over each
   other). A Play Store build needs a real release key kept in a GitHub secret, never in the repo.
-- `scripts/game/ads.gd` is the hook for rewarded ads (e.g. "watch an ad to keep driving"). It does
-  nothing today. Ads need an AdMob plugin and the Gradle Android build.
+- `scripts/game/ads.gd` is the hook for rewarded ads. It does nothing today. Ads need an AdMob plugin
+  and the Gradle Android build.
 
 ## Credits
 
-Most models and all sound effects are made in code for this game. The cars are the Tiny Car Pack. The
-people, pets, houses, shops, skate park, camping gear, castle and holiday bits are from Kenney's CC0 kits
-(kenney.nl: Mini Characters, Cube Pets, City Kit Suburban and Commercial, Mini Skate, Survival Kit, Mini
-Forest, Castle Kit, Holiday Kit). Music: CC0 lo-fi hip hop by HoliznaCC0 and
-omfgdude from OpenGameArt (see `tools/music/sources.json`; the list of tracks actually used is
-`tracks.json` on the `music` branch). The font is Fredoka (SIL Open Font License,
+The buildings, people, pets, vehicles, ships and props are from Kenney's CC0 kits (kenney.nl: City Kit
+Suburban and Commercial, Modular Buildings, Retro Urban Kit, Car Kit, Mini Characters, Cube Pets,
+Mini Skate, Survival Kit, Mini Forest, Castle Kit, Holiday Kit, Mini Arena, Pirate Kit). The player cars
+are the Tiny Car Pack. Terrain, roads and the remaining props are made in code. Music: CC0 lo-fi hip hop
+by HoliznaCC0 and omfgdude from OpenGameArt (see `tools/music/sources.json`; the tracks actually used
+are listed in `tracks.json` on the `music` branch). The font is Fredoka (SIL Open Font License,
 `assets/fonts/LICENSE_Fredoka.txt`).

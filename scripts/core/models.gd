@@ -806,21 +806,40 @@ const DARK := "3a3540"
 static var _car_meta := {}
 
 ## A car from the Tiny Car Pack, baked by tools/cars (assets/cars): body, left/right wheel meshes, wheel spots.
+const CAR_SCALE := 2.6   # the pack's cars, baked at toy size, grown to real size (about 4.2 m long)
+
 static func _pack_car(def: Dictionary) -> Dictionary:
 	if _car_meta.is_empty():
 		var f := FileAccess.open("res://assets/cars/cars_meta.json", FileAccess.READ)
 		_car_meta = JSON.parse_string(f.get_as_text())
 	var k := String(def["model"])
 	var meta: Dictionary = _car_meta[k]
-	var wl: Mesh = load("res://assets/cars/%s_wl.res" % k)
-	var wr: Mesh = load("res://assets/cars/%s_wr.res" % k)
+	var sc := CAR_SCALE
+	var wl: Mesh = scaled(load("res://assets/cars/%s_wl.res" % k), sc)
+	var wr: Mesh = scaled(load("res://assets/cars/%s_wr.res" % k), sc)
 	var spots := []
 	for w in meta["wheels"]:
-		spots.append(Vector3(w[0], w[1], w[2]))
+		spots.append(Vector3(w[0], w[1], w[2]) * sc)
 	var ab: Array = meta["aabb"]
-	return {"body": load("res://assets/cars/%s_body.res" % k), "wheel_f": wl, "wheel_r": wl, "wheel_fr": wr, "wheel_rr": wr,
-		"wheels": spots, "r_f": float(meta["r"]), "r_r": float(meta["r"]), "ride": 0.0,
-		"top": float(ab[1]) + float(ab[4]), "front": float(ab[2]), "back": float(ab[2]) + float(ab[5])}
+	return {"body": scaled(load("res://assets/cars/%s_body.res" % k), sc), "wheel_f": wl, "wheel_r": wl, "wheel_fr": wr, "wheel_rr": wr,
+		"wheels": spots, "r_f": float(meta["r"]) * sc, "r_r": float(meta["r"]) * sc, "ride": 0.0,
+		"top": (float(ab[1]) + float(ab[4])) * sc, "front": float(ab[2]) * sc, "back": (float(ab[2]) + float(ab[5])) * sc,
+		"width": float(ab[3]) * sc, "length": float(ab[5]) * sc, "height": float(ab[4]) * sc}
+
+## A copy of a mesh grown by s (every surface).
+static func scaled(src: Mesh, s: float) -> ArrayMesh:
+	var m := ArrayMesh.new()
+	for si in src.get_surface_count():
+		var a := src.surface_get_arrays(si)
+		var vv: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
+		for k in vv.size():
+			vv[k] *= s
+		a[Mesh.ARRAY_VERTEX] = vv
+		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a)
+		var mat := src.surface_get_material(si)
+		if mat:
+			m.surface_set_material(si, mat)
+	return m
 
 static func car(def: Dictionary) -> Dictionary:
 	var key := "car_" + String(def["id"])
@@ -1495,18 +1514,36 @@ static func parked(def: Dictionary) -> ArrayMesh:
 # Baked by tools/kenney/bake_kenney.gd into assets/kenney/k_<pack>_<model>.res, facing -Z, painted colours kept.
 # Each kit has its own scale; these bring them in line with the toy world (tile 1.6 m, people about 1 m tall).
 
-const K_PACK_SCALE := {"sub": 2.0, "com": 2.1, "mod": 1.3, "retro": 2.0, "arena": 1.3, "skate": 2.2, "surv": 2.6, "forest": 1.2,
-	"castle": 2.2, "holi": 0.9, "chars": 1.35}
-const K_SCALE := {"k_surv_tree": 1.45, "k_surv_tree-tall": 1.45, "k_surv_tree-autumn": 1.45, "k_surv_tree-autumn-tall": 1.45,
-	"k_surv_rock-flat-grass": 1.0, "k_surv_rock-a": 1.3, "k_surv_rock-b": 1.3, "k_surv_rock-c": 1.3,
-	"k_skate_skateboard": 1.4, "k_skate_scooter": 1.6, "k_skate_bench": 1.5,
-	"k_holi_candy-cane-red": 2.0, "k_holi_gingerbread-man": 2.2, "k_holi_present-a-cube": 1.1, "k_holi_present-b-round": 1.1,
-	"k_holi_present-a-rectangle": 1.1, "k_holi_lights-colored": 2.0, "k_sub_tree-large": 2.4, "k_sub_tree-small": 2.4,
-	"k_castle_tree-large": 1.1, "k_com_detail-parasol-a": 2.6, "k_com_detail-parasol-b": 2.6}
-# pets are all about the same size in the kit: give them heights
-const K_PET_H := {"cow": 0.8, "elephant": 0.85, "giraffe": 0.95, "deer": 0.75, "bee": 0.32, "chick": 0.38, "crab": 0.32,
-	"caterpillar": 0.32, "fish": 0.4, "parrot": 0.45, "penguin": 0.5, "bunny": 0.45, "hog": 0.55, "pig": 0.55, "polar": 0.65,
-	"lion": 0.65, "tiger": 0.6, "panda": 0.6}
+const K_PACK_SCALE := {"sub": 7.5, "com": 10.0, "mod": 5.0, "retro": 4.6, "arena": 4.0, "car": 1.75, "skate": 4.0, "surv": 3.8,
+	"forest": 5.5, "castle": 8.0, "holi": 1.6, "chars": 2.3}
+const K_SCALE := {
+	"k_surv_tree": 6.4, "k_surv_tree-tall": 6.4, "k_surv_tree-autumn": 6.4, "k_surv_tree-autumn-tall": 6.4, "k_surv_tree-trunk": 5.0,
+	"k_surv_tent": 4.4, "k_surv_tent-canvas": 4.4, "k_surv_campfire-pit": 4.0, "k_surv_patch-grass": 5.0,
+	"k_forest_tent": 2.6, "k_forest_flag": 4.0, "k_forest_plant": 3.0, "k_forest_target": 3.0,
+	"k_castle_tree-large": 5.0, "k_castle_tree-small": 5.0, "k_castle_rocks-large": 6.0, "k_castle_rocks-small": 6.0,
+	"k_castle_siege-catapult": 4.0, "k_castle_siege-trebuchet": 4.0, "k_castle_flag": 6.0, "k_castle_flag-pennant": 6.0,
+	"k_castle_flag-banner-long": 5.0,
+	"k_skate_skateboard": 1.2, "k_skate_scooter": 1.3, "k_skate_bench": 3.0, "k_skate_benches": 3.0,
+	"k_retro_detail-bench": 3.0, "k_retro_detail-barrier-type-a": 3.0, "k_retro_detail-barrier-type-b": 3.0,
+	"k_retro_detail-barrier-strong-type-a": 3.0, "k_retro_detail-dumpster-closed": 3.0, "k_retro_pallet": 1.3,
+	"k_retro_truck-green": 4.0, "k_retro_truck-grey": 4.0, "k_retro_truck-flat": 4.0,
+	"k_com_detail-parasol-a": 5.5, "k_com_detail-parasol-b": 5.5,
+	"k_car_cone": 1.25, "k_car_cone-flat": 1.25, "k_car_box": 1.4,
+	"k_holi_tree-decorated": 2.2, "k_holi_lantern": 2.0, "k_holi_lantern-hanging": 2.0, "k_holi_present-a-cube": 1.1,
+	"k_holi_present-b-round": 1.1, "k_holi_present-a-rectangle": 1.1, "k_holi_candy-cane-red": 2.6, "k_holi_reindeer": 1.4,
+	"k_holi_lights-colored": 3.0, "k_holi_nutcracker": 1.9, "k_holi_sled": 1.4, "k_holi_bench": 2.2,
+	"k_arena_statue": 3.0, "k_arena_trophy": 3.0, "k_arena_column": 5.0, "k_arena_tree": 5.0,
+	"k_sub_tree-large": 7.5, "k_sub_tree-small": 7.5,
+	"k_pirate_barrel": 0.7, "k_pirate_crate": 0.85, "k_pirate_crate-bottles": 0.85, "k_pirate_chest": 0.8, "k_pirate_cannon": 1.2,
+	"k_pirate_palm-straight": 2.2, "k_pirate_palm-bend": 2.2, "k_pirate_palm-detailed-straight": 2.2, "k_pirate_palm-detailed-bend": 2.2,
+	"k_pirate_rocks-sand-a": 1.0, "k_pirate_rocks-sand-b": 1.0, "k_pirate_rocks-sand-c": 1.0, "k_pirate_boat-row-large": 1.4,
+	"k_pirate_boat-row-small": 1.4, "k_pirate_tower-watch": 1.8, "k_pirate_structure": 2.2, "k_pirate_structure-roof": 2.2,
+	"k_pirate_flag-high-pennant": 2.0,
+}
+# pets: heights in metres
+const K_PET_H := {"cow": 1.6, "elephant": 2.4, "giraffe": 3.0, "deer": 1.4, "bee": 0.3, "chick": 0.35, "crab": 0.35,
+	"caterpillar": 0.3, "fish": 0.4, "parrot": 0.5, "penguin": 0.7, "bunny": 0.45, "hog": 1.0, "pig": 0.9, "polar": 1.3,
+	"lion": 1.1, "tiger": 1.0, "panda": 1.1, "dog": 0.6, "cat": 0.4, "fox": 0.6, "beaver": 0.55, "koala": 0.6, "monkey": 0.7}
 static var _kmeta := {}
 
 static func kmeta() -> Dictionary:
@@ -1536,14 +1573,7 @@ static func _k_mesh(name: String) -> ArrayMesh:
 	var sc := kscale(key)
 	if is_equal_approx(sc, 1.0):
 		return src
-	var a := src.surface_get_arrays(0)
-	var vv: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
-	for k in vv.size():
-		vv[k] *= sc
-	a[Mesh.ARRAY_VERTEX] = vv
-	var m := ArrayMesh.new()
-	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a)
-	return m
+	return scaled(src, sc)
 
 # ---------------------------------------------------------------- toy people (Kenney mini characters)
 # Each has a body and two loose arms (pivots at the shoulders) for standing and for sitting.

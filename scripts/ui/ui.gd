@@ -1,80 +1,72 @@
 extends CanvasLayer
-## Every screen: title, HUD, game over, garage, missions, settings, pause, toasts and score popups.
+## Every screen, built in code, laid out for landscape (1280x720 and wider): loading, title, the
+## driving HUD (steering, pedals, speedo, drift meter, minimap), challenge cards, the map, pause,
+## settings, trophies and the garage (cars and upgrades).
 
 const K := preload("res://scripts/ui/kit.gd")
 const Icon := preload("res://scripts/ui/icon.gd")
 const CARS := preload("res://scripts/game/cars.gd")
 const M := preload("res://scripts/core/models.gd")
 const PAL := preload("res://scripts/core/palette.gd")
-const Missions := preload("res://scripts/game/missions.gd")
+const MB := preload("res://scripts/core/mesh_builder.gd")
 const Ach := preload("res://scripts/game/achievements.gd")
 const SaveData := preload("res://scripts/game/save.gd")
 
 var game: Node
+var island: Node
 var root: Control
+var loading: Control
 var title: Control
 var hud: Control
-var over: Control
 var garage: Control
-var overlay: Control       # dim + sheets (missions, settings, pause)
-var toasts: VBoxContainer
+var overlay: Control
 var popups: Control
+var toasts: VBoxContainer
 var wipe: ColorRect
 var wipe_mat: ShaderMaterial
 
-# title refs
+# hud
+var ctl := {}                 # left, right, gas, brake, hand -> Control
+var speed_lbl: Label
+var gear_lbl: Label
+var rpm_bar: ProgressBar
+var drift_card: PanelContainer
+var drift_lbl: Label
+var combo_lbl: Label
+var combo_bar: ProgressBar
+var angle_lbl: Label
+var coins_pill: PanelContainer
+var place_lbl: Label
+var clock_lbl: Label
+var chal_card: PanelContainer
+var chal_name: Label
+var chal_main: Label
+var chal_sub: Label
+var mini_vp: SubViewport
+var mini_cam: Camera3D
+var mini_wrap: Control
+var reset_hint: Button
+var _drift_show := 0.0
+var _bank_t := 0.0
+var _last_coins := -1
+var _hint_t := 0.0
+var _hud_data := {}
 var title_logo: Control
-var recent_pops: Array = []
-var title_best: Label
 var title_coins: PanelContainer
-var title_tap: Label
-var mission_badge: Label
-var daily_dot: Control
-# hud refs
-var hud_dist: Label
-var hud_best: Label
-var hud_fuel: ProgressBar
-var hud_fuel_icon: Control
-var hud_coins: PanelContainer
-var hud_combo: Label
-var arrow_l: Control
-var arrow_r: Control
-var chase_box: PanelContainer
-var chase_label: Label
-var chase_bar: ProgressBar
-var chase_dots: Array = []
-var _chase_t := 0.0
-var _fuel_flash := 0.0
-var _passed_best := false
-# garage refs
-var g_view: SubViewport
-var g_world_root: Node3D
-var g_car: Node3D
-var g_turntable: Node3D
-var g_index := 0
-var g_name: Label
-var g_stats: VBoxContainer
-var g_action: Button
-var g_coins: PanelContainer
-var g_tab_cars: Button
-var g_tab_up: Button
-var g_cars_box: Control
-var g_up_box: VBoxContainer
-var g_cars_card: Panel
-var g_svc: SubViewportContainer
-var g_mat: ShaderMaterial
-var g_drag := 0.0
-var g_spin := 0.0
-var g_dots: HBoxContainer
 
-## Extra top padding (in UI units) so nothing sits under a camera hole or notch.
-func safe_top() -> int:
-	var safe := DisplayServer.get_display_safe_area()
-	var screen := DisplayServer.screen_get_size()
-	if screen.y <= 0 or safe.size.y <= 0:
-		return 0
-	var vs := get_viewport().get_visible_rect().size
-	return clampi(int(float(safe.position.y) * vs.y / float(screen.y)), 0, 90)
+# garage
+var g_view: SubViewport
+var g_root3d: Node3D
+var g_car: Node3D
+var g_turn: Node3D
+var g_mat: ShaderMaterial
+var g_index := 0
+var g_from := 1
+var g_panel: VBoxContainer
+var g_coins: PanelContainer
+var g_tab := "cars"
+var g_spin := 0.0
+var g_drag := 0.0
 
 func setup(g: Node) -> void:
 	game = g
@@ -86,20 +78,18 @@ func setup(g: Node) -> void:
 	popups = _full(Control.MOUSE_FILTER_IGNORE)
 	_build_hud()
 	_build_title()
-	over = _full(Control.MOUSE_FILTER_IGNORE)
-	over.visible = false
 	_build_garage()
 	overlay = _full(Control.MOUSE_FILTER_STOP)
 	overlay.visible = false
 	toasts = VBoxContainer.new()
 	toasts.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	toasts.position = Vector2(-300, 250)
-	toasts.custom_minimum_size = Vector2(600, 0)
-	toasts.size = Vector2(600, 0)
-	toasts.alignment = BoxContainer.ALIGNMENT_BEGIN
-	toasts.add_theme_constant_override("separation", 12)
+	toasts.position = Vector2(-330, 150)
+	toasts.custom_minimum_size = Vector2(660, 0)
+	toasts.size = Vector2(660, 0)
+	toasts.add_theme_constant_override("separation", 10)
 	toasts.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(toasts)
+	_build_loading()
 	wipe = ColorRect.new()
 	wipe.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	wipe.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -116,419 +106,425 @@ func _full(filter: int) -> Control:
 	root.add_child(c)
 	return c
 
-var hit_controls: Array = []
-
-## True if a screen point is on a button or a sheet, so the game ignores that touch.
-func blocks(pos: Vector2) -> bool:
-	hit_controls = hit_controls.filter(func(c): return is_instance_valid(c))
-	if overlay.visible or garage.visible or (over.visible and over.mouse_filter == Control.MOUSE_FILTER_STOP):
-		return true
-	for c in hit_controls:
-		if is_instance_valid(c) and c.is_visible_in_tree() and c.get_global_rect().grow(8).has_point(pos):
-			return true
-	return false
-
 func _tap(b: BaseButton, f: Callable) -> void:
-	hit_controls.append(b)
 	b.pressed.connect(func():
 		game.ui_tap()
 		f.call())
 
-# ------------------------------------------------------------------ wipe
+func _vs() -> Vector2:
+	return root.get_viewport_rect().size
 
 func _set_wipe(p: float) -> void:
 	wipe_mat.set_shader_parameter("progress", p)
-	var vs := root.get_viewport_rect().size
+	var vs := _vs()
 	wipe_mat.set_shader_parameter("aspect", Vector2(vs.x / maxf(vs.y, 1.0), 1.0))
 	wipe.visible = p > 0.001
 	wipe.mouse_filter = Control.MOUSE_FILTER_STOP if p > 0.5 else Control.MOUSE_FILTER_IGNORE
 
 func transition(mid: Callable) -> void:
 	var t := create_tween()
-	t.tween_method(_set_wipe, 0.0, 1.0, 0.38).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t.tween_method(_set_wipe, 0.0, 1.0, 0.35).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	t.tween_callback(mid)
-	t.tween_interval(0.12)
-	t.tween_method(_set_wipe, 1.0, 0.0, 0.45).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t.tween_interval(0.1)
+	t.tween_method(_set_wipe, 1.0, 0.0, 0.4).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+# ------------------------------------------------------------------ loading
+
+func _build_loading() -> void:
+	loading = _full(Control.MOUSE_FILTER_STOP)
+	var bg := ColorRect.new()
+	bg.color = Color("d8d3cb")
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	loading.add_child(bg)
+	var vb := VBoxContainer.new()
+	vb.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	vb.position = Vector2(-300, -110)
+	vb.size = Vector2(600, 220)
+	vb.alignment = BoxContainer.ALIGNMENT_CENTER
+	vb.add_theme_constant_override("separation", 14)
+	loading.add_child(vb)
+	vb.add_child(K.outlined(K.label("Lo-Fi Dryfter", 84, K.PAPER, 700), K.INK, 16))
+	var l := K.outlined(K.label("Building the island...", 32, Color.WHITE, 650), K.INK, 10)
+	l.name = "Msg"
+	vb.add_child(l)
+	loading.visible = false
+
+func show_loading() -> void:
+	loading.visible = true
+	title.visible = false
+	hud.visible = false
+
+func world_ready(isl: Node) -> void:
+	island = isl
+	_setup_minimap()
+	var t := create_tween()
+	t.tween_property(loading, "modulate:a", 0.0, 0.5)
+	t.tween_callback(func(): loading.visible = false)
 
 # ------------------------------------------------------------------ title
 
 func _build_title() -> void:
 	title = _full(Control.MOUSE_FILTER_IGNORE)
-	var top := MarginContainer.new()
-	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	top.add_theme_constant_override("margin_left", 28)
-	top.add_theme_constant_override("margin_right", 28)
-	top.add_theme_constant_override("margin_top", 40 + safe_top())
-	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	title.add_child(top)
-	var tb := HBoxContainer.new()
-	tb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	top.add_child(tb)
-	var sp := Control.new()
-	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sp.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tb.add_child(sp)
-	title_coins = K.pill("coin", "0")
-	tb.add_child(title_coins)
-	# logo
-	title_logo = VBoxContainer.new()
-	title_logo.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	title_logo.position = Vector2(-330, 170)
-	title_logo.custom_minimum_size = Vector2(660, 0)
-	title_logo.size = Vector2(660, 0)
-	title_logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	title_logo.add_theme_constant_override("separation", -6)
-	title.add_child(title_logo)
+	title.visible = false
+	var shade := ColorRect.new()
+	shade.color = Color(0.1, 0.08, 0.2, 0.0)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title.add_child(shade)
+	var left := VBoxContainer.new()
+	left.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
+	left.offset_left = 64
+	left.offset_right = 640
+	left.offset_top = 70
+	left.offset_bottom = -50
+	left.add_theme_constant_override("separation", 16)
+	title.add_child(left)
+	title_logo = Control.new()
+	title_logo.custom_minimum_size = Vector2(560, 120)
+	left.add_child(title_logo)
 	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 0)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	title_logo.add_child(row)
-	var word := "Lo-Fi Ryder"
-	var cols := [Color("ff8a6b"), Color("ffb85c"), Color("ffd166"), Color("ffd166"), Color("8fd19e"), Color("ffffff"),
-		Color("6ec6ff"), Color("8f9dff"), Color("b99cff"), Color("f59fd0"), Color("ff8a6b")]
-	for i in word.length():
-		var ch := K.outlined(K.label(word[i], 104, cols[i], 700), K.INK, 22)
-		ch.set_meta("i", i)
-		ch.pivot_offset = Vector2(30, 60)
-		row.add_child(ch)
-	var sub := K.outlined(K.label("a cozy little drive", 34, Color.WHITE, 600), Color(0.29, 0.23, 0.2, 0.85), 10)
-	title_logo.add_child(sub)
-	title_best = K.outlined(K.label("", 30, Color.WHITE, 600), Color(0.29, 0.23, 0.2, 0.85), 10)
-	title_logo.add_child(K.spacer(14))
-	title_logo.add_child(title_best)
-	# bottom
-	var bottom := VBoxContainer.new()
-	bottom.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	bottom.position = Vector2(-330, -360)
-	bottom.custom_minimum_size = Vector2(660, 0)
-	bottom.size = Vector2(660, 0)
-	bottom.add_theme_constant_override("separation", 22)
-	bottom.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	title.add_child(bottom)
-	var buttons := HBoxContainer.new()
-	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	buttons.add_theme_constant_override("separation", 14)
-	buttons.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bottom.add_child(buttons)
-	var defs := [["car", "Garage", K.CORAL, K.CORAL_DK, func(): game.open_garage()],
-		["flag", "Missions", K.TEAL, K.TEAL_DK, func(): open_missions()],
-		["calendar", "Daily", K.SUN, K.SUN_DK, func(): open_daily()],
-		["trophy", "Trophies", K.SKY, Color("4a9fd6"), func(): open_achievements()],
-		["gear", "Settings", K.LILAC, K.LILAC_DK, func(): open_settings()]]
-	for d in defs:
-		var vb := VBoxContainer.new()
-		vb.add_theme_constant_override("separation", 6)
-		vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var b := K.round_button(d[0], d[2], d[3], 100, Color.WHITE)
-		_tap(b, d[4])
-		vb.add_child(b)
-		var cap := K.outlined(K.label(d[1], 24, Color.WHITE, 600), Color(0.29, 0.23, 0.2, 0.85), 8)
-		vb.add_child(cap)
-		buttons.add_child(vb)
-		if d[1] == "Missions":
-			mission_badge = K.label("", 24, Color.WHITE, 700)
-			var badge := PanelContainer.new()
-			var sb := K.box(K.CORAL, 20, 0, Color.TRANSPARENT, 8)
-			sb.content_margin_top = 0
-			sb.content_margin_bottom = 0
-			badge.add_theme_stylebox_override("panel", sb)
-			badge.add_child(mission_badge)
-			badge.position = Vector2(68, -8)
-			badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			b.add_child(badge)
-			b.set_meta("badge", badge)
-		if d[1] == "Daily":
-			daily_dot = Panel.new()
-			var sb2 := K.box(K.CORAL, 14, 0, Color.TRANSPARENT, 0)
-			daily_dot.add_theme_stylebox_override("panel", sb2)
-			daily_dot.size = Vector2(26, 26)
-			daily_dot.position = Vector2(74, 0)
-			daily_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			b.add_child(daily_dot)
-	title_tap = K.outlined(K.label("Tap to drive · hold the arrows to steer", 34, Color.WHITE, 650), Color(0.29, 0.23, 0.2, 0.9), 12)
-	bottom.add_child(K.spacer(10))
-	bottom.add_child(title_tap)
+	var i := 0
+	for ch in "Lo-Fi Dryfter":
+		var l := K.outlined(K.label(ch, 100, K.PAPER, 700), K.INK, 16)
+		l.set_meta("i", i)
+		row.add_child(l)
+		i += 1
+	left.add_child(K.outlined(K.label("drift around a cozy little island", 34, Color.WHITE, 650, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 10))
+	left.add_child(K.spacer(26))
+	var go := K.button("Drive", K.CORAL, K.CORAL_DK, 50, 360, 112, "play")
+	_tap(go, func(): transition(func(): game.start_drive()))
+	go.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	left.add_child(go)
+	var row2 := HBoxContainer.new()
+	row2.add_theme_constant_override("separation", 14)
+	left.add_child(row2)
+	for b in [["car", "Garage", K.TEAL, K.TEAL_DK, func(): game.open_garage()], ["map", "Map", K.SUN, K.SUN_DK, func(): open_map()],
+			["trophy", "Trophies", K.SKY, K.SKY_DK, func(): open_achievements()], ["gear", "", K.LILAC, K.LILAC_DK, func(): open_settings()]]:
+		var bt := K.button(b[1], b[2], b[3], 30, 84 if b[1] == "" else 170, 84, b[0])
+		_tap(bt, b[4])
+		row2.add_child(bt)
+	title_coins = K.pill("coin", "0")
+	title_coins.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	title_coins.position = Vector2(-260, 36)
+	title.add_child(title_coins)
+	var bl := K.outlined(K.label("", 22, Color.WHITE, 600, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 6)
+	bl.name = "Build"
+	bl.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	bl.position = Vector2(24, -44)
+	title.add_child(bl)
 
 func show_title() -> void:
 	title.visible = true
 	hud.visible = false
-	over.visible = false
 	garage.visible = false
-	refresh_title()
-	for c in title_logo.get_children():
-		c.modulate.a = 1.0
-	title.modulate.a = 0.0
-	create_tween().tween_property(title, "modulate:a", 1.0, 0.5)
+	close_sheet()
+	title.modulate.a = 1.0
+	title_coins.get_meta("label").text = K.fmt(int(game.save.data["coins"]))
+	(title.get_node("Build") as Label).text = "Lo-Fi Dryfter · %s · %d/%d trophies" % [build_label(), Ach.count(game.save.data), Ach.LIST.size()]
 
-func hide_title() -> void:
-	var t := create_tween()
-	t.tween_property(title, "modulate:a", 0.0, 0.25)
-	t.tween_callback(func(): title.visible = false)
+static func build_label() -> String:
+	var v = JSON.parse_string(FileAccess.get_file_as_string("res://version.json")) if FileAccess.file_exists("res://version.json") else null
+	return String(v.get("label", "dev")) if v is Dictionary else "dev"
 
-func refresh_title() -> void:
-	var s = game.save.data
-	title_coins.get_meta("label").text = K.fmt(int(s["coins"]))
-	title_best.text = ("Best  %s" % K.fmt(int(s["best"]))) if int(s["best"]) > 0 else ""
-	var done := 0
-	for m in s["missions"]:
-		if m["done"]:
-			done += 1
-	mission_badge.get_parent().visible = false
-	daily_dot.visible = String(s["daily"]["date"]) != game.today()
+func _title_tick(t: float) -> void:
+	var row: HBoxContainer = title_logo.get_child(0)
+	for ch in row.get_children():
+		var i: int = ch.get_meta("i")
+		ch.position.y = sin(t * 2.2 + i * 0.55) * 7.0
+		ch.rotation = sin(t * 1.6 + i * 0.8) * 0.04
 
-# ------------------------------------------------------------------ hud
+# ------------------------------------------------------------------ HUD
 
 func _build_hud() -> void:
 	hud = _full(Control.MOUSE_FILTER_IGNORE)
 	hud.visible = false
-	var top := MarginContainer.new()
-	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	top.add_theme_constant_override("margin_left", 26)
-	top.add_theme_constant_override("margin_right", 26)
-	top.add_theme_constant_override("margin_top", 40 + safe_top())
-	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud.add_child(top)
-	var row := HBoxContainer.new()
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	top.add_child(row)
-	var pause := K.round_button("pause", K.PAPER, Color("e2d3c2"), 82)
-	pause.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	_tap(pause, func(): game.pause())
-	row.add_child(pause)
-	var mid := VBoxContainer.new()
-	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mid.add_theme_constant_override("separation", 2)
-	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(mid)
-	hud_dist = K.outlined(K.label("0 m", 64, Color.WHITE, 700), K.INK, 16)
-	mid.add_child(hud_dist)
-	var fuel_row := HBoxContainer.new()
-	fuel_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	fuel_row.add_theme_constant_override("separation", 10)
-	fuel_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	mid.add_child(fuel_row)
-	hud_fuel_icon = Icon.new("fuel", K.INK, 40)
-	fuel_row.add_child(hud_fuel_icon)
-	var fuel_back := PanelContainer.new()
-	var fsb := K.box(K.PAPER, 18, 5, Color("e2d3c2"), 6)
-	fsb.content_margin_top = 6
-	fsb.content_margin_bottom = 6
-	fuel_back.add_theme_stylebox_override("panel", fsb)
-	fuel_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	fuel_row.add_child(fuel_back)
-	hud_fuel = K.bar(230, 20, Color("ff8a5c"), Color("f3e7da"))
-	fuel_back.add_child(hud_fuel)
-	hud_best = K.outlined(K.label("", 24, Color.WHITE, 600), Color(0.29, 0.23, 0.2, 0.8), 8)
-	mid.add_child(hud_best)
-	# police chase banner
-	chase_box = PanelContainer.new()
-	var csb := K.box(Color("3b4f9e"), 30, 6, Color("273673"), 18)
-	csb.content_margin_top = 8
-	csb.content_margin_bottom = 10
-	chase_box.add_theme_stylebox_override("panel", csb)
-	chase_box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	chase_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var cv := VBoxContainer.new()
-	cv.add_theme_constant_override("separation", 6)
-	cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chase_box.add_child(cv)
-	var ch := HBoxContainer.new()
-	ch.add_theme_constant_override("separation", 10)
-	ch.alignment = BoxContainer.ALIGNMENT_CENTER
-	ch.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cv.add_child(ch)
-	for col in [Color("ff5a5a"), Color("6f8dff")]:
-		var dot := Panel.new()
-		dot.custom_minimum_size = Vector2(18, 18)
-		dot.add_theme_stylebox_override("panel", K.box(col, 9, 0, Color.TRANSPARENT, 0))
-		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		ch.add_child(dot)
-		chase_dots.append(dot)
-	chase_label = K.label("Stay ahead", 28, Color.WHITE, 650)
-	ch.add_child(chase_label)
-	chase_bar = K.bar(260, 12, Color("ff5a5a"), Color("27346a"))
-	chase_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	cv.add_child(chase_bar)
-	chase_box.visible = false
-	mid.add_child(chase_box)
-	hud_coins = K.pill("coin", "0", 32)
-	hud_coins.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	row.add_child(hud_coins)
-	arrow_l = _arrow("left", true)
-	arrow_r = _arrow("right", false)
-	hud_combo = K.outlined(K.label("", 34, K.SUN, 700), K.INK, 12)
-	hud_combo.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	hud_combo.position = Vector2(-200, 300)
-	hud_combo.size = Vector2(400, 50)
-	hud.add_child(hud_combo)
+	# top left: pause, where you are, the time
+	var tl := HBoxContainer.new()
+	tl.position = Vector2(26, 22)
+	tl.add_theme_constant_override("separation", 14)
+	hud.add_child(tl)
+	var pb := K.round_button("pause", K.PAPER, K.LINE, 72)
+	_tap(pb, func(): game.pause())
+	tl.add_child(pb)
+	var info := VBoxContainer.new()
+	info.add_theme_constant_override("separation", -4)
+	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tl.add_child(info)
+	place_lbl = K.outlined(K.label("", 30, Color.WHITE, 700, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 10)
+	info.add_child(place_lbl)
+	clock_lbl = K.outlined(K.label("", 24, Color.WHITE, 600, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 8)
+	info.add_child(clock_lbl)
+	# top right: coins, minimap, camera and map buttons
+	coins_pill = K.pill("coin", "0")
+	coins_pill.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	coins_pill.position = Vector2(-250, 22)
+	hud.add_child(coins_pill)
+	mini_wrap = Panel.new()
+	mini_wrap.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	mini_wrap.size = Vector2(196, 196)
+	mini_wrap.position = Vector2(-222, 90)
+	mini_wrap.add_theme_stylebox_override("panel", K.box(Color.WHITE, 98, 0, Color.TRANSPARENT, 0))
+	mini_wrap.clip_children = CanvasItem.CLIP_CHILDREN_AND_DRAW
+	mini_wrap.mouse_filter = Control.MOUSE_FILTER_STOP
+	mini_wrap.gui_input.connect(func(e):
+		if e is InputEventScreenTouch and not e.pressed or (e is InputEventMouseButton and not e.pressed):
+			game.ui_tap()
+			game.pause()
+			open_map())
+	hud.add_child(mini_wrap)
+	var ring := Panel.new()
+	ring.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	ring.size = Vector2(204, 204)
+	ring.position = Vector2(-226, 86)
+	var rsb := K.box(Color.TRANSPARENT, 102, 0, Color.TRANSPARENT, 0)
+	rsb.border_color = K.PAPER
+	rsb.set_border_width_all(6)
+	ring.add_theme_stylebox_override("panel", rsb)
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(ring)
+	var camb := K.round_button("eye", K.PAPER, K.LINE, 64)
+	camb.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	camb.position = Vector2(-300, 230)
+	_tap(camb, func(): game.toggle_cam())
+	hud.add_child(camb)
+	# the challenge card, top middle
+	chal_card = K.card(K.PAPER, 30)
+	chal_card.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	chal_card.custom_minimum_size = Vector2(380, 0)
+	chal_card.position = Vector2(-190, 18)
+	chal_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(chal_card)
+	var cvb := VBoxContainer.new()
+	cvb.add_theme_constant_override("separation", -2)
+	chal_card.add_child(cvb)
+	chal_name = K.label("", 24, K.INK_SOFT, 650)
+	cvb.add_child(chal_name)
+	chal_main = K.label("", 44, K.INK, 700)
+	cvb.add_child(chal_main)
+	chal_sub = K.label("", 22, K.INK_SOFT, 600)
+	cvb.add_child(chal_sub)
+	chal_card.visible = false
+	# the drift meter, below it
+	drift_card = PanelContainer.new()
+	drift_card.add_theme_stylebox_override("panel", K.box(Color(0.12, 0.12, 0.12, 0.5), 30, 0, Color.TRANSPARENT, 16))
+	drift_card.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	drift_card.custom_minimum_size = Vector2(340, 0)
+	drift_card.position = Vector2(-170, 150)
+	drift_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(drift_card)
+	var dvb := VBoxContainer.new()
+	dvb.add_theme_constant_override("separation", 0)
+	drift_card.add_child(dvb)
+	var dh := HBoxContainer.new()
+	dh.alignment = BoxContainer.ALIGNMENT_CENTER
+	dh.add_theme_constant_override("separation", 12)
+	dvb.add_child(dh)
+	drift_lbl = K.outlined(K.label("0", 54, Color.WHITE, 700), K.INK, 12)
+	dh.add_child(drift_lbl)
+	combo_lbl = K.outlined(K.label("x1", 40, Color("e8dcc4"), 700), K.INK, 10)
+	dh.add_child(combo_lbl)
+	angle_lbl = K.label("DRIFT", 22, Color(1, 1, 1, 0.85), 650)
+	dvb.add_child(angle_lbl)
+	combo_bar = K.bar(300, 10, Color("e8dcc4"), Color(1, 1, 1, 0.25))
+	dvb.add_child(combo_bar)
+	drift_card.modulate.a = 0.0
+	# speedo, bottom middle
+	var sp := VBoxContainer.new()
+	sp.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	sp.position = Vector2(-120, -150)
+	sp.size = Vector2(240, 130)
+	sp.add_theme_constant_override("separation", -10)
+	sp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(sp)
+	speed_lbl = K.outlined(K.label("0", 76, Color.WHITE, 700), K.INK, 14)
+	sp.add_child(speed_lbl)
+	var srow := HBoxContainer.new()
+	srow.alignment = BoxContainer.ALIGNMENT_CENTER
+	srow.add_theme_constant_override("separation", 12)
+	sp.add_child(srow)
+	srow.add_child(K.outlined(K.label("km/h", 24, Color.WHITE, 650), K.INK, 8))
+	gear_lbl = K.outlined(K.label("1", 28, Color("e8dcc4"), 700), K.INK, 8)
+	srow.add_child(gear_lbl)
+	sp.add_child(K.spacer(14))
+	rpm_bar = K.bar(200, 10, K.PAPER, Color(0, 0, 0, 0.25))
+	rpm_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	sp.add_child(rpm_bar)
+	# steering, bottom left
+	ctl["left"] = _pad("left", Vector2(40, -210), Vector2(170, 170), true, K.PAPER)
+	ctl["right"] = _pad("right", Vector2(230, -210), Vector2(170, 170), true, K.PAPER)
+	# pedals, bottom right
+	ctl["brake"] = _pad("brake", Vector2(-420, -210), Vector2(130, 170), false, K.PAPER)
+	ctl["gas"] = _pad("gas", Vector2(-270, -250), Vector2(150, 210), false, K.PAPER)
+	ctl["hand"] = _pad("hand", Vector2(-420, -360), Vector2(130, 120), false, K.PAPER)
+	reset_hint = K.button("Stuck? Reset car", K.SUN, K.SUN_DK, 28, 0, 72, "home")
+	reset_hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	reset_hint.position = Vector2(-160, 60)
+	_tap(reset_hint, func():
+		reset_hint.visible = false
+		game.reset_car())
+	reset_hint.visible = false
+	hud.add_child(reset_hint)
 
-## A big round steering arrow in a bottom corner. Visual only: main.gd reads the touches.
-func _arrow(icon: String, left: bool) -> Control:
-	var d := 168.0
+## A big touch pad. It isn't a Button: main reads touches on it directly, so several work at once.
+func _pad(name: String, pos: Vector2, size: Vector2, left_side: bool, col: Color) -> Control:
 	var p := PanelContainer.new()
-	var sb := K.box(Color(1.0, 0.98, 0.95, 0.88), int(d * 0.5), 9, Color(0.85, 0.76, 0.66, 0.95), 0)
-	sb.shadow_color = Color(0.25, 0.15, 0.1, 0.18)
-	sb.shadow_size = 10
-	sb.shadow_offset = Vector2(0, 6)
-	p.add_theme_stylebox_override("panel", sb)
-	p.custom_minimum_size = Vector2(d, d)
-	p.size = Vector2(d, d)
+	p.add_theme_stylebox_override("panel", K.box(Color(col, 0.62), 34 if name != "hand" else 40, 8, Color(K.LINE_DK, 0.7), 0))
+	if left_side:
+		p.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	else:
+		p.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	p.position = pos
+	p.size = size
+	p.custom_minimum_size = size
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var ic := Icon.new(icon, K.INK, d * 0.5)
-	ic.position = Vector2(d * 0.25, d * 0.22)
-	ic.size = Vector2(d * 0.5, d * 0.5)
-	p.add_child(ic)
-	p.set_anchors_preset(Control.PRESET_BOTTOM_LEFT if left else Control.PRESET_BOTTOM_RIGHT)
-	var margin := 44.0
-	var bottom := 96.0 + safe_bottom()
-	p.offset_left = margin if left else -margin - d
-	p.offset_right = p.offset_left + d
-	p.offset_top = -bottom - d
-	p.offset_bottom = -bottom
-	p.pivot_offset = Vector2(d, d) * 0.5
-	p.set_meta("pressed", false)
+	p.pivot_offset = size * 0.5
+	var vb := VBoxContainer.new()
+	vb.alignment = BoxContainer.ALIGNMENT_CENTER
+	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(vb)
+	match name:
+		"left", "right":
+			var ic := Icon.new(name, K.INK, 92)
+			ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			vb.add_child(ic)
+		"gas":
+			vb.add_child(K.label("GAS", 34, K.INK, 700))
+			var ic2 := Icon.new("play", K.INK, 56)
+			ic2.rotation = -PI * 0.5
+			ic2.pivot_offset = Vector2(28, 28)
+			ic2.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			vb.add_child(ic2)
+		"brake":
+			vb.add_child(K.label("BRAKE", 26, K.INK, 700))
+			vb.add_child(K.label("hold: reverse", 15, K.INK_SOFT, 600))
+		"hand":
+			vb.add_child(K.label("DRIFT", 26, K.INK, 700))
+			vb.add_child(K.label("handbrake", 16, K.INK_SOFT, 600))
 	hud.add_child(p)
 	return p
 
-func arrows_pressed(left: bool, right: bool) -> void:
-	for pair in [[arrow_l, left], [arrow_r, right]]:
-		var a: Control = pair[0]
-		var on: bool = pair[1]
-		if a.get_meta("pressed") == on:
-			continue
-		a.set_meta("pressed", on)
-		var t := a.create_tween()
-		t.tween_property(a, "scale", Vector2(0.9, 0.9) if on else Vector2.ONE, 0.07 if on else 0.16)
-		a.modulate = Color(1.0, 0.92, 0.86) if on else Color.WHITE
-		if on:
-			game.buzz(8, 0.3)
+## Which control (if any) a touch at pos lands on. Pads have generous edges.
+func control_at(pos: Vector2) -> String:
+	if not hud.visible or overlay.visible:
+		return ""
+	for k in ["hand", "gas", "brake", "left", "right"]:
+		var c: Control = ctl[k]
+		if c.get_global_rect().grow(22).has_point(pos):
+			return k
+	return ""
 
-## Extra bottom padding (in UI units) for gesture bars.
-func safe_bottom() -> int:
-	var safe := DisplayServer.get_display_safe_area()
-	var screen := DisplayServer.screen_get_size()
-	if screen.y <= 0 or safe.size.y <= 0:
-		return 0
-	var vs := get_viewport().get_visible_rect().size
-	var inset := screen.y - (safe.position.y + safe.size.y)
-	return clampi(int(float(inset) * vs.y / float(screen.y)), 0, 80)
+func pressed_controls(held: Dictionary) -> void:
+	for k in ctl:
+		var c: Control = ctl[k]
+		var on: bool = held.get(k, false)
+		c.scale = c.scale.lerp(Vector2.ONE * (0.93 if on else 1.0), 0.5)
+		c.modulate = Color(1.15, 1.15, 1.15, 1.0) if on else Color(1, 1, 1, 0.9)
 
 func show_hud() -> void:
+	title.visible = false
+	garage.visible = false
 	hud.visible = true
-	hud.modulate.a = 0.0
-	_passed_best = false
-	create_tween().tween_property(hud, "modulate:a", 1.0, 0.35)
 
-func hud_update(dt: float, dist: int, fuel: float, coins: int, best: int, combo: float) -> void:
-	hud_dist.text = "%s m" % K.fmt(dist)
-	hud_fuel.value = fuel
-	var low := fuel < 0.25
-	_fuel_flash += dt * (7.0 if low else 0.0)
-	var fill: StyleBoxFlat = hud_fuel.get_theme_stylebox("fill")
-	fill.bg_color = Color("ff8a5c").lerp(Color("ff4d3d"), (0.5 + 0.5 * sin(_fuel_flash)) if low else 0.0)
-	if fuel > 0.6:
-		fill.bg_color = Color("ffb85c").lerp(Color("8fd19e"), (fuel - 0.6) / 0.4)
-	hud_fuel_icon.scale = Vector2.ONE * (1.0 + (0.12 * maxf(0.0, sin(_fuel_flash)) if low else 0.0))
-	var cl: Label = hud_coins.get_meta("label")
-	var ct := K.fmt(coins)
-	if cl.text != ct:
-		cl.text = ct
-		hud_coins.pivot_offset = hud_coins.size * 0.5
-		var t := hud_coins.create_tween()
-		t.tween_property(hud_coins, "scale", Vector2(1.15, 1.15), 0.06)
-		t.tween_property(hud_coins, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	if best > 0 and not _passed_best:
-		hud_best.text = "Best %s" % K.fmt(best)
-	hud_combo.text = ""
+func hud_update(d: Dictionary) -> void:
+	_hud_data = d
+	speed_lbl.text = str(int(round(d["kmh"])))
+	gear_lbl.text = "R" if game.car.speed < -0.5 else str(int(d["gear"]))
+	rpm_bar.value = d["rpm"]
+	clock_lbl.text = d["clock"] if bool(game.save.setting("clock")) else ""
+	place_lbl.text = d["place"]
+	if int(d["coins"]) != _last_coins:
+		_last_coins = int(d["coins"])
+		coins_pill.get_meta("label").text = K.fmt(_last_coins)
+	# drift meter
+	var pts: float = d["drift"]
+	var combo: int = d["combo"]
+	if d["drifting"]:
+		_drift_show = 1.0
+		drift_lbl.text = K.fmt(int(pts * combo))
+		combo_lbl.text = "x%d" % combo
+		angle_lbl.text = "%d°" % int(d["angle"])
+		combo_bar.value = 1.0
+	elif _bank_t <= 0.0:
+		combo_bar.value = clampf(float(d["combo_t"]) / 2.2, 0.0, 1.0)
+		combo_lbl.text = "x%d" % combo
+		if float(d["combo_t"]) <= 0.0:
+			_drift_show = maxf(0.0, _drift_show - get_process_delta_time() * 2.0)
+	drift_card.modulate.a = lerpf(drift_card.modulate.a, _drift_show, 0.25)
+	# the challenge in progress
+	var z: Dictionary = d["zone"]
+	var t: Dictionary = d["trial"]
+	chal_card.visible = not z.is_empty() or not t.is_empty()
+	if not z.is_empty():
+		chal_name.text = z["name"]
+		chal_main.text = K.fmt(int(d["zone_pts"]))
+		var m: Array = z["medals"]
+		var next := "Gold!"
+		for i in 3:
+			if float(d["zone_pts"]) < float(m[i]):
+				next = "%s at %s" % [["Bronze", "Silver", "Gold"][i], K.fmt(int(m[i]))]
+				break
+		chal_sub.text = "%d s left · %s" % [int(ceil(float(d["zone_t"]))), next]
+	elif not t.is_empty():
+		chal_name.text = t["name"]
+		if t["kind"] == "time":
+			chal_main.text = "%.1f s" % float(d["trial_t"])
+			chal_sub.text = "Gate %d of %d · gold %.0f s" % [int(d["trial_gate"]), (t["gates"] as Array).size() - 1, float(t["medals"][0])]
+		else:
+			chal_main.text = K.fmt(int(d["trial_pts"]))
+			chal_sub.text = "Gate %d of %d · gold %s" % [int(d["trial_gate"]), (t["gates"] as Array).size() - 1, K.fmt(int(t["medals"][2]))]
+	_minimap_tick(d["car_pos"], d["car_yaw"])
 
-func chase_show(on: bool) -> void:
-	if chase_box == null:
-		return
-	if on and not chase_box.visible:
-		chase_box.visible = true
-		chase_box.pivot_offset = chase_box.size * 0.5
-		chase_box.scale = Vector2(0.6, 0.6)
-		chase_box.create_tween().tween_property(chase_box, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	elif not on:
-		chase_box.visible = false
+func combo_bump(c: int) -> void:
+	combo_lbl.pivot_offset = combo_lbl.size * 0.5
+	combo_lbl.scale = Vector2(1.5, 1.5)
+	create_tween().tween_property(combo_lbl, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
-## left: meters to go; danger: 0 (far) .. 1 (right behind you)
-func chase_update(dt: float, left: int, danger: float) -> void:
-	_chase_t += dt
-	chase_label.text = "Stay ahead · %s m" % K.fmt(left)
-	chase_bar.value = danger
-	var on := int(_chase_t * 6.0) % 2 == 0
-	chase_dots[0].modulate.a = 1.0 if on else 0.25
-	chase_dots[1].modulate.a = 0.25 if on else 1.0
-	chase_box.modulate = Color(1, 1, 1).lerp(Color(1.0, 0.75, 0.75), danger * (0.5 + 0.5 * sin(_chase_t * 14.0)) if danger > 0.6 else 0.0)
+func banked(total: int, coins: int) -> void:
+	_bank_t = 1.1
+	_drift_show = 1.0
+	drift_lbl.text = "+" + K.fmt(total)
+	angle_lbl.text = ("+%d coins" % coins) if coins > 0 else "nice!"
+	drift_card.pivot_offset = drift_card.size * 0.5
+	drift_card.scale = Vector2(1.15, 1.15)
+	create_tween().tween_property(drift_card, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
-func passed_best() -> void:
-	if _passed_best:
-		return
-	_passed_best = true
-	hud_best.text = "New best!"
-	hud_best.add_theme_color_override("font_color", K.SUN)
+func drift_lost() -> void:
+	_bank_t = 0.9
+	drift_lbl.text = "Crashed!"
+	angle_lbl.text = "drift lost"
+	_drift_show = 1.0
+
+func popup_text(text: String, col := Color.WHITE) -> void:
+	var l := K.outlined(K.label(text, 40, col, 700), K.INK, 12)
+	l.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	popups.add_child(l)
+	l.size = Vector2(600, 60)
+	l.position = _vs() * 0.5 - Vector2(300, 150)
+	l.pivot_offset = Vector2(300, 30)
+	l.scale = Vector2(0.5, 0.5)
 	var t := create_tween()
-	hud_best.pivot_offset = hud_best.size * 0.5
-	t.tween_property(hud_best, "scale", Vector2(1.4, 1.4), 0.15)
-	t.tween_property(hud_best, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK)
-
-func hide_hud() -> void:
-	var t := create_tween()
-	t.tween_property(hud, "modulate:a", 0.0, 0.25)
-	t.tween_callback(func(): hud.visible = false)
-	hud_best.add_theme_color_override("font_color", Color.WHITE)
-
-# ------------------------------------------------------------------ popups & toasts
-
-func popup(text: String, world_pos: Vector3, col := Color.WHITE, size := 34, sub := "") -> void:
-	var cam: Camera3D = game.cam
-	if cam.is_position_behind(world_pos):
-		return
-	var sp := cam.unproject_position(world_pos)
-	var vb := VBoxContainer.new()
-	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vb.add_theme_constant_override("separation", -8)
-	var l := K.outlined(K.label(text, size, col, 700), K.INK, 12)
-	vb.add_child(l)
-	if sub != "":
-		vb.add_child(K.outlined(K.label(sub, int(size * 0.7), Color.WHITE, 650), K.INK, 9))
-	popups.add_child(vb)
-	vb.size = Vector2(420, 0)
-	# if another popup went up here a moment ago, stack above it instead of on top of it
-	var now := Time.get_ticks_msec()
-	var lift := 0.0
-	for rp in recent_pops:
-		if now - int(rp[0]) < 700 and (rp[1] as Vector2).distance_to(sp) < 140.0:
-			lift += 58.0
-	recent_pops.append([now, sp])
-	if recent_pops.size() > 8:
-		recent_pops.pop_front()
-	vb.position = sp - Vector2(210, 120 + lift + randf_range(0, 14))
-	vb.pivot_offset = Vector2(210, 30)
-	vb.scale = Vector2(0.4, 0.4)
-	var t := create_tween()
-	t.tween_property(vb, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.parallel().tween_property(vb, "position:y", vb.position.y - 70, 1.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t.parallel().tween_property(vb, "modulate:a", 0.0, 0.35).set_delay(0.75)
-	t.tween_callback(vb.queue_free)
+	t.tween_property(l, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(l, "position:y", l.position.y - 50, 1.0)
+	t.parallel().tween_property(l, "modulate:a", 0.0, 0.3).set_delay(0.7)
+	t.tween_callback(l.queue_free)
 
 func toast(text: String, icon := "", col := K.PAPER, icol := K.INK, hold := 2.2) -> void:
 	var p := PanelContainer.new()
-	var sb := K.box(col, 40, 6, col.darkened(0.12), 22)
-	sb.content_margin_top = 10
-	sb.content_margin_bottom = 10
+	var sb := K.box(col, 36, 6, col.darkened(0.12), 20)
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
 	p.add_theme_stylebox_override("panel", sb)
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 12)
+	hb.add_theme_constant_override("separation", 10)
 	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(hb)
 	if icon != "":
-		hb.add_child(Icon.new(icon, icol, 40))
-	hb.add_child(K.label(text, 32, icol, 650))
+		hb.add_child(Icon.new(icon, icol, 34))
+	hb.add_child(K.label(text, 26, icol, 650))
 	toasts.add_child(p)
 	p.modulate.a = 0.0
 	var t := create_tween()
@@ -537,151 +533,122 @@ func toast(text: String, icon := "", col := K.PAPER, icol := K.INK, hold := 2.2)
 	t.tween_property(p, "modulate:a", 0.0, 0.4)
 	t.tween_callback(p.queue_free)
 
-# ------------------------------------------------------------------ game over
+func discovered(name: String) -> void:
+	var n: int = game.save.data["places"].size()
+	toast("Found %s  (%d/%d)" % [name, n, island.places.size()], "map", K.TEAL, Color.WHITE, 2.6)
 
-func show_over(r: Dictionary) -> void:
-	for c in over.get_children():
-		c.queue_free()
-	over.visible = true
-	over.mouse_filter = Control.MOUSE_FILTER_STOP
-	var dim := ColorRect.new()
-	dim.color = K.DIM
-	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	over.add_child(dim)
-	dim.modulate.a = 0.0
-	create_tween().tween_property(dim, "modulate:a", 1.0, 0.4)
-	var card := K.card()
-	card.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	card.custom_minimum_size = Vector2(640, 0)
-	over.add_child(card)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 12)
-	card.add_child(vb)
-	var why := {"fuel": "Out of fuel", "fall": "Took a tumble", "splash": "Splash!", "quit": "Run over"}
-	var head := HBoxContainer.new()
-	head.alignment = BoxContainer.ALIGNMENT_CENTER
-	head.add_theme_constant_override("separation", 12)
-	head.add_child(Icon.new({"fuel": "fuel", "fall": "star", "splash": "rain", "quit": "flag"}.get(r["why"], "star"), K.INK_SOFT, 42))
-	head.add_child(K.label(why.get(r["why"], "Run over"), 40, K.INK_SOFT, 600))
-	vb.add_child(head)
-	var score_l := K.label("0", 104, K.INK, 700)
-	vb.add_child(score_l)
-	if r["record"]:
-		var rec := PanelContainer.new()
-		rec.add_theme_stylebox_override("panel", K.box(K.SUN, 30, 6, K.SUN_DK, 22))
-		rec.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		var rh := HBoxContainer.new()
-		rh.add_theme_constant_override("separation", 10)
-		rh.add_child(Icon.new("trophy", Color.WHITE, 38))
-		rh.add_child(K.label("New record!", 34, Color.WHITE, 700))
-		rec.add_child(rh)
-		vb.add_child(rec)
-		rec.pivot_offset = Vector2(150, 30)
-		rec.scale = Vector2.ZERO
-		var rt := create_tween()
-		rt.tween_interval(0.9)
-		rt.tween_property(rec, "scale", Vector2.ONE, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+func found_coin(n: int, total: int, pay: int) -> void:
+	toast("Hidden coin %d/%d  +%d" % [n, total, pay], "coin", K.SUN, K.INK, 1.8)
+
+func show_reset_hint() -> void:
+	if not reset_hint.visible:
+		reset_hint.visible = true
+		_hint_t = 6.0
+
+func challenge_start(name: String, desc: String, medals: Array, timed: bool) -> void:
+	var m := ""
+	if timed:
+		m = "Gold %.0f s · Silver %.0f s · Bronze %.0f s" % [medals[0], medals[1], medals[2]]
 	else:
-		vb.add_child(K.label("Best  %s" % K.fmt(int(r["best"])), 30, K.INK_SOFT, 600))
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 30)
-	grid.add_theme_constant_override("v_separation", 6)
-	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	var rows := [["Distance", "%s m" % K.fmt(r["dist"])], ["Style", "+%s" % K.fmt(r["style"])], ["Coins", "+%s" % K.fmt(r["coins"])]]
-	if r.get("mission_coins", 0) > 0:
-		rows.append(["Missions", "+%s coins" % K.fmt(r["mission_coins"])])
-	if r.get("ach_coins", 0) > 0:
-		rows.append(["Trophies", "+%s coins" % K.fmt(r["ach_coins"])])
-	if r.get("daily", false):
-		rows.push_front(["Daily run", r.get("date", "")])
-	for row in rows:
-		grid.add_child(K.label(row[0], 30, K.INK_SOFT, 500, HORIZONTAL_ALIGNMENT_LEFT))
-		grid.add_child(K.label(row[1], 30, K.INK, 650, HORIZONTAL_ALIGNMENT_RIGHT))
-	vb.add_child(grid)
-	if not r.get("ach", []).is_empty():
-		var names := []
-		for a in r["ach"]:
-			names.append(a["name"])
-		var th := HBoxContainer.new()
-		th.alignment = BoxContainer.ALIGNMENT_CENTER
-		th.add_theme_constant_override("separation", 8)
-		th.add_child(Icon.new("trophy", K.SUN_DK, 34))
-		var tl := K.label(" · ".join(names.slice(0, 2)) + ("  +%d more" % (names.size() - 2) if names.size() > 2 else ""), 26, K.INK, 650)
-		th.add_child(tl)
-		vb.add_child(th)
-	# missions
-	var ml := VBoxContainer.new()
-	ml.add_theme_constant_override("separation", 6)
-	for m in r.get("missions", []):
-		ml.add_child(_mission_row(m, r["run"], true))
-	if ml.get_child_count() > 0:
-		vb.add_child(K.spacer(4))
-		vb.add_child(ml)
-	vb.add_child(K.spacer(8))
-	var again := K.button("Drive again", K.CORAL, K.CORAL_DK, 44, 0, 104, "play")
-	_tap(again, func(): game.restart(r.get("daily", false)))
-	vb.add_child(again)
-	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 16)
-	var gar := K.button("Garage", K.TEAL, K.TEAL_DK, 34, 0, 84, "car")
-	gar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_tap(gar, func(): game.open_garage())
-	var home := K.button("Home", K.PAPER, Color("e2d3c2"), 34, 0, 84, "home")
-	home.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_tap(home, func(): game.go_home())
-	hb.add_child(gar)
-	hb.add_child(home)
-	vb.add_child(hb)
-	# slide up
-	await get_tree().process_frame
-	if not is_instance_valid(card):
-		return
-	var vs := root.get_viewport_rect().size
-	card.position = Vector2((vs.x - card.size.x) * 0.5, vs.y + 20)
-	var t := card.create_tween()
-	t.tween_property(card, "position:y", vs.y - card.size.y - 60, 0.55).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	# count the score up
-	t.parallel().tween_method(func(v): score_l.text = K.fmt(int(v)), 0.0, float(r["score"]), 1.0).set_delay(0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		m = "Bronze %s · Silver %s · Gold %s" % [K.fmt(int(medals[0])), K.fmt(int(medals[1])), K.fmt(int(medals[2]))]
+	toast(name + "!  " + desc, "flag", K.CORAL, Color.WHITE, 2.4)
+	toast(m, "trophy", K.PAPER, K.INK, 2.4)
 
-func hide_over() -> void:
-	over.visible = false
-	over.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	for c in over.get_children():
-		c.queue_free()
+func challenge_end() -> void:
+	chal_card.visible = false
 
-func _mission_row(m: Dictionary, run: Dictionary, compact := false) -> Control:
-	var p := PanelContainer.new()
-	var done: bool = m["done"]
-	p.add_theme_stylebox_override("panel", K.box(Color("eaf7ee") if done else Color("f6ede2"), 22, 0, Color.TRANSPARENT, 16))
-	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 12)
-	p.add_child(hb)
-	var ic := Icon.new("check" if done else "flag", K.TEAL if done else K.INK_SOFT, 34 if compact else 40)
-	hb.add_child(ic)
+func challenge_result(name: String, score: String, medal: int, pay: int, record: bool) -> void:
+	var cols := [Color("c9c3bb"), Color("b98b62"), Color("b3b8bd"), Color("d4b25c")]
+	var names := ["No medal", "Bronze", "Silver", "Gold"]
+	var p := K.card(K.PAPER, 36)
+	p.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var vb := VBoxContainer.new()
-	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vb.add_theme_constant_override("separation", 4)
-	hb.add_child(vb)
-	var t := K.label(Missions.text(m), 24 if compact else 28, K.INK, 550, HORIZONTAL_ALIGNMENT_LEFT)
-	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(t)
-	if not compact or not done:
-		var val := Missions.value(m, run) if not run.is_empty() else 0.0
-		var b := K.bar(300, 12, K.TEAL)
-		b.value = 1.0 if done else clampf(val / float(m["target"]), 0.0, 1.0)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		vb.add_child(b)
-	var rw := HBoxContainer.new()
-	rw.add_theme_constant_override("separation", 4)
-	rw.add_child(Icon.new("coin", K.INK, 30))
-	rw.add_child(K.label(str(m["reward"]), 26, K.INK, 650))
-	hb.add_child(rw)
-	return p
+	vb.add_theme_constant_override("separation", 6)
+	p.add_child(vb)
+	vb.add_child(K.label(name, 30, K.INK_SOFT, 650))
+	vb.add_child(K.label(score, 56, K.INK, 700))
+	var badge := PanelContainer.new()
+	badge.add_theme_stylebox_override("panel", K.box(cols[medal], 30, 0, Color.TRANSPARENT, 12))
+	badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var bh := HBoxContainer.new()
+	bh.add_theme_constant_override("separation", 8)
+	badge.add_child(bh)
+	bh.add_child(Icon.new("trophy" if medal > 0 else "flag", Color.WHITE, 34))
+	bh.add_child(K.label(names[medal], 30, Color.WHITE, 700))
+	vb.add_child(badge)
+	if pay > 0:
+		vb.add_child(K.label("+%d coins" % pay, 30, K.INK, 700))
+	if record:
+		vb.add_child(K.label("New personal best!", 26, K.INK_SOFT, 700))
+	popups.add_child(p)
+	await get_tree().process_frame
+	p.position = (_vs() - p.size) * 0.5 - Vector2(0, 60)
+	p.pivot_offset = p.size * 0.5
+	p.scale = Vector2(0.6, 0.6)
+	var t := create_tween()
+	t.tween_property(p, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_interval(3.2)
+	t.tween_property(p, "modulate:a", 0.0, 0.4)
+	t.tween_callback(p.queue_free)
+	if medal > 0:
+		game.sfx("record")
+		game.buzz(80, 0.8)
 
-# ------------------------------------------------------------------ sheets (missions, daily, settings, pause)
+func tick(dt: float) -> void:
+	if title.visible:
+		_title_tick(Time.get_ticks_msec() / 1000.0)
+	if garage.visible:
+		g_spin += dt * 0.35
+		g_turn.rotation.y = g_spin
+	_bank_t = maxf(0.0, _bank_t - dt)
+	if _hint_t > 0.0:
+		_hint_t -= dt
+		if _hint_t <= 0.0:
+			reset_hint.visible = false
 
-func _sheet(title_text: String, icon: String, col: Color) -> VBoxContainer:
+# ------------------------------------------------------------------ minimap
+
+func _setup_minimap() -> void:
+	var svc := SubViewportContainer.new()
+	svc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	svc.stretch = true
+	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mini_wrap.add_child(svc)
+	mini_vp = SubViewport.new()
+	mini_vp.size = Vector2i(196, 196)
+	mini_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	svc.add_child(mini_vp)
+	mini_cam = Camera3D.new()
+	mini_cam.projection = Camera3D.PROJECTION_ORTHOGONAL
+	mini_cam.size = 260.0
+	mini_cam.near = 1.0
+	mini_cam.far = 900.0
+	mini_cam.cull_mask = island.MAP_LAYER
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color("6fc3e8")
+	mini_cam.environment = env
+	mini_vp.add_child(mini_cam)
+	var arrow := Control.new()
+	arrow.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	arrow.draw.connect(func():
+		var c := arrow.size * 0.5
+		var pts := PackedVector2Array([c + Vector2(0, -15), c + Vector2(11, 12), c + Vector2(0, 6), c + Vector2(-11, 12)])
+		arrow.draw_colored_polygon(pts, K.PAPER)
+		arrow.draw_polyline(pts + PackedVector2Array([pts[0]]), K.INK, 3.0))
+	mini_wrap.add_child(arrow)
+
+func _minimap_tick(p: Vector3, yaw: float) -> void:
+	if mini_cam == null:
+		return
+	# heading up: the camera looks straight down, turned with the car
+	mini_cam.global_transform = Transform3D(Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, -PI * 0.5), Vector3(p.x, 700.0, p.z))
+
+# ------------------------------------------------------------------ sheets
+
+func _sheet(title_text: String, icon: String, col: Color, width := 640.0) -> VBoxContainer:
 	for c in overlay.get_children():
 		c.queue_free()
 	overlay.visible = true
@@ -690,35 +657,32 @@ func _sheet(title_text: String, icon: String, col: Color) -> VBoxContainer:
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(dim)
 	var card := K.card()
-	card.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	card.custom_minimum_size = Vector2(640, 0)
+	card.custom_minimum_size = Vector2(width, 0)
 	overlay.add_child(card)
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 16)
+	vb.add_theme_constant_override("separation", 12)
 	card.add_child(vb)
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 14)
 	var badge := PanelContainer.new()
-	badge.add_theme_stylebox_override("panel", K.box(col, 30, 0, Color.TRANSPARENT, 12))
-	badge.add_child(Icon.new(icon, Color.WHITE, 44))
+	badge.add_theme_stylebox_override("panel", K.box(col, 26, 0, Color.TRANSPARENT, 10))
+	badge.add_child(Icon.new(icon, Color.WHITE, 38))
 	head.add_child(badge)
-	var tl := K.label(title_text, 46, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT)
+	var tl := K.label(title_text, 40, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT)
 	tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(tl)
 	vb.add_child(head)
-	await get_tree().process_frame
-	var vs := root.get_viewport_rect().size
-	card.position = (vs - card.size) * 0.5
-	card.pivot_offset = card.size * 0.5
-	card.scale = Vector2(0.85, 0.85)
 	card.modulate.a = 0.0
-	var t := create_tween()
-	t.tween_property(card, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.parallel().tween_property(card, "modulate:a", 1.0, 0.2)
 	card.resized.connect(func():
-		var v2 := root.get_viewport_rect().size
-		card.position = (v2 - card.size) * 0.5
+		card.position = (_vs() - card.size) * 0.5
 		card.pivot_offset = card.size * 0.5)
+	await get_tree().process_frame
+	card.position = (_vs() - card.size) * 0.5
+	card.pivot_offset = card.size * 0.5
+	card.scale = Vector2(0.9, 0.9)
+	var t := create_tween()
+	t.tween_property(card, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(card, "modulate:a", 1.0, 0.18)
 	return vb
 
 func close_sheet() -> void:
@@ -726,110 +690,57 @@ func close_sheet() -> void:
 	for c in overlay.get_children():
 		c.queue_free()
 
-func open_missions() -> void:
-	var vb: VBoxContainer = await _sheet("Missions", "flag", K.TEAL)
-	vb.add_child(K.label("Finish missions during runs to earn coins.", 28, K.INK_SOFT, 500))
-	game.missions.ensure()
-	for m in game.save.data["missions"]:
-		vb.add_child(_mission_row(m, {}))
-	vb.add_child(K.spacer(6))
-	var ok := K.button("Got it", K.TEAL, K.TEAL_DK, 38, 0, 92)
-	_tap(ok, close_sheet)
-	vb.add_child(ok)
-
-func open_achievements() -> void:
-	var data: Dictionary = game.save.data
-	var vb: VBoxContainer = await _sheet("Trophies", "trophy", K.SKY)
-	vb.add_child(K.label("%d of %d unlocked" % [Ach.count(data), Ach.LIST.size()], 28, K.INK_SOFT, 550))
-	var sc := ScrollContainer.new()
-	sc.custom_minimum_size = Vector2(600, minf(760.0, root.get_viewport_rect().size.y - 520.0))
-	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	vb.add_child(sc)
-	var list := VBoxContainer.new()
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	list.add_theme_constant_override("separation", 10)
-	sc.add_child(list)
-	# unlocked first, then the closest to done
-	var rows := []
-	for a in Ach.LIST:
-		var got := Ach.unlocked(data, a["id"])
-		var prog := clampf(Ach.value(a, data, {}) / Ach.target(a), 0.0, 1.0)
-		rows.append([a, got, prog])
-	rows.sort_custom(func(x, y): return (1 if x[1] else 0) > (1 if y[1] else 0) or (x[1] == y[1] and x[2] > y[2]))
-	for r in rows:
-		list.add_child(_ach_row(r[0], r[1], r[2]))
-	var ok := K.button("Got it", K.SKY, Color("4a9fd6"), 38, 0, 92)
-	_tap(ok, close_sheet)
-	vb.add_child(ok)
-
-func _ach_row(a: Dictionary, got: bool, prog: float) -> Control:
-	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", K.box(Color("fff1cf") if got else Color("f6ede2"), 22, 0, Color.TRANSPARENT, 14))
-	p.mouse_filter = Control.MOUSE_FILTER_PASS
-	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 12)
-	hb.mouse_filter = Control.MOUSE_FILTER_PASS
-	p.add_child(hb)
-	var badge := PanelContainer.new()
-	badge.add_theme_stylebox_override("panel", K.box(K.SUN if got else Color("e6d8c8"), 26, 0, Color.TRANSPARENT, 8))
-	badge.add_child(Icon.new(a["icon"] if got else "lock", Color.WHITE if got else K.INK_SOFT, 36))
-	badge.mouse_filter = Control.MOUSE_FILTER_PASS
-	hb.add_child(badge)
-	var vb := VBoxContainer.new()
-	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vb.add_theme_constant_override("separation", 2)
-	vb.mouse_filter = Control.MOUSE_FILTER_PASS
-	hb.add_child(vb)
-	vb.add_child(K.label(a["name"], 28, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT))
-	var dl := K.label(a["desc"], 22, K.INK_SOFT, 500, HORIZONTAL_ALIGNMENT_LEFT)
-	dl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(dl)
-	if not got and Ach.target(a) > 1.0:
-		var b := K.bar(260, 10, K.SKY)
-		b.value = prog
+func _row_buttons(vb: VBoxContainer, items: Array) -> void:
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	vb.add_child(grid)
+	for it in items:
+		var b := K.button(it[0], it[2], it[3], 30, 300, 78, it[1])
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		vb.add_child(b)
-	var rw := HBoxContainer.new()
-	rw.add_theme_constant_override("separation", 4)
-	rw.mouse_filter = Control.MOUSE_FILTER_PASS
-	if got:
-		rw.add_child(Icon.new("check", K.TEAL, 34))
-	else:
-		rw.add_child(Icon.new("coin", K.INK, 28))
-		rw.add_child(K.label(str(a["reward"]), 24, K.INK, 650))
-	hb.add_child(rw)
-	return p
+		_tap(b, it[4])
+		grid.add_child(b)
 
-func open_daily() -> void:
-	var vb: VBoxContainer = await _sheet("Daily Run", "calendar", K.SUN)
-	var d = game.save.data["daily"]
-	var today: String = game.today()
-	vb.add_child(K.label("Everyone gets the same road today.\nRace your own ghost from earlier tries.", 28, K.INK_SOFT, 500))
-	var best := int(d["best"]) if String(d["date"]) == today else 0
-	var info := HBoxContainer.new()
-	info.alignment = BoxContainer.ALIGNMENT_CENTER
-	info.add_theme_constant_override("separation", 12)
-	info.add_child(Icon.new("trophy", K.SUN_DK, 44))
-	info.add_child(K.label(("Today's best  %s" % K.fmt(best)) if best > 0 else "No run yet today", 34, K.INK, 650))
-	vb.add_child(info)
-	vb.add_child(K.label(today, 26, K.INK_SOFT, 500))
-	var go := K.button("Drive today's road", K.SUN, K.SUN_DK, 38, 0, 100, "play")
-	_tap(go, func():
+func open_pause() -> void:
+	var vb: VBoxContainer = await _sheet("Paused", "pause", K.CORAL, 680.0)
+	_row_buttons(vb, [
+		["Keep driving", "play", K.CORAL, K.CORAL_DK, func(): game.resume()],
+		["Reset car", "home", K.SUN, K.SUN_DK, func(): game.reset_car()],
+		["Map", "map", K.TEAL, K.TEAL_DK, func(): open_map()],
+		["Garage", "car", K.SKY, K.SKY_DK, func():
+			close_sheet()
+			game.open_garage()],
+		["Trophies", "trophy", K.LILAC, K.LILAC_DK, func(): open_achievements(true)],
+		["Settings", "gear", K.PAPER, K.LINE, func(): open_settings(true)],
+	])
+	var q := K.button("Title screen", K.PAPER, K.LINE, 26, 0, 64)
+	_tap(q, func():
 		close_sheet()
-		game.start_daily())
-	vb.add_child(go)
-	var back := K.button("Not now", K.PAPER, Color("e2d3c2"), 32, 0, 80)
-	_tap(back, close_sheet)
-	vb.add_child(back)
+		transition(func(): game.go_title()))
+	vb.add_child(q)
+
+func _back_from(from_pause: bool) -> void:
+	if from_pause:
+		open_pause()
+	else:
+		close_sheet()
 
 func open_settings(from_pause := false) -> void:
-	var vb: VBoxContainer = await _sheet("Settings", "gear", K.LILAC)
+	var vb: VBoxContainer = await _sheet("Settings", "gear", K.LILAC, 700.0)
 	var st = game.save.data["settings"]
 	vb.add_child(_setting_slider("music", "Music", st["music"], func(v): game.set_setting("music", v)))
 	vb.add_child(_setting_slider("sound", "Sounds", st["sfx"], func(v): game.set_setting("sfx", v)))
-	vb.add_child(_setting_toggle("vibe", "Vibration", st["haptics"], func(v): game.set_setting("haptics", v)))
-	vb.add_child(_setting_toggle("shadow", "Shadows", st["shadows"], func(v): game.set_setting("shadows", v)))
-	var reset := K.button("Reset progress", K.PAPER, Color("e2d3c2"), 28, 0, 72)
+	var g := GridContainer.new()
+	g.columns = 2
+	g.add_theme_constant_override("h_separation", 26)
+	g.add_theme_constant_override("v_separation", 8)
+	vb.add_child(g)
+	g.add_child(_setting_toggle("tire", "Drift help", st["assist"], func(v): game.set_setting("assist", v)))
+	g.add_child(_setting_toggle("vibe", "Vibration", st["haptics"], func(v): game.set_setting("haptics", v)))
+	g.add_child(_setting_toggle("shadow", "Shadows", st["shadows"], func(v): game.set_setting("shadows", v)))
+	g.add_child(_setting_toggle("sun", "Show clock", st["clock"], func(v): game.set_setting("clock", v)))
+	var reset := K.button("Reset progress", K.PAPER, K.LINE, 24, 0, 60)
 	reset.add_theme_color_override("font_color", K.CORAL_DK)
 	var armed := [false]
 	reset.pressed.connect(func():
@@ -838,29 +749,22 @@ func open_settings(from_pause := false) -> void:
 			armed[0] = true
 			reset.text = "Tap again to erase everything"
 		else:
-			game.reset_progress()
-			close_sheet())
+			game.reset_progress())
 	vb.add_child(reset)
 	var credit: String = game.sound.credit_line()
-	if credit != "":
-		var cl := K.label("Music by %s (CC0)" % credit, 22, K.INK_SOFT, 500)
-		cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		vb.add_child(cl)
-	vb.add_child(K.label("Lo-Fi Ryder · %s" % game.build_label(), 22, K.INK_SOFT, 500))
-	var done := K.button("Done", K.LILAC, K.LILAC_DK, 38, 0, 92)
-	_tap(done, func():
-		if from_pause:
-			open_pause()
-		else:
-			close_sheet())
+	var cl := K.label(("Music by %s (CC0) · " % credit if credit != "" else "") + "Models: Kenney (CC0), Tiny Car Pack · " + build_label(), 18, K.INK_SOFT, 500)
+	cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(cl)
+	var done := K.button("Done", K.LILAC, K.LILAC_DK, 32, 0, 76)
+	_tap(done, func(): _back_from(from_pause))
 	vb.add_child(done)
 
 func _setting_slider(icon: String, text: String, value: float, cb: Callable) -> Control:
 	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 16)
-	hb.add_child(Icon.new(icon, K.INK, 44))
-	var l := K.label(text, 32, K.INK, 600, HORIZONTAL_ALIGNMENT_LEFT)
-	l.custom_minimum_size = Vector2(150, 0)
+	hb.add_theme_constant_override("separation", 14)
+	hb.add_child(Icon.new(icon, K.INK, 38))
+	var l := K.label(text, 28, K.INK, 600, HORIZONTAL_ALIGNMENT_LEFT)
+	l.custom_minimum_size = Vector2(130, 0)
 	hb.add_child(l)
 	var s := K.slider(value)
 	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -870,19 +774,20 @@ func _setting_slider(icon: String, text: String, value: float, cb: Callable) -> 
 
 func _setting_toggle(icon: String, text: String, value: bool, cb: Callable) -> Control:
 	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 16)
-	hb.add_child(Icon.new(icon, K.INK, 44))
-	var l := K.label(text, 32, K.INK, 600, HORIZONTAL_ALIGNMENT_LEFT)
+	hb.add_theme_constant_override("separation", 12)
+	hb.custom_minimum_size = Vector2(320, 0)
+	hb.add_child(Icon.new(icon, K.INK, 36))
+	var l := K.label(text, 26, K.INK, 600, HORIZONTAL_ALIGNMENT_LEFT)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hb.add_child(l)
-	var b := K.button("On" if value else "Off", K.TEAL if value else Color("cbbfb3"), K.TEAL_DK if value else Color("ad9f92"), 30, 130, 70)
+	var b := K.button("On" if value else "Off", K.TEAL if value else Color("c9c3bb"), K.TEAL_DK if value else Color("aba59d"), 24, 96, 56)
 	var state := [value]
 	b.pressed.connect(func():
 		game.ui_tap()
 		state[0] = not state[0]
 		b.text = "On" if state[0] else "Off"
-		var col: Color = K.TEAL if state[0] else Color("cbbfb3")
-		var dk: Color = K.TEAL_DK if state[0] else Color("ad9f92")
+		var col: Color = K.TEAL if state[0] else Color("c9c3bb")
+		var dk: Color = K.TEAL_DK if state[0] else Color("aba59d")
 		for sname in ["normal", "hover"]:
 			var sb: StyleBoxFlat = b.get_theme_stylebox(sname).duplicate()
 			sb.bg_color = col
@@ -892,251 +797,329 @@ func _setting_toggle(icon: String, text: String, value: bool, cb: Callable) -> C
 	hb.add_child(b)
 	return hb
 
-func open_pause() -> void:
-	var vb: VBoxContainer = await _sheet("Paused", "pause", K.CORAL)
-	var resume := K.button("Keep driving", K.CORAL, K.CORAL_DK, 40, 0, 100, "play")
-	_tap(resume, func():
+func open_achievements(from_pause := false) -> void:
+	var data: Dictionary = game.save.data
+	var vb: VBoxContainer = await _sheet("Trophies  %d/%d" % [Ach.count(data), Ach.LIST.size()], "trophy", K.SKY, 820.0)
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(780, minf(440.0, _vs().y - 260.0))
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vb.add_child(sc)
+	var list := GridContainer.new()
+	list.columns = 2
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("h_separation", 10)
+	list.add_theme_constant_override("v_separation", 10)
+	sc.add_child(list)
+	var rows := []
+	for a in Ach.LIST:
+		var got := Ach.unlocked(data, a["id"])
+		var prog := clampf(Ach.value(a, data) / Ach.target(a), 0.0, 1.0)
+		rows.append([a, got, prog])
+	rows.sort_custom(func(x, y): return (1 if x[1] else 0) > (1 if y[1] else 0) or (x[1] == y[1] and x[2] > y[2]))
+	for r in rows:
+		list.add_child(_ach_row(r[0], r[1], r[2]))
+	var ok := K.button("Done", K.SKY, K.SKY_DK, 30, 0, 72)
+	_tap(ok, func(): _back_from(from_pause))
+	vb.add_child(ok)
+
+func _ach_row(a: Dictionary, got: bool, prog: float) -> Control:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", K.box(Color("ece4d3") if got else K.CREAM, 20, 0, Color.TRANSPARENT, 10))
+	p.custom_minimum_size = Vector2(380, 0)
+	p.mouse_filter = Control.MOUSE_FILTER_PASS
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 10)
+	hb.mouse_filter = Control.MOUSE_FILTER_PASS
+	p.add_child(hb)
+	var badge := PanelContainer.new()
+	badge.add_theme_stylebox_override("panel", K.box(K.SUN if got else K.LINE, 22, 0, Color.TRANSPARENT, 6))
+	badge.add_child(Icon.new(a["icon"] if got else "lock", Color.WHITE if got else K.INK_SOFT, 30))
+	badge.mouse_filter = Control.MOUSE_FILTER_PASS
+	hb.add_child(badge)
+	var vb := VBoxContainer.new()
+	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_theme_constant_override("separation", 0)
+	vb.mouse_filter = Control.MOUSE_FILTER_PASS
+	hb.add_child(vb)
+	vb.add_child(K.label(a["name"], 22, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT))
+	var dl := K.label(a["desc"], 17, K.INK_SOFT, 500, HORIZONTAL_ALIGNMENT_LEFT)
+	dl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(dl)
+	if not got and Ach.target(a) > 1.0:
+		var b := K.bar(200, 8, K.SKY)
+		b.value = prog
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vb.add_child(b)
+	var rw := HBoxContainer.new()
+	rw.add_theme_constant_override("separation", 4)
+	rw.mouse_filter = Control.MOUSE_FILTER_PASS
+	if got:
+		rw.add_child(Icon.new("check", K.TEAL, 28))
+	else:
+		rw.add_child(Icon.new("coin", K.INK, 22))
+		rw.add_child(K.label(str(a["reward"]), 20, K.INK, 650))
+	hb.add_child(rw)
+	return p
+
+func show_help() -> void:
+	var vb: VBoxContainer = await _sheet("How to drive", "car", K.TEAL, 760.0)
+	for line in [
+		["left", "Steer with the arrows on the left."],
+		["play", "GAS and BRAKE on the right. Hold BRAKE when stopped to reverse."],
+		["tire", "Tap DRIFT (the handbrake) while steering to swing the tail out, then keep the gas down and steer into the slide."],
+		["star", "Drifts score points and coins. Chain them for a bigger multiplier. Don't crash mid-drift!"],
+		["flag", "Drive into an orange ring for a drift zone, a blue ring for a time trial, a purple ring for a drift run. Hidden coins are dotted all over the island."],
+	]:
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 14)
+		hb.add_child(Icon.new(line[0], K.INK, 38))
+		var l := K.label(line[1], 24, K.INK, 600, HORIZONTAL_ALIGNMENT_LEFT)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size = Vector2(640, 0)
+		hb.add_child(l)
+		vb.add_child(hb)
+	var ok := K.button("Let's go", K.TEAL, K.TEAL_DK, 32, 0, 76, "play")
+	_tap(ok, close_sheet)
+	vb.add_child(ok)
+
+# ------------------------------------------------------------------ the map
+
+func open_map() -> void:
+	var vb: VBoxContainer = await _sheet("Island map", "map", K.TEAL, 1120.0)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 18)
+	vb.add_child(hb)
+	var sz := minf(470.0, _vs().y - 220.0)
+	var holder := Panel.new()
+	holder.custom_minimum_size = Vector2(sz, sz)
+	holder.add_theme_stylebox_override("panel", K.box(Color("6fc3e8"), 24, 0, Color.TRANSPARENT, 0))
+	holder.clip_children = CanvasItem.CLIP_CHILDREN_AND_DRAW
+	hb.add_child(holder)
+	var svc := SubViewportContainer.new()
+	svc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	svc.stretch = true
+	holder.add_child(svc)
+	var vp := SubViewport.new()
+	vp.size = Vector2i(int(sz), int(sz))
+	svc.add_child(vp)
+	var mc := Camera3D.new()
+	mc.projection = Camera3D.PROJECTION_ORTHOGONAL
+	mc.size = 1000.0
+	mc.near = 1.0
+	mc.far = 900.0
+	mc.cull_mask = island.MAP_LAYER
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color("6fc3e8")
+	mc.environment = env
+	vp.add_child(mc)
+	mc.global_transform = Transform3D(Basis(Vector3.RIGHT, -PI * 0.5), Vector3(0, 700, 0))
+	# you are here
+	var me := Control.new()
+	me.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	me.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var cp: Vector3 = game.car.global_position
+	var cy: float = game.car.global_rotation.y
+	me.draw.connect(func():
+		var c := Vector2((cp.x / 1000.0 + 0.5) * sz, (cp.z / 1000.0 + 0.5) * sz)
+		var f := Vector2(-sin(cy), -cos(cy))
+		var r := Vector2(-f.y, f.x)
+		var pts := PackedVector2Array([c + f * 14.0, c - f * 9.0 + r * 9.0, c - f * 4.0, c - f * 9.0 - r * 9.0])
+		me.draw_colored_polygon(pts, K.PAPER)
+		me.draw_polyline(pts + PackedVector2Array([pts[0]]), K.INK, 2.5))
+	holder.add_child(me)
+	# the challenges, with your medals and a quick way there
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", 6)
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hb.add_child(right)
+	var found: int = game.save.data["places"].size()
+	right.add_child(K.label("Places found %d/%d · Hidden coins %d/%d" % [found, island.places.size(), game.save.data["coins_taken"].size(), island.coin_spots.size()], 22, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(560, sz - 40.0)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	right.add_child(sc)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 8)
+	sc.add_child(list)
+	for z in island.zones:
+		var best := int(game.save.data["zones"].get(z["id"], 0))
+		list.add_child(_chal_row(z["name"], "Drift zone · best %s" % K.fmt(best) if best > 0 else "Drift zone", int(game.save.data["medals"].get(z["id"], 0)), Color("ff8a5c"),
+			game._road_spot(z["start"], 0.0)))
+	for t in island.trials:
+		var best2: float = float(game.save.data["trials"].get(t["id"], 0.0))
+		var info := "Time trial" if t["kind"] == "time" else "Drift run"
+		if best2 > 0.0:
+			info += (" · best %.2f s" % best2) if t["kind"] == "time" else (" · best %s" % K.fmt(int(best2)))
+		var g0: Transform3D = t["gates"][0]
+		list.add_child(_chal_row(t["name"], info, int(game.save.data["medals"].get(t["id"], 0)), Color("5cc8ff") if t["kind"] == "time" else Color("c38bff"),
+			Transform3D(g0.basis, g0.origin + Vector3(0, 1.0, 0)).translated_local(Vector3(0, 0, 16))))
+	var back := K.button("Back", K.PAPER, K.LINE, 28, 0, 68)
+	_tap(back, func():
+		if game.state == game.PAUSED:
+			open_pause()
+		else:
+			close_sheet())
+	vb.add_child(back)
+
+func _chal_row(name: String, info: String, medal: int, col: Color, xf: Transform3D) -> Control:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", K.box(K.CREAM, 20, 0, Color.TRANSPARENT, 10))
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 10)
+	p.add_child(hb)
+	var dot := Panel.new()
+	dot.custom_minimum_size = Vector2(22, 22)
+	dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	dot.add_theme_stylebox_override("panel", K.box(col, 11, 0, Color.TRANSPARENT, 0))
+	hb.add_child(dot)
+	var vb := VBoxContainer.new()
+	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_theme_constant_override("separation", -2)
+	hb.add_child(vb)
+	vb.add_child(K.label(name, 24, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT))
+	vb.add_child(K.label(info, 18, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
+	var mcol: Color = [K.LINE, Color("b98b62"), Color("b3b8bd"), Color("d4b25c")][medal]
+	hb.add_child(Icon.new("trophy", mcol, 34))
+	var go := K.button("Go", K.TEAL, K.TEAL_DK, 22, 76, 54)
+	_tap(go, func():
 		close_sheet()
-		game.resume())
-	vb.add_child(resume)
-	var st := K.button("Settings", K.LILAC, K.LILAC_DK, 34, 0, 84, "gear")
-	_tap(st, func(): open_settings(true))
-	vb.add_child(st)
-	var quit := K.button("End run", K.PAPER, Color("e2d3c2"), 34, 0, 84, "flag")
-	_tap(quit, func():
-		close_sheet()
-		game.end_run_from_pause())
-	vb.add_child(quit)
+		transition(func(): game.travel_to(xf)))
+	hb.add_child(go)
+	return p
 
 # ------------------------------------------------------------------ garage
 
 func _build_garage() -> void:
 	garage = _full(Control.MOUSE_FILTER_STOP)
 	garage.visible = false
-	# the galaxy behind everything
 	var bg := ColorRect.new()
+	bg.color = Color("e4e0d9")
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var gm := ShaderMaterial.new()
-	gm.shader = load("res://shaders/galaxy_ui.gdshader")
-	bg.material = gm
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	garage.add_child(bg)
-	# 3D showroom: your car on a little floating island
+	# the showroom (left side)
 	var svc := SubViewportContainer.new()
-	svc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	svc.offset_top = 210
-	svc.offset_bottom = -500
+	svc.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
+	svc.anchor_right = 0.56
 	svc.stretch = true
-	g_svc = svc
-	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	svc.mouse_filter = Control.MOUSE_FILTER_PASS
+	svc.gui_input.connect(_garage_input)
 	garage.add_child(svc)
 	g_view = SubViewport.new()
 	g_view.own_world_3d = true
 	g_view.transparent_bg = true
 	g_view.msaa_3d = Viewport.MSAA_4X
-	g_view.size = Vector2i(720, 640)
+	g_view.size = Vector2i(720, 720)
 	svc.add_child(g_view)
-	g_world_root = Node3D.new()
-	g_view.add_child(g_world_root)
+	g_root3d = Node3D.new()
+	g_view.add_child(g_root3d)
 	var we := WorldEnvironment.new()
 	var env := Environment.new()
 	env.background_mode = Environment.BG_CLEAR_COLOR
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("b8b4e6")
-	env.ambient_light_energy = 0.42
-	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	env.ambient_light_color = Color("d8d6d2")
+	env.ambient_light_energy = 0.5
 	we.environment = env
-	g_world_root.add_child(we)
+	g_root3d.add_child(we)
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-50, 35, 0)
-	sun.light_color = Color("fff1dc")
-	sun.light_energy = 0.62
+	sun.rotation_degrees = Vector3(-48, 35, 0)
+	sun.light_color = Color("fff3e0")
+	sun.light_energy = 0.9
 	sun.shadow_enabled = true
-	g_world_root.add_child(sun)
+	g_root3d.add_child(sun)
 	var cam := Camera3D.new()
-	cam.fov = 36
-	cam.keep_aspect = Camera3D.KEEP_WIDTH
-	cam.position = Vector3(0, 2.3, 7.2)
-	cam.rotation_degrees = Vector3(-17, 0, 0)
-	g_world_root.add_child(cam)
+	cam.fov = 34
+	cam.position = Vector3(0, 3.6, 12.5)
+	cam.rotation_degrees = Vector3(-13, 0, 0)
+	g_root3d.add_child(cam)
 	g_mat = ShaderMaterial.new()
 	g_mat.shader = load("res://shaders/toon.gdshader")
 	g_mat.set_shader_parameter("palette", PAL.make_texture())
-	g_mat.set_shader_parameter("haze", 0.0)
-	g_mat.set_shader_parameter("rim_color", Color("b39bff"))
-	var island_mat: ShaderMaterial = g_mat.duplicate()
-	island_mat.set_shader_parameter("decay", 0.0)
-	g_turntable = Node3D.new()
-	g_world_root.add_child(g_turntable)
-	var tt := MeshInstance3D.new()
-	var mb := preload("res://scripts/core/mesh_builder.gd").new()
-	# a little floating island: a grassy top ringed with flowers, rock hanging underneath
-	mb.cyl(Vector3(0, -0.12, 0), 1.8, 0.24, mb.pal(PAL.GRASS), 36)
-	mb.cyl(Vector3(0, -0.5, 0), 1.65, 0.52, mb.pal(PAL.DIRT), 36, Basis(), 1.2)
-	mb.cyl(Vector3(0, -1.25, 0), 1.15, 1.0, mb.pal(PAL.DIRT_DARK), 14, Basis(), 0.25, false)
-	mb.cyl(Vector3(0.2, -2.0, 0.1), 0.3, 0.6, mb.pal(PAL.DIRT_DARK), 8, Basis(), 0.0, false)
-	for i in 16:
-		var a := TAU * i / 16.0 + 0.2
-		var r := 1.52 + 0.14 * sin(i * 2.7)
-		mb.sphere(Vector3(cos(a) * r, 0.07, sin(a) * r), 0.11, mb.pal(PAL.FLOWER_A if i % 2 == 0 else PAL.FLOWER_B), 6, 4)
-	mb.cyl(Vector3(-1.4, 0.35, -0.75), 0.035, 0.7, mb.pal(PAL.TRUNK), 6)
-	mb.sphere(Vector3(-1.4, 0.78, -0.75), 0.26, mb.pal(PAL.LEAF_A), 8, 5)
-	mb.sphere(Vector3(-1.25, 0.7, -0.62), 0.16, mb.pal(PAL.BLOSSOM), 7, 4)
-	tt.mesh = mb.commit()
-	tt.material_override = island_mat
-	g_turntable.add_child(tt)
+	g_mat.set_shader_parameter("season", 1.5)
+	g_turn = Node3D.new()
+	g_root3d.add_child(g_turn)
+	var plat := MeshInstance3D.new()
+	var mb := MB.new()
+	mb.cyl(Vector3(0, -0.15, 0), 3.6, 0.3, MB.rgb("b9b3aa"), 48)
+	mb.cyl(Vector3(0, -0.42, 0), 3.75, 0.26, MB.rgb("8f8981"), 48)
+	plat.mesh = mb.commit()
+	plat.material_override = g_mat
+	g_turn.add_child(plat)
 	g_car = Node3D.new()
-	g_car.rotation.y = PI
-	g_turntable.add_child(g_car)
+	g_turn.add_child(g_car)
 	# top bar
-	var top := MarginContainer.new()
-	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	top.add_theme_constant_override("margin_left", 26)
-	top.add_theme_constant_override("margin_right", 26)
-	top.add_theme_constant_override("margin_top", 40 + safe_top())
-	garage.add_child(top)
 	var tb := HBoxContainer.new()
+	tb.position = Vector2(26, 22)
 	tb.add_theme_constant_override("separation", 16)
-	top.add_child(tb)
-	var back := K.round_button("back", K.PAPER, Color("e2d3c2"), 86)
-	_tap(back, func(): game.close_garage())
+	garage.add_child(tb)
+	var back := K.round_button("back", K.PAPER, K.LINE, 72)
+	_tap(back, func(): game.close_garage(g_from))
 	tb.add_child(back)
-	var tl := K.outlined(K.label("Garage", 52, Color.WHITE, 700, HORIZONTAL_ALIGNMENT_LEFT), Color(0.1, 0.06, 0.2, 0.6), 10)
-	tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tb.add_child(tl)
+	tb.add_child(K.label("Garage", 46, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT))
 	g_coins = K.pill("coin", "0")
-	g_coins.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	tb.add_child(g_coins)
-	# tabs
-	var tabs := HBoxContainer.new()
-	tabs.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	tabs.position = Vector2(-250, 150)
-	tabs.size = Vector2(500, 70)
-	tabs.add_theme_constant_override("separation", 12)
-	garage.add_child(tabs)
-	g_tab_cars = K.button("Cars", K.CORAL, K.CORAL_DK, 30, 240, 70)
-	g_tab_up = K.button("Upgrades", K.PAPER, Color("e2d3c2"), 30, 240, 70)
-	_tap(g_tab_cars, func(): _garage_tab(true))
-	_tap(g_tab_up, func(): _garage_tab(false))
-	tabs.add_child(g_tab_cars)
-	tabs.add_child(g_tab_up)
-	# cars panel (bottom), on its own card
-	g_cars_card = Panel.new()
-	g_cars_card.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	g_cars_card.offset_top = -500
-	g_cars_card.offset_left = 22
-	g_cars_card.offset_right = -22
-	g_cars_card.offset_bottom = -24
-	g_cars_card.add_theme_stylebox_override("panel", K.box(K.PAPER, 44, 6, Color("d9c9b8"), 0))
-	g_cars_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	garage.add_child(g_cars_card)
-	g_cars_box = VBoxContainer.new()
-	g_cars_box.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	g_cars_box.offset_top = -482
-	g_cars_box.offset_left = 40
-	g_cars_box.offset_right = -40
-	g_cars_box.offset_bottom = -44
-	g_cars_box.add_theme_constant_override("separation", 14)
-	garage.add_child(g_cars_box)
-	var nav := HBoxContainer.new()
-	nav.add_theme_constant_override("separation", 12)
-	g_cars_box.add_child(nav)
-	var prev := K.round_button("left", K.PAPER, Color("e2d3c2"), 90)
-	_tap(prev, func(): _garage_step(-1))
-	nav.add_child(prev)
-	g_name = K.label("", 46, K.INK, 700)
-	g_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	nav.add_child(g_name)
-	var nxt := K.round_button("right", K.PAPER, Color("e2d3c2"), 90)
-	_tap(nxt, func(): _garage_step(1))
-	nav.add_child(nxt)
-	g_dots = HBoxContainer.new()
-	g_dots.alignment = BoxContainer.ALIGNMENT_CENTER
-	g_dots.add_theme_constant_override("separation", 6)
-	g_cars_box.add_child(g_dots)
-	for i in CARS.LIST.size():
-		var dot := Panel.new()
-		dot.custom_minimum_size = Vector2(14, 14)
-		dot.add_theme_stylebox_override("panel", K.box(Color("e2d3c2"), 7, 0, Color.TRANSPARENT, 0))
-		g_dots.add_child(dot)
-	g_stats = VBoxContainer.new()
-	g_stats.add_theme_constant_override("separation", 8)
-	g_cars_box.add_child(g_stats)
-	g_action = K.button("Select", K.CORAL, K.CORAL_DK, 40, 0, 104)
-	_tap(g_action, _garage_action)
-	g_cars_box.add_child(g_action)
-	# upgrades panel
-	g_up_box = VBoxContainer.new()
-	g_up_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	g_up_box.offset_top = 250
-	g_up_box.offset_left = 36
-	g_up_box.offset_right = -36
-	g_up_box.offset_bottom = -40
-	g_up_box.add_theme_constant_override("separation", 16)
-	g_up_box.visible = false
-	garage.add_child(g_up_box)
-	garage.gui_input.connect(_garage_input)
+	g_coins.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	g_coins.position = Vector2(-250, 22)
+	garage.add_child(g_coins)
+	# the panel (right side)
+	var card := K.card(K.PAPER, 36)
+	card.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
+	card.anchor_left = 0.56
+	card.offset_left = 0
+	card.offset_right = -24
+	card.offset_top = 96
+	card.offset_bottom = -24
+	garage.add_child(card)
+	g_panel = VBoxContainer.new()
+	g_panel.add_theme_constant_override("separation", 12)
+	card.add_child(g_panel)
 
-func show_garage() -> void:
-	garage.visible = true
+func show_garage(from: int) -> void:
+	g_from = from
 	title.visible = false
-	over.visible = false
 	hud.visible = false
+	close_sheet()
+	garage.visible = true
 	g_index = CARS.index_of(String(game.save.data["car"]))
-	_garage_tab(true)
+	g_tab = "cars"
 	_garage_refresh()
 
 func hide_garage() -> void:
 	garage.visible = false
 
-func _garage_tab(cars: bool) -> void:
-	g_cars_box.visible = cars
-	g_cars_card.visible = cars
-	g_svc.visible = cars
-	g_up_box.visible = not cars
-	var sel := [g_tab_cars, g_tab_up] if cars else [g_tab_up, g_tab_cars]
-	for i in 2:
-		var b: Button = sel[i]
-		var on := i == 0
-		var col: Color = K.CORAL if on else K.PAPER
-		var dk: Color = K.CORAL_DK if on else Color("e2d3c2")
-		for sname in ["normal", "hover"]:
-			var sb: StyleBoxFlat = b.get_theme_stylebox(sname).duplicate()
-			sb.bg_color = col
-			sb.border_color = dk
-			b.add_theme_stylebox_override(sname, sb)
-		for st in ["font_color", "font_hover_color", "font_pressed_color"]:
-			b.add_theme_color_override(st, Color.WHITE if on else K.INK)
-	g_view.get_parent().visible = true
-	garage.get_node("Stripes").visible = cars
-	if not cars:
-		_build_upgrades()
-		g_view.get_parent().visible = false
-
-func _garage_step(d: int) -> void:
-	g_index = posmod(g_index + d, CARS.LIST.size())
-	g_spin = 0.0
-	_garage_refresh()
-	g_car.scale = Vector3(0.7, 0.7, 0.7)
-	var t := create_tween()
-	t.tween_property(g_car, "scale", Vector3.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-
 func _garage_refresh() -> void:
-	var d: Dictionary = CARS.LIST[g_index]
 	var s = game.save.data
 	g_coins.get_meta("label").text = K.fmt(int(s["coins"]))
+	for c in g_panel.get_children():
+		c.queue_free()
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 10)
+	g_panel.add_child(tabs)
+	for tdef in [["cars", "Cars", "car"], ["up", "Upgrades", "gear"]]:
+		var on: bool = g_tab == tdef[0]
+		var b := K.button(tdef[1], K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 28, 0, 66, tdef[2])
+		if not on:
+			b.add_theme_color_override("font_color", K.INK)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var id: String = tdef[0]
+		_tap(b, func():
+			g_tab = id
+			_garage_refresh())
+		tabs.add_child(b)
+	_show_car(CARS.LIST[g_index])
+	if g_tab == "cars":
+		_cars_tab()
+	else:
+		_upgrades_tab()
+
+func _show_car(d: Dictionary) -> void:
 	for c in g_car.get_children():
 		c.queue_free()
 	var c := M.car(d)
 	var body := MeshInstance3D.new()
 	body.mesh = c["body"]
-	var bm: ShaderMaterial = g_mat.duplicate()
-	var om := ShaderMaterial.new()
-	om.shader = load("res://shaders/outline.gdshader")
-	om.set_shader_parameter("width", 0.02)
-	bm.next_pass = om
-	body.material_override = bm
-	body.position.y = c["ride"]
+	body.material_override = g_mat
 	g_car.add_child(body)
 	for i in 4:
 		var w := MeshInstance3D.new()
@@ -1144,43 +1127,61 @@ func _garage_refresh() -> void:
 		w.material_override = g_mat
 		w.position = c["wheels"][i]
 		g_car.add_child(w)
-	var owned: bool = game.save.owns(d["id"])
-	var selected: bool = String(s["car"]) == d["id"]
-	g_name.text = d["name"]
-	for i in g_dots.get_child_count():
-		var dot: Panel = g_dots.get_child(i)
-		var col := K.CORAL if i == g_index else (K.TEAL if game.save.owns(CARS.LIST[i]["id"]) else Color("e2d3c2"))
-		dot.add_theme_stylebox_override("panel", K.box(col, 7, 0, Color.TRANSPARENT, 0))
-	for ch in g_stats.get_children():
-		ch.queue_free()
-	for st in [["Grip", d["grip"], 0.85, 1.15], ["Drift", d["drift"], 0.85, 1.2], ["Bounce", d["bounce"], 0.85, 1.5]]:
+
+func _cars_tab() -> void:
+	var s = game.save.data
+	var d: Dictionary = CARS.LIST[g_index]
+	var nav := HBoxContainer.new()
+	nav.add_theme_constant_override("separation", 10)
+	g_panel.add_child(nav)
+	var prev := K.round_button("left", K.PAPER, K.LINE, 70)
+	_tap(prev, func(): _garage_step(-1))
+	nav.add_child(prev)
+	var nm := K.label(d["name"], 36, K.INK, 700)
+	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nav.add_child(nm)
+	var nxt := K.round_button("right", K.PAPER, K.LINE, 70)
+	_tap(nxt, func(): _garage_step(1))
+	nav.add_child(nxt)
+	g_panel.add_child(K.label("%d of %d" % [g_index + 1, CARS.LIST.size()], 20, K.INK_SOFT, 600))
+	for st in [["Power", d["power"], 0.95, 1.6], ["Top speed", d["speed"], 0.95, 1.25], ["Grip", d["grip"], 0.95, 1.16], ["Drift", d["drift"], 1.0, 1.4]]:
 		var hb := HBoxContainer.new()
-		hb.add_theme_constant_override("separation", 14)
-		var l := K.label(st[0], 30, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT)
-		l.custom_minimum_size = Vector2(130, 0)
+		hb.add_theme_constant_override("separation", 12)
+		var l := K.label(st[0], 24, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT)
+		l.custom_minimum_size = Vector2(140, 0)
 		hb.add_child(l)
 		var pips := HBoxContainer.new()
-		pips.add_theme_constant_override("separation", 8)
-		var n := 1 + int(round(clampf((float(st[1]) - st[2]) / (st[3] - st[2]), 0.0, 1.0) * 4.0))
-		for k in 5:
+		pips.add_theme_constant_override("separation", 6)
+		var n := 1 + int(round(clampf((float(st[1]) - st[2]) / (st[3] - st[2]), 0.0, 1.0) * 5.0))
+		for k in 6:
 			var pip := Panel.new()
-			pip.custom_minimum_size = Vector2(54, 20)
-			pip.add_theme_stylebox_override("panel", K.box(K.TEAL if k < n else Color("eadccd"), 10, 0, Color.TRANSPARENT, 0))
+			pip.custom_minimum_size = Vector2(38, 16)
+			pip.add_theme_stylebox_override("panel", K.box(K.TEAL if k < n else K.LINE, 8, 0, Color.TRANSPARENT, 0))
 			pips.add_child(pip)
 		hb.add_child(pips)
-		g_stats.add_child(hb)
+		g_panel.add_child(hb)
+	var owned: bool = game.save.owns(d["id"])
+	var selected: bool = String(s["car"]) == d["id"]
 	var price: int = d["price"]
-	g_action.disabled = false
+	var act: Button
 	if selected:
-		g_action.text = "Driving this one"
-		g_action.disabled = true
+		act = K.button("Driving this one", Color("c9c3bb"), Color("aba59d"), 30, 0, 84, "check")
+		act.disabled = true
 	elif owned:
-		g_action.text = "Drive this one"
+		act = K.button("Drive this one", K.TEAL, K.TEAL_DK, 32, 0, 84, "play")
 	elif int(s["coins"]) >= price:
-		g_action.text = "Buy  ·  %s coins" % K.fmt(price)
+		act = K.button("Buy · %s" % K.fmt(price), K.CORAL, K.CORAL_DK, 32, 0, 84, "coin")
 	else:
-		g_action.text = "%s coins" % K.fmt(price)
-		g_action.disabled = true
+		act = K.button("%s coins" % K.fmt(price), Color("c9c3bb"), Color("aba59d"), 30, 0, 84, "lock")
+		act.disabled = true
+	_tap(act, _garage_action)
+	g_panel.add_child(act)
+
+func _garage_step(dlt: int) -> void:
+	g_index = posmod(g_index + dlt, CARS.LIST.size())
+	_garage_refresh()
+	g_car.scale = Vector3(0.75, 0.75, 0.75)
+	create_tween().tween_property(g_car, "scale", Vector3.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _garage_action() -> void:
 	var d: Dictionary = CARS.LIST[g_index]
@@ -1190,7 +1191,6 @@ func _garage_action() -> void:
 		game.save.save()
 		game.car_changed()
 		game.sfx("select")
-		game.buzz(25, 0.5)
 	elif int(s["coins"]) >= int(d["price"]):
 		s["coins"] = int(s["coins"]) - int(d["price"])
 		s["owned"].append(d["id"])
@@ -1199,76 +1199,53 @@ func _garage_action() -> void:
 		game.car_changed()
 		game.sfx("purchase")
 		game.buzz(60, 0.9)
-		_confetti_garage()
 		game.ach_check()
 	_garage_refresh()
 
-func _confetti_garage() -> void:
-	for i in 26:
-		var p := Panel.new()
-		var col: Color = [K.CORAL, K.SUN, K.TEAL, K.LILAC, K.SKY][i % 5]
-		p.add_theme_stylebox_override("panel", K.box(col, 4, 0, Color.TRANSPARENT, 0))
-		p.size = Vector2(16, 24)
-		p.position = Vector2(360, 460)
-		p.pivot_offset = Vector2(8, 12)
-		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		garage.add_child(p)
-		var dest := p.position + Vector2(randf_range(-320, 320), randf_range(-380, 120))
-		var t := create_tween()
-		t.tween_property(p, "position", dest, 0.9).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-		t.parallel().tween_property(p, "rotation", randf_range(-8, 8), 0.9)
-		t.parallel().tween_property(p, "modulate:a", 0.0, 0.4).set_delay(0.6)
-		t.tween_callback(p.queue_free)
-
-func _build_upgrades() -> void:
-	for c in g_up_box.get_children():
-		c.queue_free()
+func _upgrades_tab() -> void:
 	var s = game.save
-	g_coins.get_meta("label").text = K.fmt(int(s.data["coins"]))
-	var icons := {"tank": "tank", "grip": "tire", "magnet": "magnet", "wind": "wind"}
-	var cols := {"tank": K.CORAL, "grip": K.TEAL, "magnet": K.SUN, "wind": K.LILAC}
+	g_panel.add_child(K.label("Upgrades work on every car you own.", 20, K.INK_SOFT, 600))
+	var cols := {"engine": K.CORAL, "turbo": K.SKY, "tyres": K.TEAL, "steering": K.LILAC}
 	for u in SaveData.UPGRADES:
-		var card := K.card(K.PAPER, 30)
+		var info: Dictionary = SaveData.UPGRADE_INFO[u]
+		var p := PanelContainer.new()
+		p.add_theme_stylebox_override("panel", K.box(K.CREAM, 22, 0, Color.TRANSPARENT, 10))
 		var hb := HBoxContainer.new()
-		hb.add_theme_constant_override("separation", 18)
-		card.add_child(hb)
+		hb.add_theme_constant_override("separation", 12)
+		p.add_child(hb)
 		var badge := PanelContainer.new()
-		badge.add_theme_stylebox_override("panel", K.box(cols[u], 26, 0, Color.TRANSPARENT, 14))
-		var bic := Icon.new(icons[u], Color.WHITE, 56)
-		bic.color2 = cols[u]
-		badge.add_child(bic)
+		badge.add_theme_stylebox_override("panel", K.box(cols[u], 22, 0, Color.TRANSPARENT, 8))
+		badge.add_child(Icon.new(info["icon"], Color.WHITE, 38))
 		badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		hb.add_child(badge)
 		var vb := VBoxContainer.new()
 		vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		vb.add_theme_constant_override("separation", 6)
+		vb.add_theme_constant_override("separation", 2)
 		hb.add_child(vb)
-		vb.add_child(K.label(SaveData.UPGRADE_INFO[u]["name"], 34, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT))
-		var desc := K.label(SaveData.UPGRADE_INFO[u]["desc"], 24, K.INK_SOFT, 500, HORIZONTAL_ALIGNMENT_LEFT)
-		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		vb.add_child(desc)
+		vb.add_child(K.label(info["name"], 24, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT))
+		vb.add_child(K.label(info["desc"], 17, K.INK_SOFT, 500, HORIZONTAL_ALIGNMENT_LEFT))
 		var pips := HBoxContainer.new()
-		pips.add_theme_constant_override("separation", 8)
+		pips.add_theme_constant_override("separation", 5)
 		var lvl: int = s.level(u)
 		for k in SaveData.MAX_LEVEL:
 			var pip := Panel.new()
-			pip.custom_minimum_size = Vector2(40, 16)
-			pip.add_theme_stylebox_override("panel", K.box(cols[u] if k < lvl else Color("eadccd"), 8, 0, Color.TRANSPARENT, 0))
+			pip.custom_minimum_size = Vector2(30, 12)
+			pip.add_theme_stylebox_override("panel", K.box(cols[u] if k < lvl else K.LINE, 6, 0, Color.TRANSPARENT, 0))
 			pips.add_child(pip)
 		vb.add_child(pips)
 		var cost: int = s.upgrade_cost(u)
 		var b: Button
 		if cost < 0:
-			b = K.button("Max", Color("cbbfb3"), Color("ad9f92"), 28, 150, 80)
+			b = K.button("Max", Color("c9c3bb"), Color("aba59d"), 24, 120, 60)
 			b.disabled = true
 		else:
-			b = K.button(K.fmt(cost), cols[u], cols[u].darkened(0.2), 30, 150, 80)
+			b = K.button(K.fmt(cost), cols[u], (cols[u] as Color).darkened(0.2), 24, 120, 60, "coin")
 			b.disabled = int(s.data["coins"]) < cost
 			var uu: String = u
 			_tap(b, func(): _buy_upgrade(uu))
 		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		hb.add_child(b)
-		g_up_box.add_child(card)
+		g_panel.add_child(p)
 
 func _buy_upgrade(u: String) -> void:
 	var s = game.save
@@ -1278,37 +1255,18 @@ func _buy_upgrade(u: String) -> void:
 	s.data["coins"] = int(s.data["coins"]) - cost
 	s.data["up"][u] = s.level(u) + 1
 	s.save()
+	game.car_changed()
 	game.sfx("upgrade")
 	game.buzz(50, 0.8)
 	game.ach_check()
-	_build_upgrades()
+	_garage_refresh()
 
 func _garage_input(e: InputEvent) -> void:
-	if not g_cars_box.visible:
-		return
 	if e is InputEventScreenDrag:
 		g_drag += e.relative.x
 		g_spin += e.relative.x * 0.01
 	elif e is InputEventScreenTouch and not e.pressed:
-		if absf(g_drag) > 110.0 and e.position.y < 800:
+		if absf(g_drag) > 160.0:
 			_garage_step(-1 if g_drag > 0 else 1)
 			game.ui_tap()
 		g_drag = 0.0
-
-func garage_tick(dt: float) -> void:
-	if garage.visible:
-		g_spin += dt * 0.5
-		g_turntable.rotation.y = g_spin + 0.7
-		g_turntable.position.y = sin(Time.get_ticks_msec() * 0.002) * 0.04
-
-func title_tick(t: float) -> void:
-	if not title.visible:
-		return
-	var row: HBoxContainer = title_logo.get_child(0)
-	for ch in row.get_children():
-		var i: int = ch.get_meta("i")
-		ch.position.y = sin(t * 2.2 + i * 0.55) * 7.0
-		ch.rotation = sin(t * 1.6 + i * 0.8) * 0.04
-	title_tap.modulate.a = 0.6 + 0.4 * sin(t * 3.2)
-	title_tap.scale = Vector2.ONE * (1.0 + 0.03 * sin(t * 3.2))
-	title_tap.pivot_offset = title_tap.size * 0.5

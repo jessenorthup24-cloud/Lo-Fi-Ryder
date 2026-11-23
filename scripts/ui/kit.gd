@@ -1,24 +1,27 @@
 extends RefCounted
-## Building blocks for the cozy toy UI: fonts, chunky pill buttons, cards, labels.
+## Building blocks for the UI: fonts, chunky pill buttons, cards, labels.
 
 const Icon := preload("res://scripts/ui/icon.gd")
 
-const CREAM := Color("fff4e6")
-const PAPER := Color("fffaf3")
-const INK := Color("4a3a33")
-const INK_SOFT := Color("8b7568")
-const CORAL := Color("ff7a6b")
-const CORAL_DK := Color("d95a4c")
-const TEAL := Color("3db5a6")
-const TEAL_DK := Color("2b8f83")
-const SUN := Color("ffc94d")
-const SUN_DK := Color("dba331")
-const LILAC := Color("a998f2")
-const LILAC_DK := Color("8472d6")
-const SKY := Color("6ec6ff")
-const LEAF := Color("7cc35a")
-const DIM := Color(0.18, 0.13, 0.12, 0.42)
-
+# a calm, neutral palette: warm whites, stone greys and charcoal (names kept from the old colourful kit)
+const CREAM := Color("efebe5")
+const PAPER := Color("f7f5f1")
+const INK := Color("2f2d2a")
+const INK_SOFT := Color("7a756f")
+const CORAL := Color("34322f")      # primary: charcoal
+const CORAL_DK := Color("1d1c1a")
+const TEAL := Color("7d8780")       # sage grey
+const TEAL_DK := Color("5e6862")
+const SUN := Color("bfae90")        # sand
+const SUN_DK := Color("9c8c70")
+const LILAC := Color("9e978f")      # taupe
+const LILAC_DK := Color("7f7871")
+const SKY := Color("8995a0")        # slate
+const SKY_DK := Color("6a7580")
+const LEAF := Color("8b9681")
+const LINE := Color("dcd6cd")       # light edges and empty pips
+const LINE_DK := Color("c3bcb2")
+const DIM := Color(0.08, 0.08, 0.08, 0.45)
 static var _fonts := {}
 
 static func font(weight := 600) -> Font:
@@ -62,8 +65,8 @@ static func box(bg: Color, radius := 28, lip := 0, lip_col := Color.TRANSPARENT,
 
 static func card(bg := PAPER, radius := 36) -> PanelContainer:
 	var p := PanelContainer.new()
-	var sb := box(bg, radius, 8, Color(0.85, 0.76, 0.66), 28)
-	sb.shadow_color = Color(0.3, 0.2, 0.15, 0.18)
+	var sb := box(bg, radius, 8, LINE_DK, 28)
+	sb.shadow_color = Color(0.1, 0.1, 0.1, 0.18)
 	sb.shadow_size = 18
 	sb.shadow_offset = Vector2(0, 8)
 	p.add_theme_stylebox_override("panel", sb)
@@ -84,7 +87,7 @@ static func button(text: String, bg := CORAL, dk := CORAL_DK, size := 38, min_w 
 	var hover := box(bg.lightened(0.05), int(h * 0.5), 8, dk, 26)
 	var pressed := box(bg.darkened(0.04), int(h * 0.5), 2, dk, 26)
 	pressed.content_margin_top += 6
-	var disabled := box(Color("d8cfc6"), int(h * 0.5), 8, Color("bcb1a6"), 26)
+	var disabled := box(Color("d6d1ca"), int(h * 0.5), 8, Color("bdb7af"), 26)
 	b.add_theme_stylebox_override("normal", normal)
 	b.add_theme_stylebox_override("hover", hover)
 	b.add_theme_stylebox_override("pressed", pressed)
@@ -119,7 +122,7 @@ static func squishy(b: Control) -> void:
 			b.create_tween().tween_property(b, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT))
 
 ## Round icon button (pause, settings…).
-static func round_button(icon: String, bg := PAPER, dk := Color("e2d3c2"), d := 96.0, icol := INK) -> Button:
+static func round_button(icon: String, bg := PAPER, dk := LINE, d := 96.0, icol := INK) -> Button:
 	var b := Button.new()
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(d, d)
@@ -144,7 +147,7 @@ static func round_button(icon: String, bg := PAPER, dk := Color("e2d3c2"), d := 
 ## A pill showing an icon and a value (coins in the corner).
 static func pill(icon: String, text: String, size := 34) -> PanelContainer:
 	var p := PanelContainer.new()
-	var sb := box(PAPER, 40, 6, Color("e2d3c2"), 18)
+	var sb := box(PAPER, 40, 6, LINE, 18)
 	sb.content_margin_top = 8
 	sb.content_margin_bottom = 8
 	p.add_theme_stylebox_override("panel", sb)
@@ -158,7 +161,7 @@ static func pill(icon: String, text: String, size := 34) -> PanelContainer:
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return p
 
-static func bar(w: float, h: float, fill: Color, back := Color("eadccd")) -> ProgressBar:
+static func bar(w: float, h: float, fill: Color, back := LINE) -> ProgressBar:
 	var pb := ProgressBar.new()
 	pb.custom_minimum_size = Vector2(w, h)
 	pb.show_percentage = false

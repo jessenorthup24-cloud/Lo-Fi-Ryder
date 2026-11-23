@@ -27,7 +27,7 @@ var _started := false
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var bg := ColorRect.new()
-	bg.color = Color(0.42, 0.36, 0.68)
+	bg.color = Color(0.2, 0.196, 0.188)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 	var font: Font = null
@@ -43,16 +43,16 @@ func _ready() -> void:
 	box.add_theme_constant_override("separation", 18)
 	add_child(box)
 	var title := Label.new()
-	title.text = "Lo-Fi Ryder"
+	title.text = "Lo-Fi Dryfter"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 64)
-	title.add_theme_color_override("font_color", Color(1.0, 0.94, 0.75))
+	title.add_theme_color_override("font_color", Color(0.97, 0.96, 0.94))
 	if font: title.add_theme_font_override("font", font)
 	box.add_child(title)
 	_label = Label.new()
 	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_label.add_theme_font_size_override("font_size", 26)
-	_label.add_theme_color_override("font_color", Color(0.78, 0.72, 0.95))
+	_label.add_theme_color_override("font_color", Color(0.75, 0.73, 0.7))
 	if font: _label.add_theme_font_override("font", font)
 	box.add_child(_label)
 	_bar = ProgressBar.new()
@@ -60,10 +60,10 @@ func _ready() -> void:
 	_bar.show_percentage = false
 	_bar.visible = false
 	var fill := StyleBoxFlat.new()
-	fill.bg_color = Color(0.56, 0.96, 0.85)
+	fill.bg_color = Color(0.91, 0.88, 0.83)
 	fill.set_corner_radius_all(11)
 	var back := StyleBoxFlat.new()
-	back.bg_color = Color(0.55, 0.49, 0.8)
+	back.bg_color = Color(0.35, 0.34, 0.32)
 	back.set_corner_radius_all(11)
 	_bar.add_theme_stylebox_override("fill", fill)
 	_bar.add_theme_stylebox_override("background", back)
@@ -73,7 +73,7 @@ func _ready() -> void:
 	_skip.visible = false
 	_skip.flat = true
 	_skip.add_theme_font_size_override("font_size", 24)
-	_skip.add_theme_color_override("font_color", Color(0.7, 0.64, 0.88))
+	_skip.add_theme_color_override("font_color", Color(0.66, 0.64, 0.61))
 	if font: _skip.add_theme_font_override("font", font)
 	_skip.pressed.connect(_on_skip)
 	box.add_child(_skip)
@@ -192,6 +192,6 @@ func _start(use_pack: bool) -> void:
 			ProjectSettings.load_resource_pack(PACK_PATH, true)
 	var v := _read_json("res://version.json")
 	_say("Starting · %s" % String(v.get("label", "dev")))
-	print("Lo-Fi Ryder boot: content build ", int(v.get("build", 0)), " ", v.get("label", ""))
+	print("Lo-Fi Dryfter boot: content build ", int(v.get("build", 0)), " ", v.get("label", ""))
 	await get_tree().process_frame
 	get_tree().change_scene_to_file(MAIN)

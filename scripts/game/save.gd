@@ -1,16 +1,17 @@
 extends RefCounted
-## Everything that persists between runs, in user://save.json.
+## Everything that persists, in user://save.json.
 
 const PATH := "user://save.json"
-const UPGRADES := ["tank", "grip", "magnet", "wind"]
+const UPGRADES := ["engine", "turbo", "tyres", "steering"]
 const UPGRADE_INFO := {
-	"tank": {"name": "Fuel Tank", "desc": "Drive farther between refills"},
-	"grip": {"name": "Grippy Tires", "desc": "More control on rain and ice"},
-	"magnet": {"name": "Coin Magnet", "desc": "Pull in coins from farther away"},
-	"wind": {"name": "Wind Fins", "desc": "Gusts push you around less"},
+	"engine": {"name": "Engine Tune", "desc": "More pull out of corners and drifts", "icon": "gear"},
+	"turbo": {"name": "Turbo", "desc": "A higher top speed", "icon": "wind"},
+	"tyres": {"name": "Sport Tyres", "desc": "More grip when you want it", "icon": "tire"},
+	"steering": {"name": "Angle Kit", "desc": "More steering lock for deeper drifts", "icon": "star"},
 }
-const UPGRADE_COST := [120, 300, 600, 1000, 1600]
+const UPGRADE_COST := [250, 600, 1200, 2200, 3600]
 const MAX_LEVEL := 5
+const OLD_UPGRADE_COST := [120, 300, 600, 1000, 1600]
 
 var data := {}
 
@@ -19,22 +20,21 @@ func _init() -> void:
 
 static func defaults() -> Dictionary:
 	return {
-		"version": 1,
+		"version": 2,
 		"coins": 0,
 		"owned": ["bug"],
 		"car": "bug",
-		"up": {"tank": 0, "grip": 0, "magnet": 0, "wind": 0},
-		"best": 0,
-		"best_dist": 0,
-		"runs": 0,
-		"missions": [],
-		"missions_done": 0,
-		"daily": {"date": "", "best": 0, "best_dist": 0, "runs": 0},
-		"settings": {"music": 0.75, "sfx": 0.9, "haptics": true, "shadows": true},
-		"ghost": [],
-		"daily_ghost": [],
-		"stats": {"distance": 0.0, "coins": 0, "drift": 0.0, "spins": 0, "jumps": 0},
+		"up": {"engine": 0, "turbo": 0, "tyres": 0, "steering": 0},
+		"settings": {"music": 0.75, "sfx": 0.9, "haptics": true, "shadows": true, "assist": true, "cam": 0, "clock": true},
+		"stats": {},
+		"zones": {},          # zone id -> best score
+		"trials": {},         # trial id -> best (time or points)
+		"medals": {},         # id -> 0 none, 1 bronze, 2 silver, 3 gold
+		"coins_taken": [],
+		"places": [],
 		"ach": {},
+		"pos": [],            # where you parked last time [x, y, z, yaw]
+		"seen_help": false,
 	}
 
 func load_data() -> void:
@@ -44,6 +44,21 @@ func load_data() -> void:
 	if not (v is Dictionary):
 		return
 	var d := defaults()
+	if int(v.get("version", 1)) < 2:
+		# from the endless-road days: keep your coins and cars, refund the old upgrades, retire the old trophies
+		d["coins"] = int(v.get("coins", 0))
+		d["owned"] = v.get("owned", ["bug"])
+		d["car"] = String(v.get("car", "bug"))
+		if v.get("settings") is Dictionary:
+			for k in v["settings"]:
+				d["settings"][k] = v["settings"][k]
+		if v.get("up") is Dictionary:
+			for u in v["up"]:
+				for l in int(v["up"][u]):
+					d["coins"] += OLD_UPGRADE_COST[mini(l, OLD_UPGRADE_COST.size() - 1)]
+		d["migrated"] = true
+		data = d
+		return
 	_merge(d, v)
 	data = d
 
@@ -74,6 +89,15 @@ func setting(k: String):
 
 func owns(id: String) -> bool:
 	return data["owned"].has(id)
+
+func stat(k: String) -> float:
+	return float(data["stats"].get(k, 0.0))
+
+func add_stat(k: String, v: float) -> void:
+	data["stats"][k] = stat(k) + v
+
+func max_stat(k: String, v: float) -> void:
+	data["stats"][k] = maxf(stat(k), v)
 
 func reset() -> void:
 	var keep: Dictionary = data["settings"].duplicate()

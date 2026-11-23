@@ -1,188 +1,127 @@
 extends Node3D
-## Lo-Fi Ryder: wires everything together and runs the game loop.
+## Lo-Fi Dryfter: an open-world drift game on a little island. This node runs the game: the camera, the
+## controls, drift scoring, the challenges (drift zones, trials, hidden coins), places to find, saving.
 
 const PAL := preload("res://scripts/core/palette.gd")
 const M := preload("res://scripts/core/models.gd")
-const World := preload("res://scripts/game/world.gd")
-const Car := preload("res://scripts/game/car.gd")
+const MB := preload("res://scripts/core/mesh_builder.gd")
+const Island := preload("res://scripts/game/island.gd")
+const Car := preload("res://scripts/game/drift_car.gd")
 const Fx := preload("res://scripts/game/fx.gd")
 const Atmos := preload("res://scripts/game/atmos.gd")
 const Sound := preload("res://scripts/game/sound.gd")
 const SaveData := preload("res://scripts/game/save.gd")
-const Missions := preload("res://scripts/game/missions.gd")
-const Ads := preload("res://scripts/game/ads.gd")
 const CARS := preload("res://scripts/game/cars.gd")
 const UI := preload("res://scripts/ui/ui.gd")
-const Police := preload("res://scripts/game/police.gd")
 const K := preload("res://scripts/ui/kit.gd")
 const Ach := preload("res://scripts/game/achievements.gd")
+const Pool := preload("res://scripts/game/pool.gd")
+const Traffic := preload("res://scripts/game/traffic.gd")
 
-enum { TITLE, RUN, DYING, OVER, GARAGE, PAUSED }
+enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
 
-const CAM_SIZE := 14.0   # visible width in metres (taller phones see more road ahead)
-const CAM_PITCH := -37.0
-const CAM_YAW := 45.0
+const MEDAL_PAY := [0, 150, 350, 700]
+const COIN_PICKUP := 25
 
 var save: SaveData
-var missions: Missions
-var ads: Ads
 var toon: ShaderMaterial
-var world: World
+var island: Island
 var car: Car
 var fx: Fx
+var traffic: Traffic
 var atmos: Atmos
 var sound: Sound
 var ui: UI
 var cam: Camera3D
-var ghost: Node3D
-var ghost_mat: ShaderMaterial
-var best_line: Node3D
-var police: Police
-var chase := {}            # the chase in progress (from world.chases)
-var chase_state := ""      # "", parked, on, over
-var chase_siren_k := 0.0
-var chase_over_t := 0.0
-
-var state := TITLE
-var seed_value := 1
-var daily := false
-var run_t := 0.0
-var max_v := 0.0
-var style := 0
-var run_coins := 0
-var run := {}
-var biomes_seen := {}
-var chain := 0
-var chain_t := 0.0
-var edge_cd := 0.0
-var dying_t := 0.0
-var death := ""
-var fuel_cap := 30.0
-var stopped_t := 0.0
-var coin_streak := 0
-var coin_streak_t := 0.0
-var low_fuel_warned := false
-var ghost_rec: Array = []
-var ghost_rec_t := 0.0
-var ghost_play: Array = []
-var ghost_on := false
-var best_target := 0
-var best_v := 0.0
-var cam_focus := Vector3.ZERO
-var cam_size := CAM_SIZE
-var shake := 0.0
-var crumble_delay := 0.0
-var drift_tick := 0.0
-var skid_t := 0.0
-var dust_t := 0.0
-var time := 0.0
-var rumble_t := 0.0
-var honk_cd := 0.0
-
-# input
-var touches := {}         # touch index -> -1 (left arrow) or 1 (right arrow)
-var title_touch := -1
-var hold_l := 0.0
-var hold_r := 0.0
-
-# test harness
+var state := LOADING
 var args := {}
 var frames := 0
 var autopilot := false
+var time := 0.0
+
+# controls
+var touches := {}          # touch index -> control name
+var held := {}             # control name -> true (touch or keyboard)
+var keys := {}
+# camera
+var cam_yaw := 0.0
+var cam_pos := Vector3.ZERO
+var cam_mode := 0
+var shake := 0.0
+var title_t := 0.0
+# drifting
+var drift_on := false
+var drift_pts := 0.0
+var drift_off_t := 0.0
+var drift_len := 0.0
+var combo := 1
+var combo_t := 0.0
+var coin_frac := 0.0
+var skid_acc := {}
+var smoke_t := 0.0
+# challenges
+var zone := {}             # the attempt in progress
+var zone_t := 0.0
+var zone_pts := 0.0
+var zone_out := 0.0
+var trial := {}
+var trial_t := 0.0
+var trial_gate := 0
+var trial_pts := 0.0
+var markers := []          # {kind, id, pos, node, label}
+var gate_nodes: Array = []
+var coin_pool: Pool
+var coins_live: Array = []
+# the rest
+var place_now := ""
+var place_t := 0.0
+var flip_t := 0.0
+var stuck_t := 0.0
+var save_t := 0.0
+var ach_t := 0.0
+var last_pos := Vector3.ZERO
+var road_hint := Vector3.ZERO
+var bump_cd := 0.0
+var auto := {}
 
 func _ready() -> void:
 	_parse_args()
+	# landscape, laid out for 1280x720 whatever the installed app was built with
+	if OS.has_feature("mobile"):
+		DisplayServer.screen_set_orientation(DisplayServer.SCREEN_SENSOR_LANDSCAPE)
+	get_tree().root.content_scale_size = Vector2i(1280, 720)
+	get_tree().root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
 	if FileAccess.file_exists("user://content_pending"):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path("user://content_pending"))
 	save = SaveData.new()
 	if not args.has("fresh"):
 		save.load_data()
-	# trophies came in an update: seed the run bests from what the save already knows
-	var st: Dictionary = save.data["stats"]
-	if not st.has("max_dist"):
-		st["max_dist"] = int(save.data["best_dist"])
-		st["max_score"] = int(save.data["best"])
-	missions = Missions.new(save)
-	missions.ensure()
-	ads = Ads.new()
 	toon = ShaderMaterial.new()
 	toon.shader = load("res://shaders/toon.gdshader")
 	toon.set_shader_parameter("palette", PAL.make_texture())
-	toon.set_shader_parameter("decay", 0.0)
 	cam = Camera3D.new()
-	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-	cam.keep_aspect = Camera3D.KEEP_WIDTH
-	cam.size = CAM_SIZE
-	cam.near = 1.0
-	cam.far = 420.0
-	cam.rotation_degrees = Vector3(CAM_PITCH, CAM_YAW, 0)
+	cam.fov = 64.0
+	cam.near = 0.25
+	cam.far = 1400.0
+	cam.cull_mask = 0xFFFFF & ~Island.MAP_LAYER
+	cam.position = Vector3(-240, 30, 120)
 	add_child(cam)
-	world = World.new()
-	add_child(world)
-	world.setup(self, toon, K.font(650))
-	fx = Fx.new()
-	add_child(fx)
-	fx.setup(toon)
-	world.fx = fx
-	car = Car.new()
-	add_child(car)
-	car.setup(world, self, toon)
+	cam.make_current()
 	atmos = Atmos.new()
 	add_child(atmos)
-	atmos.setup(world, self, cam, toon)
-	for m in world.mat_sway.values():
-		atmos.add_material(m)
-	atmos.add_material(fx.puffs.material_override)
-	if fx.puffs.material_override is ShaderMaterial:
-		(fx.puffs.material_override as ShaderMaterial).set_shader_parameter("decay", 0.0)
+	atmos.setup(self, toon)
+	if args.has("season"):
+		atmos.set_season(int(args["season"]))
+	if args.has("hour"):
+		atmos.hour = float(args["hour"])
 	sound = Sound.new()
 	add_child(sound)
 	sound.setup()
 	ui = UI.new()
 	add_child(ui)
 	ui.setup(self)
-	ghost_mat = ShaderMaterial.new()
-	ghost_mat.shader = load("res://shaders/ghost.gdshader")
-	ghost = Node3D.new()
-	add_child(ghost)
-	ghost.visible = false
-	best_line = _make_best_line()
-	add_child(best_line)
-	police = Police.new()
-	add_child(police)
-	police.setup(toon)
-	police.world = world
-	atmos.add_material(police.paint)
+	ui.show_loading()
 	_apply_settings()
-	car_changed()
-	_new_world(_random_seed(), false)
-	if args.has("garage"):
-		open_garage(true)
-		if String(args["garage"]) == "up":
-			ui._garage_tab(false)
-	elif args.has("run") or args.has("auto"):
-		autopilot = args.has("auto")
-		_start_run()
-	else:
-		state = TITLE
-		ui.show_title()
-		# unlock anything an existing save already earned (cars, upgrades, past runs)
-		get_tree().create_timer(1.2).timeout.connect(func():
-			if state == TITLE:
-				ach_check()
-				ui.refresh_title())
-	if args.has("warp"):
-		if String(args["warp"]) == "kind" and world.forced_v > 0.0:
-			_warp(world.forced_v + 2.0)
-		elif String(args["warp"]).begins_with("deck") and not world.decks.is_empty():
-			_warp(float(world.decks[0]["va"]) + float(String(args["warp"]).trim_prefix("deck") if String(args["warp"]) != "deck" else "8"))
-		else:
-			_warp(float(args["warp"]))
-	if args.has("chase"):
-		world._plan_until(1600.0)
-		if not world.chases.is_empty():
-			_warp(float(world.chases[0]["v_start"]) - 30.0)
-	sound.start_music()
 
 func _parse_args() -> void:
 	for a in OS.get_cmdline_user_args():
@@ -190,187 +129,193 @@ func _parse_args() -> void:
 		var kv := s.split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else "1"
 
-func _random_seed() -> int:
-	if args.has("seed"):
-		return int(args["seed"])
-	return randi() % 1000000 + 1
-
-func today() -> String:
-	var d := Time.get_date_dict_from_system()
-	return "%04d-%02d-%02d" % [d["year"], d["month"], d["day"]]
-
-func _daily_seed() -> int:
-	return int(today().replace("-", "")) * 7 + 13
-
-func build_label() -> String:
-	var v = JSON.parse_string(FileAccess.get_file_as_string("res://version.json")) if FileAccess.file_exists("res://version.json") else null
-	return String(v.get("label", "dev")) if v is Dictionary else "dev"
-
-# ------------------------------------------------------------------ world / run lifecycle
-
-func _new_world(s: int, is_daily: bool) -> void:
-	seed_value = s
-	daily = is_daily
-	world.force_deck = String(args.get("deck", ""))
-	world.force_kind = String(args.get("kind", ""))
-	world.reset(s, String(args.get("biome", "")))
-	fx.clear()
-	var rng := RandomNumberGenerator.new()
-	rng.seed = s
-	var start_season := rng.randi_range(0, 3)
-	if args.has("season"):
-		start_season = int(args["season"])
-	atmos.reset(s, start_season)
-	if args.has("hour"):
-		atmos.hour = float(args["hour"])
-	if args.has("weather"):
-		atmos.force_weather(String(args["weather"]))
-	var p := world.pos_at(0.0, 0.0)
-	var t := world.tangent(0.0)
-	car.place(p, atan2(-t.x, -t.z))
-	car.active = false
-	cam_focus = p + world.F * 3.0
-	_cam_update(1.0, true)
-	ghost.visible = false
-	best_line.visible = false
-	biomes_seen.clear()
-	police.reset()
-	chase = {}
-	chase_state = ""
-	chase_siren_k = 0.0
-	ui.chase_show(false)
-	sound.mute_loops(false)
-
-func _start_run() -> void:
-	state = RUN
-	_clear_touches()
-	run_t = 0.0
-	max_v = 0.0
-	style = 0
-	run_coins = 0
-	chain = 0
-	chain_t = 0.0
-	stopped_t = 0.0
-	dying_t = 0.0
-	death = ""
-	low_fuel_warned = false
-	coin_streak = 0
-	car.pace = 1.0
-	next_gear = 1.1
-	ach_run = []
-	ach_run_coins = 0
-	ach_t = 0.0
-	run = {"dist": 0, "coins": 0, "drift": 0.0, "near": 0, "clean": 0, "spins": 0, "spin720": 0, "stations": 0,
-		"knocks": 0, "jumps": 0, "night": 0.0, "regions": 0, "weather": 0.0, "air_max": 0.0, "chases": 0, "boosts": 0,
-		"decks": 0, "grind": 0.0, "hops": 0, "planks": 0, "tracks": 0, "gauntlets": 0, "police_fell": 0}
-	biomes_seen.clear()
-	_apply_upgrades()
-	car.active = true
-	car.fuel = 1.0
-	crumble_delay = 2.2
-	world.start_crumble(-16.0)
-	ghost_rec.clear()
-	ghost_rec_t = 0.0
-	ghost_play = save.data["daily_ghost"] if daily else save.data["ghost"]
-	if daily and String(save.data["daily"]["date"]) != today():
-		ghost_play = []
-	ghost_on = ghost_play.size() > 4
-	_build_ghost()
-	best_target = int(save.data["daily"]["best"]) if daily and String(save.data["daily"]["date"]) == today() else int(save.data["best"])
-	if daily and String(save.data["daily"]["date"]) != today():
-		best_target = 0
-	best_v = float(save.data["daily"]["best_dist"]) if daily and String(save.data["daily"]["date"]) == today() else float(save.data["best_dist"])
-	best_line.visible = false
-	ui.hide_title()
-	ui.show_hud()
-	sound.set_muffle(0.0)
-	sound.mute_loops(false)
-	sfx("start")
-	buzz(40, 0.6)
-	if daily:
-		ui.toast("Daily run · %s" % today(), "calendar", K.SUN, Color.WHITE)
-	var b := world.biome_at(0.0)
-	biomes_seen[b] = true
-	ui.toast(World.BIOME_NAMES[b], "map", K.PAPER, K.INK, 1.6)
-
-func _apply_upgrades() -> void:
-	fuel_cap = 30.0 * (1.0 + 0.18 * save.level("tank"))
-	car.grip_mul = 1.0 + 0.09 * save.level("grip")
-	car.wind_resist = 0.15 * save.level("wind")
-
-func _magnet() -> float:
-	return 1.0 + 0.55 * save.level("magnet")
-
-func restart(is_daily: bool) -> void:
-	ui.transition(func():
-		ui.hide_over()
-		_new_world(_daily_seed() if is_daily else _random_seed(), is_daily)
-		_start_run())
-
-func start_daily() -> void:
-	ui.transition(func():
-		_new_world(_daily_seed(), true)
-		_start_run())
-
-func go_home() -> void:
-	ui.transition(func():
-		ui.hide_over()
-		ui.hide_garage()
-		_new_world(_random_seed(), false)
+## The island takes a moment to build; the loading card shows first.
+func _build_world() -> void:
+	var t0 := Time.get_ticks_msec()
+	island = Island.new()
+	island.name = "Island"
+	add_child(island)
+	island.build(toon, atmos.season)
+	atmos.sea = island.water_mat
+	Ach.coin_total = island.coin_spots.size()
+	fx = Fx.new()
+	add_child(fx)
+	fx.setup(toon)
+	traffic = Traffic.new()
+	traffic.name = "Traffic"
+	add_child(traffic)
+	traffic.setup(island, toon)
+	car = Car.new()
+	car.name = "Car"
+	add_child(car)
+	car.bumped.connect(_on_bump)
+	car.shifted.connect(func(_g): sound.rev(0.82))
+	car_changed()
+	_build_markers()
+	_build_coins()
+	var sp := island.spawn
+	var p: Array = save.data.get("pos", [])
+	if p.size() == 4 and not args.has("fresh") and not args.has("at"):
+		sp = Transform3D(Basis(Vector3.UP, float(p[3])), Vector3(p[0], p[1] + 1.0, p[2]))
+	if args.has("at"):
+		sp = _at_spot(String(args["at"]))
+	car.place(sp)
+	last_pos = sp.origin
+	cam_yaw = sp.basis.get_euler().y
+	_snap_cam()
+	print("world ready in %d ms %s" % [Time.get_ticks_msec() - t0, str(island.timings)])
+	ui.world_ready(island)
+	if args.has("garage"):
+		open_garage()
+		if String(args["garage"]) == "up":
+			ui.g_tab = "up"
+			ui._garage_refresh()
+	elif args.has("auto") or args.has("drive"):
+		autopilot = args.has("auto")
+		start_drive()
+	else:
 		state = TITLE
 		ui.show_title()
-		sound.set_muffle(0.0))
+	if save.data.get("migrated", false):
+		save.data.erase("migrated")
+		get_tree().create_timer(1.5).timeout.connect(func(): ui.toast("Welcome to the island! Your old upgrades were refunded as coins.", "coin", K.SUN))
+	sound.start_music()
+	get_tree().create_timer(2.0).timeout.connect(ach_check)
 
-func open_garage(instant := false) -> void:
-	var f := func():
-		ui.hide_over()
-		ui.close_sheet()
-		ui.show_garage()
-		state = GARAGE
-		sound.set_muffle(0.35)
-	if instant:
-		f.call()
+## Testing: start at a named place or "x,z".
+func _at_spot(s: String) -> Transform3D:
+	var pos := Vector3.ZERO
+	var yaw := 0.0
+	if "," in s:
+		var xz := s.split(",")
+		pos = Vector3(float(xz[0]), 0, float(xz[1]))
+		if xz.size() > 2:
+			yaw = deg_to_rad(float(xz[2]))
 	else:
-		ui.transition(f)
+		for z in island.zones:
+			if z["id"] == s:
+				pos = z["start"]
+		for t in island.trials:
+			if t["id"] == s:
+				return (t["gates"][0] as Transform3D).translated(Vector3(0, 1.0, 0)).translated_local(Vector3(0, 0, 14))
+		for pl in island.places:
+			if String(pl["name"]).to_lower().begins_with(s.to_lower()):
+				pos = pl["pos"]
+	return _road_spot(pos, yaw)
 
-func close_garage() -> void:
-	go_home()
+## The nearest bit of road to p, pointing along it (the way closest to yaw).
+func _road_spot(p: Vector3, yaw: float) -> Transform3D:
+	var best := Vector2.ZERO
+	var bt := Vector2(0, -1)
+	var bd := 1e18
+	for r in island.roads:
+		var pts: PackedVector2Array = r["pts"]
+		for k in range(0, pts.size(), 2):
+			var d := pts[k].distance_squared_to(Vector2(p.x, p.z))
+			if d < bd:
+				bd = d
+				best = pts[k]
+				bt = island._tangent(pts, k, r["closed"])
+	var fwd := Vector2(-sin(yaw), -cos(yaw))
+	if bt.dot(fwd) < 0.0:
+		bt = -bt
+	var y := island.height_at(best.x, best.y) + 0.9
+	return Transform3D(Basis(Vector3.UP, atan2(-bt.x, -bt.y)), Vector3(best.x, y, best.y))
 
-func car_changed() -> void:
-	var old := car.body.material_override as ShaderMaterial
-	if old:
-		atmos.remove_material(old)
-	car.set_car(CARS.by_id(String(save.data["car"])))
-	atmos.add_material(car.body_material())
-	sound.set_engine(String(car.def.get("engine", "small")), float(car.def.get("pitch", 1.0)))
-	_build_ghost()
+# ------------------------------------------------------------------ states
+
+func start_drive() -> void:
+	state = DRIVE
+	ui.show_hud()
+	car.freeze = false
+	if not bool(save.data.get("seen_help", false)) and not autopilot and not args.has("drive"):
+		save.data["seen_help"] = true
+		ui.show_help()
+
+func go_title() -> void:
+	_save_now()
+	state = TITLE
+	_end_challenges()
+	ui.show_title()
 
 func pause() -> void:
-	if state != RUN:
+	if state != DRIVE:
 		return
 	state = PAUSED
-	_clear_touches()
-	sound.set_muffle(0.8)
+	get_tree().paused = false
+	car.freeze = true
 	sound.mute_loops(true)
 	ui.open_pause()
+	_save_now()
 
 func resume() -> void:
-	if state == PAUSED:
-		state = RUN
-		sound.set_muffle(0.0)
-		sound.mute_loops(false)
+	if state != PAUSED:
+		return
+	state = DRIVE
+	car.freeze = false
+	sound.mute_loops(false)
+	ui.close_sheet()
+	ui.show_hud()
 
-func end_run_from_pause() -> void:
-	state = RUN
-	_finish_run("quit")
+func open_garage() -> void:
+	_save_now()
+	var from := state
+	state = GARAGE
+	car.freeze = true
+	sound.mute_loops(true)
+	ui.show_garage(from)
+
+func close_garage(back_to: int) -> void:
+	ui.hide_garage()
+	sound.mute_loops(false)
+	if back_to == DRIVE or back_to == PAUSED:
+		state = DRIVE
+		car.freeze = false
+		ui.show_hud()
+	else:
+		state = TITLE
+		ui.show_title()
+
+func car_changed() -> void:
+	var d := CARS.by_id(String(save.data["car"]))
+	var xf := car.global_transform if car.is_inside_tree() and car.wheels.size() > 0 else Transform3D()
+	car.setup(d, toon, island)
+	car.tune(d, save.data["up"])
+	car.assist = 1.0 if bool(save.setting("assist")) else 0.35
+	if xf != Transform3D():
+		car.place(Transform3D(Basis(Vector3.UP, xf.basis.get_euler().y), xf.origin + Vector3(0, 0.6, 0)))
+	sound.set_engine(String(d["engine"]), float(d["pitch"]))
+
+func reset_car() -> void:
+	var xf := _road_spot(car.global_position, car.global_rotation.y)
+	car.place(xf)
+	_break_drift(false)
+	flip_t = 0.0
+	stuck_t = 0.0
+	_snap_cam()
+	fx.puff(xf.origin, Color(1, 1, 1), 2.5, Vector3.ZERO, 0.6, 1.0)
+	if state == PAUSED:
+		resume()
+
+## Fast travel from the map.
+func travel_to(xf: Transform3D) -> void:
+	_end_challenges()
+	car.place(xf)
+	_break_drift(false)
+	_snap_cam()
+	if state == PAUSED:
+		resume()
+	elif state == TITLE:
+		start_drive()
 
 func reset_progress() -> void:
 	save.reset()
-	missions.ensure()
-	save.save()
+	for c in coins_live:
+		c["taken"] = false
+	_refresh_coins()
 	car_changed()
-	_apply_settings()
-	ui.refresh_title()
+	ui.close_sheet()
+	ui.toast("Progress reset", "home", K.PAPER)
 
 func set_setting(k: String, v) -> void:
 	save.data["settings"][k] = v
@@ -381,8 +326,17 @@ func _apply_settings() -> void:
 	var st = save.data["settings"]
 	sound.set_volumes(float(st["music"]), float(st["sfx"]))
 	atmos.sun.shadow_enabled = bool(st["shadows"])
+	cam_mode = int(st.get("cam", 0))
+	if car:
+		car.assist = 1.0 if bool(st.get("assist", true)) else 0.35
 
-# ------------------------------------------------------------------ feedback helpers
+func _save_now() -> void:
+	if car and car.is_inside_tree():
+		var p := car.global_position
+		save.data["pos"] = [snappedf(p.x, 0.1), snappedf(p.y, 0.1), snappedf(p.z, 0.1), snappedf(car.global_rotation.y, 0.01)]
+	save.save()
+
+# ------------------------------------------------------------------ feedback
 
 func sfx(n: String, vol := 0.0, pitch := 1.0) -> void:
 	sound.play(n, vol, pitch)
@@ -397,840 +351,688 @@ func buzz(ms: int, amp: float) -> void:
 	if OS.has_feature("mobile"):
 		Input.vibrate_handheld(ms, clampf(amp, 0.0, 1.0))
 
-func _style(points: int, text: String, pos: Vector3, col := Color.WHITE, sub := "") -> void:
-	world.people.cheer(pos)
-	chain += 1
-	chain_t = 2.6
-	var mult := 1.0 + minf(chain - 1, 6) * 0.25
-	var pts := int(round(points * mult))
-	style += pts
-	var s := "+%d" % pts
-	if mult > 1.01:
-		s += "  x%.2f" % mult if fmod(mult * 4.0, 2.0) != 0.0 else "  x%.1f" % mult
-	ui.popup(text, pos + Vector3(0, 1.2, 0), col, 40, s if sub == "" else sub + "  " + s)
-
-# ------------------------------------------------------------------ events from the world, car and sky
-
-func car_event(kind: String, d: Dictionary) -> void:
-	match kind:
-		"launch":
-			run["jumps"] += 1
-			sfx("launch")
-			buzz(30, 0.7)
-			shake = maxf(shake, 0.15)
-			fx.puff(car.position, Color("fff4e0"), 0.5, -car.vel * 0.1, 0.5)
-		"land":
-			var air: float = d["air"]
-			var impact: float = d["impact"]
-			if d.get("bump", false) and int(d["spins"]) == 0:
-				# a hop over a hump: thump, dust, a little haptic kick
-				if air > 0.08:
-					var dc := _dust_color()
-					for i in 3:
-						fx.puff(car.position + Vector3(randf_range(-0.4, 0.4), 0.08, randf_range(-0.4, 0.4)), dc, 0.32, Vector3(randf_range(-1.2, 1.2), 0.3, randf_range(-1.2, 1.2)), 0.5, 0.5)
-					sfx("bump", -7.0 + minf(impact, 8.0) * 0.6, randf_range(0.9, 1.1))
-					buzz(int(clampf(impact * 7.0, 15.0, 45.0)), clampf(0.25 + impact * 0.07, 0.3, 0.75))
-					shake = maxf(shake, clampf(impact * 0.015, 0.02, 0.1))
-				if air >= 0.5:
-					run["hops"] = int(run.get("hops", 0)) + 1
-					_style(int(air * 40.0), "Hop!", car.position, K.LEAF, "%.1fs" % air)
-				return
-			run["air_max"] = maxf(float(run["air_max"]), air)
-			if air > 0.12:
-				var dust := _dust_color()
-				for i in 6:
-					fx.puff(car.position + Vector3(randf_range(-0.5, 0.5), 0.1, randf_range(-0.5, 0.5)), dust, 0.45, Vector3(randf_range(-2, 2), 0, randf_range(-2, 2)), 0.6, 0.8)
-				sfx("land", -2.0 + minf(impact, 10.0) * 0.4)
-				buzz(int(clampf(impact * 6.0, 20.0, 70.0)), clampf(impact * 0.09, 0.4, 1.0))
-				shake = maxf(shake, clampf(impact * 0.03, 0.05, 0.3))
-			if air >= 0.4:
-				var spins: int = d["spins"]
-				if spins >= 1:
-					run["spins"] += 1
-					if spins >= 2:
-						run["spin720"] += 1
-					var names := {1: "360!", 2: "720!!", 3: "1080!!!"}
-					var pts := {1: 90, 2: 220, 3: 450}
-					_style(pts.get(spins, 700), names.get(spins, "%d°!!!" % (spins * 360)), car.position, K.LILAC, "")
-					sfx("spin")
-					fx.burst(car.position + Vector3(0, 0.6, 0), ["ff7a6b", "ffc94d", "3db5a6", "a998f2"], 14, 4.0, 5.0)
-				elif air >= 0.55:
-					_style(int(air * 60.0), "Big air", car.position, K.SKY, "%.1fs" % air)
-				if d["clean"]:
-					run["clean"] += 1
-					_style(35 if spins == 0 else 60, "Clean landing", car.position + Vector3(0, -0.5, 0), K.LEAF)
-					sfx("land_clean")
-					fx.sparkle(car.position + Vector3(0, 0.3, 0), Color("fff3b0"), 8)
-				elif d["spins"] == 0 and air > 0.6:
-					pass
-		"drift_end":
-			var t: float = d["time"]
-			if t > 0.45:
-				var c: int = d["chain"]
-				_style(int(t * 12.0 * (1.0 + c * 0.25)), "Drift" if c == 0 else "Drift chain x%d" % (c + 1), car.position, K.SUN, "%.1fs" % t)
-				run["drift_max"] = maxf(float(run.get("drift_max", 0.0)), t)
-				run["max_chain"] = maxi(int(run.get("max_chain", 0)), c + 1)
-			if t > 0.8 and state == RUN:
-				car.drift_boost(t)
-				sfx("boost", -10.0 + minf(t, 3.0) * 1.5, 1.25)
-				buzz(30, 0.5)
-				fx.puff(car.position - car.forward() * 0.8 + Vector3(0, 0.2, 0), Color("ffd37a"), 0.45, -car.forward() * 2.0, 0.4)
-				fx.puff(car.position - car.forward() * 0.8 + Vector3(0, 0.2, 0), Color("ff9a5a"), 0.35, -car.forward() * 2.5, 0.35)
-		"wall":
-			var hit: float = d["impact"]
-			wall_hits += 1
-			sfx("bonk", -9.0 + minf(hit, 9.0) * 0.5, randf_range(0.92, 1.08))
-			buzz(22, clampf(0.25 + hit * 0.05, 0.25, 0.6))
-			fx.puff(d["pos"], Color("fff4e0"), 0.4, Vector3(0, 1.2, 0), 0.4)
-		"grind_start":
-			if args.has("auto"):
-				print("GRIND START v=", int(world.v_of(car.position)), " y=", snappedf(car.position.y, 0.01))
-			sfx("knock_metal", -2.0, 1.3)
-			buzz(50, 0.8)
-			shake = maxf(shake, 0.12)
-			grind_fx_t = 0.0
-			ui.popup("Grind!", car.position + Vector3(0, 1.3, 0), Color("8ff5ff"), 40)
-		"grind_end":
-			if args.has("auto"):
-				print("GRIND END v=", int(world.v_of(car.position)), " len=", int(d["len"]))
-			var gl: float = d["len"]
-			run["grind"] = float(run.get("grind", 0.0)) + gl
-			_style(int(gl * 7.0), "Rail grind!", car.position, Color("8ff5ff"), "%dm" % int(gl))
-			sfx("launch", -3.0, 1.15)
-			buzz(40, 0.7)
-		"hop":
-			if args.has("auto"):
-				print("HOP at v=", snappedf(world.v_of(car.position), 0.1), " u=", snappedf(world.u_of(car.position) - world.center(world.v_of(car.position)), 0.1))
-			sfx("launch", -4.0, 1.25)
-			buzz(30, 0.5)
-			fx.puff(d["pos"], Color("fff4e0"), 0.5, Vector3(0, 1.0, 0), 0.5)
-		"off_edge":
-			pass
-		"dead":
-			if chase_state == "on":
-				police.stop()
-				chase_state = "over"
-				ui.chase_show(false)
-			death = String(d["why"])
-			if args.has("auto"):
-				var sg: Dictionary = world.segment_at(world.v_of(car.position))
-				print("DEATH ", death, " v=", int(world.v_of(car.position)), " seg=", sg["type"], "/", sg.get("kind", ""), " u=", snappedf(world.u_of(car.position) - world.center(world.v_of(car.position)), 0.1), " spd=", snappedf(car.speed(), 0.1), " pace=", snappedf(car.pace, 0.01), " drift=", snappedf(car.drift, 0.01))
-			state = DYING
-			dying_t = 0.0
-			if death == "splash":
-				sfx("splash")
-				for i in 10:
-					fx.puff(car.position + Vector3(randf_range(-0.6, 0.6), 0, randf_range(-0.6, 0.6)), Color("bfe8ff"), 0.5, Vector3(randf_range(-2, 2), 3.0, randf_range(-2, 2)), 0.8, 2.0)
-				buzz(120, 0.8)
-			else:
-				sfx("fall")
-				buzz(180, 0.7)
-			sound.mute_loops(true)
-
-func world_event(kind: String, d: Dictionary) -> void:
-	match kind:
-		"crumble":
-			if state == RUN and d["pos"].distance_to(car.position) < 14.0:
-				rumble_t = 0.2
-
-func atmos_event(kind: String, d: Dictionary) -> void:
-	if state != RUN:
-		return
-	match kind:
-		"season":
-			var s: int = d["season"]
-			var icons := ["leaf", "sun", "leaf", "snow"]
-			var cols := [Color("9ad96b"), K.SUN, Color("f08b3a"), K.SKY]
-			ui.toast(PAL.SEASON_NAMES[s], icons[s], cols[s], Color.WHITE, 2.4)
-			sfx("season")
-		"day":
-			ui.toast("Day %d" % d["day"], "sun", K.SUN, Color.WHITE, 1.8)
-		"weather":
-			var w: String = d["weather"]
-			var msg := {"rain": ["Rain rolling in · slippery!", "rain"], "fog": ["Fog ahead", "fog"], "snow": ["Snowfall · watch for ice", "snow"],
-				"wind": ["Windy · gusts push you", "wind"], "clear": ["Skies clearing", "sun"]}
-			ui.toast(msg[w][0], msg[w][1], K.PAPER, K.INK, 2.2)
-		"gust":
-			sfx("gust", -4.0)
-			buzz(60, 0.35)
-
-# ------------------------------------------------------------------ main loop
-
-func _process(delta: float) -> void:
-	time += delta
-	frames += 1
-	var dt := minf(delta, 1.0 / 30.0)
-	ui.title_tick(time)
-	ui.garage_tick(dt)
-	if state == PAUSED or state == GARAGE:
-		_harness()
-		return
-	var steps := int(ceil(dt / (1.0 / 60.0)))
-	var h := dt / steps
-	for i in steps:
-		_sim(h)
-	car.render(dt, atmos.night)
-	fx.tick(dt)
-	_cam_update(dt, false)
-	_ghost_tick()
-	_best_line_tick()
-	var running := state == RUN
-	atmos.tick(dt, cam_focus, running)
-	car.weather_grip = 1.0 - atmos.rain * 0.3 - atmos.snow * 0.15
-	car.wind = atmos.wind_vec if running else Vector3.ZERO
-	var drift_amt := clampf((absf(car.drift) - 0.2) * 2.5, 0.0, 1.0) if car.drifting else 0.0
-	sound.tick(dt, {"speed": car.speed(), "grounded": car.grounded, "active": running and car.active and not car.dead,
-		"drift": drift_amt, "air_t": car.air_time, "boost": car.boost_k(), "empty": car.fuel <= 0.0 and running,
-		"roll": world.roll_at(car.position, atmos.season_idx == 3), "windy": atmos.windy, "rainy": atmos.rain,
-		"siren": chase_siren(), "siren_close": chase_closeness(), "pace": car.pace, "grind": car.grinding and state == RUN})
-	if state == RUN:
-		ui.hud_update(dt, int(max_v), car.fuel, run_coins, best_target, 1.0 + minf(chain - 1, 8) * 0.25 if chain > 1 else 1.0)
-	_harness()
-
-func _sim(dt: float) -> void:
-	if state == RUN:
-		run_t += dt
-		car.steer = _steer_input(dt)
-		crumble_delay -= dt
-	elif state == TITLE:
-		car.steer = 0.0
-	if state == RUN:
-		ach_t += dt
-		if ach_t > 0.5:
-			ach_t = 0.0
-			_ach_announce(Ach.check(save.data, _ach_live()))
-		var want_pace: float = world.pace_at(max_v)
-		car.pace = move_toward(car.pace, want_pace, dt * 0.05)
-		if want_pace >= next_gear:
-			next_gear += 0.1
-			if max_v > 50.0:
-				ui.toast("Faster!  %d km/h" % int(Car.CRUISE * want_pace * 3.6), "wind", K.SUN, K.INK, 1.4)
-				sfx("boost", -9.0, 0.8)
-				buzz(25, 0.4)
-	police.pace = car.pace
-	car.step(dt)
-	var cv := world.v_of(car.position)
-	var crumble_on := state == RUN and crumble_delay <= 0.0
-	var gap := cv - world.crumble_v
-	var cspeed := lerpf(6.0, 7.4, world.difficulty) * lerpf(1.0, car.pace, 0.9) + clampf((gap - 32.0) * 0.3, 0.0, 6.0)
-	world.tick(dt, maxf(cv, max_v), cspeed, crumble_on, time, car.position, car.vel)
-	honk_cd -= dt
-	if world.honk_pending:
-		world.honk_pending = false
-		if state == RUN and honk_cd <= 0.0 and not car.dead:
-			honk_cd = 3.5
-			sound.horn()
-	if state == DYING:
-		dying_t += dt
-		if dying_t > (0.8 if death == "fuel" else 1.5):
-			_finish_run(death)
-		return
-	if state != RUN:
-		return
-	# progress
-	if cv > max_v:
-		var add := cv - max_v
-		max_v = cv
-		if atmos.is_night():
-			run["night"] += add
-		if atmos.weather != "clear" and atmos.wint > 0.4:
-			run["weather"] += add
-		run["dist"] = int(max_v)
-		if best_target > 0 and style + int(max_v) + run_coins * 5 > best_target:
-			ui.passed_best()
-	if car.grinding:
-		grind_fx_t -= dt
-		if grind_fx_t <= 0.0:
-			grind_fx_t = 0.05
-			fx.burst(car.position + Vector3(0, -0.05, 0) - car.forward() * 0.4, ["ffd27a", "ff9a3d", "fff3b0"], 3, 2.5, 3.0, 0.35)
-			buzz(8, 0.35)
-	for gt in world.gauntlets:
-		if gt["done"]:
-			continue
-		if not gt["warned"] and cv > float(gt["va"]) - 6.0:
-			gt["warned"] = true
-			ui.toast("Gauntlet! Ramp · rail · bridge · canyon", "flag", K.CORAL, Color.WHITE, 2.2)
-		if max_v > float(gt["vb"]) and car.grounded and not car.dead:
-			gt["done"] = true
-			run["gauntlets"] = int(run.get("gauntlets", 0)) + 1
-			_style(500, "Gauntlet cleared!", car.position, K.CORAL, "")
-			sfx("record", -4.0)
-			buzz(90, 0.9)
-			fx.burst(car.position + Vector3(0, 0.8, 0), ["ff7a6b", "ffc94d", "8ff5ff", "a998f2"], 26, 5.0, 6.0)
-	# red rock canyon heads-up
-	var sg_now: Dictionary = world.segment_at(cv + 8.0)
-	if sg_now.get("kind", "") == "rough" and canyon_seg != sg_now:
-		canyon_seg = sg_now
-		ui.toast("Red rock canyon · crawl it", "map", Color("e0915c"), Color.WHITE, 1.8)
-	# deck challenges: a heads-up as one comes into view, a reward for making it across
-	for dk in world.decks:
-		if dk["done"]:
-			continue
-		var plank: bool = dk["style"] == "plank"
-		if not dk.get("warned", false) and cv > float(dk["va"]) - 26.0:
-			dk["warned"] = true
-			ui.toast("Tightrope bridge ahead!" if plank else "Race track ahead!", "flag", K.SUN if plank else K.CORAL, K.INK if plank else Color.WHITE, 1.8)
-		if max_v > float(dk["vb"]) + 1.0 and car.grounded and not car.dead:
-			dk["done"] = true
-			var length: float = float(dk["vb"]) - float(dk["va"])
-			run["decks"] = int(run.get("decks", 0)) + 1
-			run["planks" if plank else "tracks"] = int(run.get("planks" if plank else "tracks", 0)) + 1
-			_style(int(length * (3.0 if plank else 2.4)), "Tightrope!" if plank else "Track run!", car.position, K.SUN if plank else K.CORAL, "%dm" % int(length))
-			sfx("spin", -2.0, 1.1)
-			buzz(50, 0.7)
-			fx.burst(car.position + Vector3(0, 0.6, 0), ["ffc94d", "ff7a6b", "fff3b0"] if plank else ["ef5b4c", "f7f3ea", "ffcf4d"], 12, 3.5, 4.0)
-			if args.has("auto"):
-				print("DECK CROSSED ", dk["style"], " len=", int(length), " at v=", int(cv))
-	# fuel
-	if car.active and car.speed() > 0.5:
-		var before := car.fuel
-		car.fuel = maxf(0.0, car.fuel - dt * (1.0 + (car.pace - 1.0) * 0.5) / fuel_cap)
-		if before > 0.2 and car.fuel <= 0.2 and not low_fuel_warned:
-			low_fuel_warned = true
-			ui.toast("Low fuel!", "fuel", K.CORAL, Color.WHITE, 1.6)
-			sfx("lowfuel")
-			buzz(80, 0.6)
-		if before > 0.0 and car.fuel <= 0.0:
-			sfx("sputter")
-			ui.toast("Out of fuel… coast to a can!", "fuel", K.CORAL, Color.WHITE, 2.0)
-	if car.fuel <= 0.0 and car.out_of_fuel_stopped():
-		stopped_t += dt
-		if stopped_t > 0.7:
-			death = "fuel"
-			state = DYING
-			dying_t = 0.0
-			sound.mute_loops(true)
-	else:
-		stopped_t = 0.0
-	# combo window
-	if chain_t > 0.0:
-		chain_t -= dt
-		if chain_t <= 0.0:
-			chain = 0
-	if car.dead:
-		return
-	# scenery
-	solid_cd -= dt
-	for e in world.collide(car.position, Car.RADIUS, car.vel, car.forward()):
-		match e["type"]:
-			"knock":
-				run["knocks"] += 1
-				car.slow = 0.72
-				var kind: String = e["kind"]
-				sfx("knock_" + kind if kind in ["wood", "soft", "rock", "cloud", "sand", "crystal", "metal"] else "knock_wood")
-				buzz(35, 0.75)
-				shake = maxf(shake, 0.12)
-				var col: Color = {"cloud": Color.WHITE, "sand": Color("f4dca2"), "crystal": Color("d9ccff"), "soft": Color("b6e39a")}.get(kind, _dust_color())
-				for i in (8 if kind in ["cloud", "sand"] else 4):
-					fx.puff(e["pos"] + Vector3(randf_range(-0.3, 0.3), 0.4, randf_range(-0.3, 0.3)), col, 0.5, Vector3(randf_range(-1.5, 1.5), 1.0, randf_range(-1.5, 1.5)), 0.7)
-				if kind == "crystal":
-					fx.burst(e["pos"] + Vector3(0, 0.4, 0), ["b9a6ff", "8fe3ff", "ffb3e0"], 10, 3.0, 4.0)
-				if randf() < 0.35:
-					ui.popup(["Bonk!", "Oops!", "Boop!", "Whoops!"][randi() % 4], e["pos"] + Vector3(0, 1.0, 0), Color.WHITE, 30)
-			"solid":
-				var hit := car.push_solid(e["normal"], e["depth"], dt)
-				if hit > 1.5 and solid_cd <= 0.0:
-					solid_cd = 0.4
-					sfx("bonk", -3.0 + minf(hit, 9.0) * 0.3)
-					buzz(40, 0.8)
-					shake = maxf(shake, 0.2)
-			"near":
-				run["near"] += 1
-				_style(15, "Close call!", e["pos"], Color.WHITE)
-				sfx("near", -3.0)
-				buzz(15, 0.45)
-	# edge skims
-	edge_cd -= dt
-	if car.grounded and car.speed() > 5.0 and edge_cd <= 0.0 and world.edge_skim(car.position, car.right()):
-		edge_cd = 1.1
-		run["near"] += 1
-		_style(12, "Edge skim!", car.position, Color("ffe2a8"))
-		sfx("near", -5.0, 1.2)
-		buzz(15, 0.4)
-	# pickups
-	coin_streak_t -= dt
-	if coin_streak_t <= 0.0:
-		coin_streak = 0
-	for e in world.collect(car.position, _magnet(), dt):
-		match e["type"]:
-			"coin":
-				run_coins += 1
-				run["coins"] = run_coins
-				coin_streak = mini(coin_streak + 1, 12)
-				coin_streak_t = 0.9
-				sfx("coin", -3.0, 1.0 + coin_streak * 0.045)
-				buzz(8, 0.35)
-				fx.sparkle(e["pos"], Color("ffe27a"), 5)
-			"fuel":
-				var add := 9.0 / fuel_cap
-				car.fuel = minf(1.0, car.fuel + add)
-				low_fuel_warned = car.fuel <= 0.2
-				sfx("fuel")
-				buzz(30, 0.6)
-				ui.popup("Fuel +", e["pos"] + Vector3(0, 1.0, 0), Color("ff8a5c"), 36)
-				fx.burst(e["pos"] + Vector3(0, 0.4, 0), ["ec4b3f", "ffd36b", "ffffff"], 8, 2.5, 3.0, 0.7)
-			"boost":
-				car.boost()
-				run["boosts"] += 1
-				sfx("boost", -2.0)
-				sound.rev(1.25)
-				buzz(45, 0.85)
-				shake = maxf(shake, 0.18)
-				ui.popup("Boost!", e["pos"] + Vector3(0, 1.0, 0), Color("ffb84d"), 40)
-				for i in 6:
-					fx.puff(car.position - car.forward() * 0.8 + Vector3(randf_range(-0.4, 0.4), 0.2, randf_range(-0.4, 0.4)), Color("ffd9a0"), 0.4, -car.forward() * 4.0, 0.45, 0.4)
-			"station":
-				car.fuel = 1.0
-				low_fuel_warned = false
-				run["stations"] += 1
-				sfx("station")
-				buzz(25, 0.7)
-				ui.popup("Refueled!", e["pos"] + Vector3(0, 1.6, 0), Color("8fd19e"), 44)
-				fx.burst(e["pos"] + Vector3(0, 0.6, 0), ["ff7a6b", "ffc94d", "ffffff"], 16, 3.5, 5.0)
-	# drifting: dust, skids, haptic ticks, counter
-	if car.drifting:
-		run["drift"] += dt
-		skid_t -= dt
-		if skid_t <= 0.0:
-			skid_t = 0.04
-			for wi in [2, 3]:
-				var wp: Vector3 = car.position + car.right() * (0.42 if wi == 3 else -0.42) - car.forward() * 0.5
-				fx.skid(Vector3(wp.x, world.ground_at(wp) + 0.0, wp.z), car.yaw)
-			fx.puff(car.position - car.forward() * 0.7 + Vector3(0, 0.15, 0), Color("fffaf2"), 0.38, -car.vel * 0.15, 0.55, 0.5)
-		drift_tick -= dt
-		if drift_tick <= 0.0:
-			drift_tick = 0.14
-			buzz(6, 0.25)
-	elif car.grounded and car.speed() > 4.0:
-		dust_t -= dt
-		if dust_t <= 0.0:
-			var dirt := car.surface == "dirt"
-			dust_t = 0.05 if dirt else 0.12
-			fx.puff(car.position - car.forward() * 0.75 + Vector3(randf_range(-0.3, 0.3), 0.08, randf_range(-0.2, 0.2)), _dust_color(), 0.34 if dirt else 0.22,
-				-car.vel * (0.12 if dirt else 0.0) + Vector3(0, 0.4 if dirt else 0.0, 0), 0.7 if dirt else 0.45, 0.5 if dirt else 0.3)
-	# mud puddles: a brown splash, a little drag and a slip
-	var md := world.mud_at(car.position) if car.grounded else {}
-	if not md.is_empty():
-		car.slow = minf(car.slow, 0.86)
-		if not in_mud:
-			sfx("splash", -9.0, 1.5)
-			buzz(30, 0.5)
-		if randf() < dt * 30.0:
-			fx.puff(car.position + Vector3(randf_range(-0.4, 0.4), 0.15, randf_range(-0.4, 0.4)), Color("7a5638"), 0.3,
-				Vector3(randf_range(-2.5, 2.5), 2.2, randf_range(-2.5, 2.5)) - car.vel * 0.1, 0.5, 0.1)
-	in_mud = not md.is_empty()
-	# near the crumbling edge
-	if cv - world.crumble_v < 7.0 and car.grounded:
-		rumble_t = maxf(rumble_t, 0.05)
-	if rumble_t > 0.0:
-		rumble_t -= dt
-		shake = maxf(shake, 0.05)
-		if randf() < dt * 6.0:
-			buzz(20, 0.35)
-	# regions
-	var nb := world.biome_changed(cv)
-	if nb != "" and run_t > 0.5:
-		if not biomes_seen.has(nb):
-			biomes_seen[nb] = true
-		run["regions"] = biomes_seen.size()
-		ui.toast(World.BIOME_NAMES[nb], "map", K.PAPER, K.INK, 2.0)
-	run["regions"] = maxi(int(run["regions"]), biomes_seen.size())
-	# weather starts after a calm opening
-	atmos.weather_enabled = run_t > 18.0 or args.has("weather")
-	_chase_tick(dt, cv)
-	# missions
-	for m in missions.check(run):
-		ui.toast("Mission done! +%d" % int(m["reward"]), "check", K.TEAL, Color.WHITE, 2.4)
-		sfx("mission")
-		buzz(50, 0.7)
-	# ghost recording (10 per second): [t, v, u relative to the center line, y, yaw relative to the road]
-	ghost_rec_t -= dt
-	if ghost_rec_t <= 0.0:
-		ghost_rec_t = 0.1
-		var tv := cv
-		var tt := world.tangent(tv)
-		ghost_rec.append([snappedf(run_t, 0.01), snappedf(tv, 0.01), snappedf(world.u_of(car.position) - world.center(tv), 0.01),
-			snappedf(car.position.y, 0.01), snappedf(angle_difference(atan2(-tt.x, -tt.z), car.yaw), 0.001)])
-
-# ------------------------------------------------------------------ police chases
-
-func _chase_tick(dt: float, cv: float) -> void:
-	police.record(car.position, car.yaw, car.grounded)
-	match chase_state:
-		"":
-			for c in world.chases:
-				if not c["done"] and cv > c["v_start"] - 45.0 and cv < c["v_start"]:
-					chase = c
-					chase_state = "parked"
-					police.park(c["parked"], c["yaw"])
-					break
-		"parked":
-			if cv >= chase["v_start"]:
-				chase_state = "on"
-				police.start_chase()
-				if args.has("auto"):
-					print("CHASE START v=", cv, " end=", chase["v_end"], " gap=", police.gap())
-				chase_siren_k = 1.0
-				ui.chase_show(true)
-				ui.toast("Police chase! Hit the boost pads", "flag", Color("4b6bd6"), Color.WHITE, 2.4)
-				sfx("lowfuel", -4.0, 0.8)
-				buzz(80, 0.8)
-			elif cv > chase["v_start"] + 5.0:
-				chase_state = ""
-		"on":
-			var g := police.gap()
-			var left := maxf(0.0, float(chase["v_end"]) - cv)
-			ui.chase_update(dt, int(left), clampf(1.0 - (g - CATCH_SAFE) / 18.0, 0.0, 1.0))
-			if police.state == "falling":
-				_chase_end(true, true)
-			elif g < Police.CATCH_GAP:
-				_chase_end(false)
-			elif left <= 0.0 or g > Police.LOST_GAP:
-				_chase_end(true)
-		"over":
-			chase_over_t += dt
-			chase_siren_k = maxf(0.0, chase_siren_k - dt * 0.5)
-			if chase_over_t > 3.0 and police.position.distance_to(car.position) > 26.0:
-				police.state = "hidden"
-				police.visible = false
-				chase_state = ""
-	police.tick(dt, atmos.night)
-
-const CATCH_SAFE := 2.0
-var wall_hits := 0
-var perf_acc := 0.0
-var perf_n := 0
-var perf_max := 0.0
-var grind_fx_t := 0.0
-var canyon_seg: Dictionary = {}
-var gauntlet_msg_t := 0.0
-var in_mud := false
-var ach_t := 0.0
-var next_gear := 1.1
-var solid_cd := 0.0
-var slow_t := 0.0
-var slow_max := 0.0
-
-func _chase_end(escaped: bool, fell := false) -> void:
-	if args.has("auto"):
-		var pv := world.v_of(police.position)
-		var psg: Dictionary = world.segment_at(pv)
-		print("CHASE END escaped=", escaped, " fell=", fell, " gap=", int(police.gap()), " v=", int(world.v_of(car.position)), " police_at=", psg["type"], "/", psg.get("kind", ""), " lat=", snappedf(police.lat, 0.01), " water=", world.water_at(police.position), " boosts=", run["boosts"])
-	chase["done"] = true
-	chase_state = "over"
-	chase_over_t = 0.0
-	police.stop()
-	ui.chase_show(false)
-	if escaped:
-		run["chases"] += 1
-		run_coins += 40
-		run["coins"] = run_coins
-		if fell:
-			run["police_fell"] = int(run.get("police_fell", 0)) + 1
-			_style(350, "Cop went over!", car.position, K.SKY, "+40 coins")
-			ui.toast("The cruiser went over the edge!", "flag", Color("4b6bd6"), Color.WHITE, 2.0)
-		else:
-			_style(250, "Got away!", car.position, K.SKY, "+40 coins")
-		sfx("mission")
-		buzz(90, 0.9)
-		fx.burst(car.position + Vector3(0, 0.8, 0), ["4b6bd6", "ff5a5a", "ffffff", "ffc94d"], 22, 5.0, 6.0)
-	else:
-		car.fuel = maxf(0.0, car.fuel - 0.3)
-		ui.popup("Busted!", car.position + Vector3(0, 1.4, 0), Color("ff5a5a"), 52, "-30% fuel")
-		sfx("bonk")
-		sfx("lowfuel", -2.0, 0.7)
-		buzz(160, 1.0)
-		shake = maxf(shake, 0.35)
-		car.slow = 0.5
-
-func chase_siren() -> float:
-	return chase_siren_k if chase_state in ["on", "over"] else 0.0
-
-func chase_closeness() -> float:
-	if chase_state != "on":
-		return 0.0
-	return clampf(1.0 - police.gap() / 20.0, 0.0, 1.0)
-
-func _dust_color() -> Color:
-	var b := world.biome_at(world.v_of(car.position))
-	var slot: int = World.BIOME_TOP.get(b, PAL.GRASS)
-	if car.surface == "ice":
-		slot = PAL.ICE
-	elif car.surface == "dirt":
-		slot = World.ROUGH_TOP.get(b, PAL.PATH)
-		return PAL.color(slot, atmos.season).lightened(0.12)
-	elif car.surface == "slick":
-		return Color("f0b88c")
-	return PAL.color(slot, atmos.season).lightened(0.35)
-
-func _finish_run(why: String) -> void:
-	if state == OVER:
-		return
-	state = OVER
-	_clear_touches()
-	car.active = false
-	sound.mute_loops(true)
-	sound.set_muffle(0.6)
-	ui.hide_hud()
-	var dist := int(max_v)
-	var score := dist + style + run_coins * 5
-	var s = save.data
-	s["coins"] = int(s["coins"]) + run_coins
-	s["runs"] = int(s["runs"]) + 1
-	var live := _ach_live()
-	if daily:
-		live["daily_runs"] = 1
-	var ach_before := int(s["coins"])
-	Ach.fold(s, live)
-	var ach_late := Ach.check(s, {})
-	var ach_coins := int(s["coins"]) - ach_before + ach_run_coins
-	var ach_new: Array = ach_run.duplicate() + ach_late
-	var record := false
-	if daily:
-		var d = s["daily"]
-		if String(d["date"]) != today():
-			d["date"] = today()
-			d["best"] = 0
-			d["best_dist"] = 0
-			s["daily_ghost"] = []
-		d["runs"] = int(d["runs"]) + 1
-		if score > int(d["best"]):
-			record = true
-			d["best"] = score
-			d["best_dist"] = dist
-			s["daily_ghost"] = ghost_rec.duplicate()
-	if score > int(s["best"]) and not daily:
-		record = true
-		s["best"] = score
-		s["best_dist"] = dist
-		s["ghost"] = ghost_rec.duplicate()
-	var shown_missions: Array = s["missions"].duplicate(true)
-	var mc := missions.settle()
-	s["coins"] = int(s["coins"]) + mc
-	save.save()
-	if record:
-		sfx("record")
-		buzz(120, 1.0)
-		fx.burst(car.position + Vector3(0, 1.0, 0), ["ff7a6b", "ffc94d", "3db5a6", "a998f2", "6ec6ff"], 40, 6.0, 8.0, 1.6)
-	var result := {"why": why, "dist": dist, "style": style, "coins": run_coins, "score": score, "record": record,
-		"best": int(s["daily"]["best"]) if daily else int(s["best"]), "mission_coins": mc, "missions": shown_missions,
-		"run": run.duplicate(), "daily": daily, "date": today(), "ach": ach_new, "ach_coins": ach_coins}
-	await get_tree().create_timer(0.35).timeout
-	ui.show_over(result)
-	_ach_announce(ach_late)
-
-# ------------------------------------------------------------------ achievements
-
-var ach_run: Array = []     # unlocked during the current run (already paid)
-var ach_run_coins := 0
-
-## The current run's counters, keyed like the lifetime stats.
-func _ach_live() -> Dictionary:
-	return {"distance": max_v, "max_dist": max_v, "max_kmh": Car.CRUISE * car.pace * 3.6 + 0.01,
-		"coins": run_coins, "max_coins_run": run_coins,
-		"drift": run["drift"], "max_drift": run.get("drift_max", 0.0), "max_chain": run.get("max_chain", 0),
-		"jumps": run["jumps"], "spin720": run["spin720"], "spins": run["spins"], "clean": run["clean"],
-		"near": run["near"], "knocks": run["knocks"], "planks": run.get("planks", 0), "tracks": run.get("tracks", 0),
-		"grind": run.get("grind", 0.0), "gauntlets": run.get("gauntlets", 0), "police_fell": run.get("police_fell", 0),
-		"decks": run.get("decks", 0), "chases": run["chases"], "max_regions": run["regions"], "stations": run["stations"],
-		"night": run["night"], "weather": run["weather"], "max_score": int(max_v) + style + run_coins * 5}
-
-func _ach_announce(list: Array) -> void:
-	if list.is_empty():
-		return
-	for a in list:
-		ui.toast("%s  +%d" % [a["name"], int(a["reward"])], "trophy", K.SUN, K.INK, 2.6)
-		if state == RUN:
-			ach_run.append(a)
-			ach_run_coins += int(a["reward"])
-	sfx("mission", -2.0, 1.12)
-	buzz(70, 0.8)
-	save.save()
-
-## Garage and upgrade achievements (called by the UI after buying).
 func ach_check() -> void:
-	_ach_announce(Ach.check(save.data, {}))
+	var got := Ach.check(save.data)
+	for a in got:
+		ui.toast("Trophy: %s  +%d" % [a["name"], int(a["reward"])], a["icon"], K.SUN)
+		sfx("mission")
+	if not got.is_empty():
+		save.save()
+
+# ------------------------------------------------------------------ every frame
+
+func _process(dt: float) -> void:
+	frames += 1
+	if state == LOADING:
+		if frames == 3:
+			_build_world()
+		return
+	dt = minf(dt, 0.05)
+	time += dt
+	atmos.tick(dt)
+	var cp := car.global_position
+	island.tick(dt, cp, car.linear_velocity)
+	traffic.tick(dt, cp, car.linear_velocity)
+	fx.tick(dt)
+	_coins_tick(dt)
+	_markers_tick(dt)
+	match state:
+		TITLE:
+			_controls_off()
+			car.handbrake = 1.0
+			_title_cam(dt)
+		DRIVE:
+			_controls(dt)
+			_drive(dt)
+			_cam(dt)
+		PAUSED, GARAGE:
+			_controls_off()
+	_sound(dt)
+	ui.tick(dt)
+	if args.has("trafficdebug") and frames % 60 == 0 and traffic:
+		var near := 0
+		var moving := 0
+		for c in traffic.cars:
+			var d: float = (c["body"] as Node3D).global_position.distance_to(cp)
+			if d < 120.0:
+				near += 1
+			if float(c["v"]) > 1.0:
+				moving += 1
+		print("traffic near=%d moving=%d first=%s" % [near, moving, str((traffic.cars[0]["body"] as Node3D).global_position)])
+	if args.has("shot") and frames == int(args.get("shot_at", "200")):
+		get_viewport().get_texture().get_image().save_png(String(args["shot"]))
+	if args.has("quit_after") and (time > float(args["quit_after"]) or (args.has("shot") and frames > int(args.get("shot_at", "200")) + 2)):
+		print("RESULT t=%.1f dist=%.0f drift=%.0f coins=%d max_kmh=%.0f knocks=%.0f state=%d" % [time, save.stat("distance"),
+			save.stat("drift_points"), int(save.data["coins"]), save.stat("max_kmh"), save.stat("knocks"), state])
+		get_tree().quit()
+
+func _controls_off() -> void:
+	car.throttle = 0.0
+	car.brake = 0.0
+	car.steer_in = 0.0
+	car.handbrake = 0.0
+
+func _controls(dt: float) -> void:
+	if autopilot:
+		_autopilot(dt)
+		return
+	var l := 1.0 if held.get("left", false) else 0.0
+	var r := 1.0 if held.get("right", false) else 0.0
+	car.steer_in = r - l
+	car.throttle = 1.0 if held.get("gas", false) else 0.0
+	car.brake = 1.0 if held.get("brake", false) else 0.0
+	car.handbrake = 1.0 if held.get("hand", false) else 0.0
+	ui.pressed_controls(held)
+
+func _drive(dt: float) -> void:
+	var p := car.global_position
+	var v := car.linear_velocity
+	var kmh := absf(car.speed) * 3.6
+	# distance and records
+	var step := Vector2(p.x - last_pos.x, p.z - last_pos.z).length()
+	if step < 5.0:
+		save.add_stat("distance", step)
+		if atmos.is_night():
+			save.add_stat("night", step)
+	last_pos = p
+	save.max_stat("max_kmh", kmh)
+	if car.air_t > 0.0:
+		save.max_stat("max_air", car.air_t)
+	_drift(dt)
+	_effects(dt)
+	_breakables()
+	_zone_tick(dt)
+	_trial_tick(dt)
+	_places(dt)
+	_recover(dt)
+	bump_cd = maxf(0.0, bump_cd - dt)
+	save_t += dt
+	if save_t > 20.0:
+		save_t = 0.0
+		_save_now()
+	ach_t += dt
+	if ach_t > 2.0:
+		ach_t = 0.0
+		ach_check()
+	ui.hud_update({"kmh": kmh, "gear": car.gear, "rpm": car.rpm, "drift": drift_pts, "combo": combo, "combo_t": combo_t,
+		"drifting": drift_on, "coins": int(save.data["coins"]), "place": place_now, "clock": atmos.clock_text(),
+		"zone": zone, "zone_t": zone_t, "zone_pts": zone_pts, "trial": trial, "trial_t": trial_t, "trial_gate": trial_gate,
+		"trial_pts": trial_pts, "car_pos": p, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip))})
+
+# ------------------------------------------------------------------ drifting
+
+func _drift(dt: float) -> void:
+	var sideways := car.drift > 0.2 and car.grounded >= 2 and car.speed > 6.0
+	if sideways:
+		if not drift_on:
+			drift_on = true
+			drift_pts = 0.0
+			drift_len = 0.0
+			if combo_t > 0.0:
+				combo = mini(combo + 1, 10)
+		drift_off_t = 0.0
+		drift_len += dt
+		var ang := rad_to_deg(absf(car.slip))
+		drift_pts += dt * ang * 0.85 * maxf(car.speed, 0.0) * 0.55
+		# hold it long enough and the multiplier ticks up too
+		if drift_len > 3.0:
+			drift_len -= 3.0
+			combo = mini(combo + 1, 10)
+			ui.combo_bump(combo)
+		combo_t = 2.2
+	elif drift_on:
+		drift_off_t += dt
+		if drift_off_t > 0.55:
+			_bank()
+	else:
+		combo_t = maxf(0.0, combo_t - dt)
+		if combo_t <= 0.0:
+			combo = 1
+
+func _bank() -> void:
+	drift_on = false
+	var total := int(drift_pts * combo)
+	if total < 50:
+		return
+	save.add_stat("drift_points", total)
+	save.add_stat("drifts", 1)
+	save.max_stat("max_drift", total)
+	save.max_stat("max_combo", combo)
+	coin_frac += total / 120.0
+	var c := int(coin_frac)
+	coin_frac -= c
+	save.data["coins"] = int(save.data["coins"]) + c
+	if not zone.is_empty() and _in_zone():
+		zone_pts += total
+	if not trial.is_empty() and trial["kind"] == "drift":
+		trial_pts += total
+	ui.banked(total, c)
+	if total > 1500:
+		island.people.cheer(car.global_position)
+		sfx("near", -2.0)
+	sfx("coin", -6.0, 1.0 + minf(total / 20000.0, 0.5))
+
+## A crash loses the drift in progress.
+func _break_drift(show := true) -> void:
+	if drift_on and drift_pts * combo > 200 and show:
+		ui.drift_lost()
+		sfx("bonk")
+	drift_on = false
+	drift_pts = 0.0
+	combo = 1
+	combo_t = 0.0
+
+func _on_bump(strength: float) -> void:
+	if state != DRIVE or bump_cd > 0.0:
+		return
+	bump_cd = 0.4
+	shake = minf(1.0, strength / 12.0)
+	sfx("bump", clampf(-10.0 + strength, -10.0, 2.0))
+	buzz(int(clampf(strength * 6.0, 20.0, 90.0)), clampf(strength / 12.0, 0.2, 1.0))
+	if strength > 7.0:
+		_break_drift()
+
+# ------------------------------------------------------------------ smoke, marks, knock-overs
+
+func _effects(dt: float) -> void:
+	smoke_t += dt
+	for i in car.wheels.size():
+		var wd: Dictionary = car.wheels[i]
+		if not wd["contact"]:
+			skid_acc.erase(i)
+			continue
+		var sl := absf(float(wd["slip"]))
+		var marking: bool = (sl > deg_to_rad(10.0) and car.linear_velocity.length() > 4.0) or (not wd["front"] and (car.wheelspin > 0.3 or car.handbrake > 0.5) and car.linear_velocity.length() > 3.0)
+		var wp: Vector3 = car.to_global(wd["home"] - Vector3(0, float(wd["len"]) - car.REST + float(wd["r"]), 0))
+		if marking:
+			var last: Vector3 = skid_acc.get(i, wp)
+			var d := wp.distance_to(last)
+			if d > 0.35 or not skid_acc.has(i):
+				if skid_acc.has(i) and d < 3.0:
+					var mid := (wp + last) * 0.5
+					var dir := wp - last
+					var surf: int = wd["surf"]
+					if surf in [island.S_ASPHALT, island.S_CONCRETE, island.S_COBBLE, island.S_WOOD]:
+						fx.skid(mid + Vector3(0, island.ROAD_LIFT, 0), atan2(-dir.x, -dir.z), d + 0.05, 0.32)
+				skid_acc[i] = wp
+			if not wd["front"] and smoke_t > 0.05:
+				var surf2: int = wd["surf"]
+				var col := Color(0.96, 0.96, 0.98)
+				if surf2 in [island.S_DIRT, island.S_FIELD]:
+					col = Color("c9a27e")
+				elif surf2 == island.S_SAND:
+					col = Color("f1dfb4")
+				elif surf2 in [island.S_GRASS, island.S_FOREST]:
+					col = Color("b9d79a")
+				fx.puff(wp + Vector3(0, 0.3, 0), col, randf_range(1.2, 2.0) * (0.6 + car.drift * 0.6), -car.linear_velocity * 0.15 + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)), 1.4, 1.0)
+		else:
+			skid_acc.erase(i)
+	if smoke_t > 0.05:
+		smoke_t = 0.0
+
+func _breakables() -> void:
+	var p := car.global_position + car.linear_velocity * 0.03
+	var hits := island.hit_breakables(p, car.linear_velocity, 1.9)
+	for b in hits:
+		save.add_stat("knocks", 1)
+		var cone: bool = String(b["pool"]).contains("cone")
+		sfx("knock_soft" if cone else "knock_wood", -6.0 if cone else -2.0, randf_range(0.9, 1.15))
+		fx.puff(b["pos"] + Vector3(0, 0.6, 0), Color(1, 1, 1), 1.4, Vector3(0, 1, 0), 0.5, 0.8)
+		if not cone:
+			car.linear_velocity *= 0.93
+			shake = maxf(shake, 0.25)
+		if not zone.is_empty() and cone:
+			zone_pts = maxf(0.0, zone_pts - 250.0)
+			ui.popup_text("Cone! -250", K.CORAL)
+
+# ------------------------------------------------------------------ flips, water, getting stuck
+
+func _recover(dt: float) -> void:
+	var p := car.global_position
+	if p.y < island.sea_y - 0.9 or p.y < -20.0:
+		sfx("splash")
+		ui.toast("Splash! Back to the road.", "rain", K.SKY, K.PAPER, 1.5)
+		reset_car()
+		return
+	if car.is_upside_down() or (car.grounded == 0 and car.linear_velocity.length() < 0.5):
+		flip_t += dt
+		if flip_t > 2.2:
+			reset_car()
+	else:
+		flip_t = 0.0
+	if car.throttle > 0.5 and car.linear_velocity.length() < 0.6:
+		stuck_t += dt
+		if stuck_t > 5.0:
+			ui.show_reset_hint()
+	else:
+		stuck_t = 0.0
+
+# ------------------------------------------------------------------ places
+
+func _places(dt: float) -> void:
+	place_t -= dt
+	if place_t > 0.0:
+		return
+	place_t = 0.5
+	var p := car.global_position
+	var now := ""
+	var best := 1e9
+	for pl in island.places:
+		var d := Vector2(p.x - pl["pos"].x, p.z - pl["pos"].z).length()
+		if d < float(pl["r"]) and d < best:
+			best = d
+			now = pl["name"]
+	if now != place_now:
+		place_now = now
+		if now != "" and not save.data["places"].has(now):
+			save.data["places"].append(now)
+			ui.discovered(now)
+			sfx("mission", -4.0)
+			ach_check()
+
+# ------------------------------------------------------------------ challenges: markers
+
+func _ring_mesh(r: float, col: Color, w := 1.2) -> ArrayMesh:
+	var b := MB.new()
+	var n := 40
+	for k in n:
+		var a0 := TAU * k / n
+		var a1 := TAU * (k + 1) / n
+		var o0 := Vector3(cos(a0), 0, sin(a0))
+		var o1 := Vector3(cos(a1), 0, sin(a1))
+		b.quad(o0 * (r - w) + Vector3(0, 0.08, 0), o1 * (r - w) + Vector3(0, 0.08, 0), o1 * r + Vector3(0, 0.08, 0), o0 * r + Vector3(0, 0.08, 0), Vector3.UP, MB.glow(col))
+	return b.commit()
+
+func _build_markers() -> void:
+	for z in island.zones:
+		var st := _zone_start(z)
+		z["start"] = st
+		_marker("zone", z["id"], st, Color("ff8a5c"), z["name"], 7.0)
+		island.map_marker(z["pos"], Color("ff8a5c"), 11.0)
+	for t in island.trials:
+		var g0: Transform3D = t["gates"][0]
+		_marker("trial", t["id"], g0.origin, Color("5cc8ff") if t["kind"] == "time" else Color("c38bff"), t["name"], 6.0)
+		island.map_marker(g0.origin, Color("5cc8ff") if t["kind"] == "time" else Color("c38bff"), 10.0)
+
+func _zone_start(z: Dictionary) -> Vector3:
+	var c: Vector3 = z["pos"]
+	var starts := {"bowl": Vector3(175, 0, 178), "square": Vector3(-110, 0, 0), "harbour": Vector3(-362, 0, 163),
+		"farmyard": Vector3(235, 0, 2), "beach": Vector3(60, 0, 378), "skate": Vector3(70, 0, 120)}
+	var p: Vector3 = starts.get(z["id"], c)
+	p.y = island.height_at(p.x, p.z)
+	return p
+
+func _marker(kind: String, id: String, pos: Vector3, col: Color, name: String, r: float) -> void:
+	var mi := MeshInstance3D.new()
+	mi.mesh = _ring_mesh(r, col)
+	mi.material_override = toon
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = pos
+	add_child(mi)
+	var lb := Label3D.new()
+	lb.text = name
+	lb.font = K.font(700)
+	lb.font_size = 96
+	lb.outline_size = 22
+	lb.outline_modulate = K.INK
+	lb.modulate = col.lightened(0.3)
+	lb.pixel_size = 0.012
+	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lb.no_depth_test = false
+	lb.position = pos + Vector3(0, 4.0, 0)
+	add_child(lb)
+	markers.append({"kind": kind, "id": id, "pos": pos, "node": mi, "label": lb, "r": r})
+
+func _markers_tick(_dt: float) -> void:
+	var p := car.global_position
+	var busy := not zone.is_empty() or not trial.is_empty()
+	for m in markers:
+		var d := (m["pos"] as Vector3).distance_to(p)
+		var show := d < 220.0 and not busy
+		(m["node"] as Node3D).visible = show
+		(m["label"] as Node3D).visible = show and d < 120.0
+		if show:
+			(m["node"] as Node3D).rotation.y += 0.3 * get_process_delta_time()
+			(m["label"] as Node3D).position.y = (m["pos"] as Vector3).y + 4.0 + sin(time * 2.0) * 0.3
+		if state == DRIVE and not busy and d < float(m["r"]) and car.linear_velocity.length() > 2.0:
+			if m["kind"] == "zone":
+				_start_zone(m["id"])
+			else:
+				_start_trial(m["id"])
+			busy = true
+
+# ------------------------------------------------------------------ drift zones
+
+func _start_zone(id: String) -> void:
+	for z in island.zones:
+		if z["id"] == id:
+			zone = z
+	zone_t = float(zone["time"])
+	zone_pts = 0.0
+	zone_out = 0.0
+	_break_drift(false)
+	ui.challenge_start(zone["name"], "Drift inside the zone. %d seconds!" % int(zone_t), zone["medals"], false)
+	sfx("boost")
+
+func _in_zone() -> bool:
+	if zone.is_empty():
+		return false
+	var c: Vector3 = zone["pos"]
+	var p := car.global_position
+	return Vector2(p.x - c.x, p.z - c.z).length() < float(zone["r"])
+
+func _zone_tick(dt: float) -> void:
+	if zone.is_empty():
+		return
+	zone_t -= dt
+	if not _in_zone():
+		zone_out += dt
+		if zone_out > 4.0:
+			ui.toast("Left the zone", "flag", K.PAPER, K.INK, 1.6)
+			_finish_zone()
+			return
+	else:
+		zone_out = 0.0
+	if zone_t <= 0.0:
+		if drift_on:
+			_bank()
+		_finish_zone()
+
+func _finish_zone() -> void:
+	var z := zone
+	zone = {}
+	var score := int(zone_pts)
+	var medal := _medal(score, z["medals"], false)
+	var best := int(save.data["zones"].get(z["id"], 0))
+	var old_medal := int(save.data["medals"].get(z["id"], 0))
+	var pay := 0
+	if score > best:
+		save.data["zones"][z["id"]] = score
+	if medal > old_medal:
+		pay = MEDAL_PAY[medal] - MEDAL_PAY[old_medal]
+		save.data["medals"][z["id"]] = medal
+		save.data["coins"] = int(save.data["coins"]) + pay
+	_medal_stats()
+	ui.challenge_result(z["name"], "%s pts" % K.fmt(score), medal, pay, score > best and best > 0)
+	_save_now()
+	ach_check()
+
+## Medal for a score: times list [gold, silver, bronze] (lower is better), points [bronze, silver, gold].
+func _medal(score: float, medals: Array, lower_better: bool) -> int:
+	if lower_better:
+		for i in 3:
+			if score <= float(medals[i]):
+				return 3 - i
+		return 0
+	for i in range(2, -1, -1):
+		if score >= float(medals[i]):
+			return i + 1
+	return 0
+
+func _medal_stats() -> void:
+	var zm := 0
+	var zg := 0
+	for z in island.zones:
+		var md := int(save.data["medals"].get(z["id"], 0))
+		zm += 1 if md > 0 else 0
+		zg += 1 if md == 3 else 0
+	var tm := 0
+	var tg := 0
+	for t in island.trials:
+		var md2 := int(save.data["medals"].get(t["id"], 0))
+		tm += 1 if md2 > 0 else 0
+		tg += 1 if md2 == 3 else 0
+	save.data["stats"]["zone_medals"] = zm
+	save.data["stats"]["zone_golds"] = zg
+	save.data["stats"]["trial_medals"] = tm
+	save.data["stats"]["trial_golds"] = tg
+
+# ------------------------------------------------------------------ trials and drift runs
+
+func _start_trial(id: String) -> void:
+	for t in island.trials:
+		if t["id"] == id:
+			trial = t
+	trial_t = 0.0
+	trial_gate = 1
+	trial_pts = 0.0
+	_break_drift(false)
+	for g in gate_nodes:
+		g.queue_free()
+	gate_nodes.clear()
+	var gates: Array = trial["gates"]
+	for i in range(1, gates.size()):
+		var gx: Transform3D = gates[i]
+		var arch := MeshInstance3D.new()
+		var am := M.get_mesh("arch")
+		arch.mesh = am
+		arch.material_override = toon
+		var w: float = float(trial["w"]) + 4.0
+		var s: float = w / maxf(am.get_aabb().size.x, 0.1)
+		arch.transform = Transform3D(gx.basis.scaled(Vector3.ONE * s), gx.origin)
+		add_child(arch)
+		gate_nodes.append(arch)
+	var desc := "Through every gate, fast as you can!" if trial["kind"] == "time" else "Drift all the way up. Points count!"
+	ui.challenge_start(trial["name"], desc, trial["medals"], trial["kind"] == "time")
+	sfx("boost")
+
+func _trial_tick(dt: float) -> void:
+	if trial.is_empty():
+		return
+	trial_t += dt
+	var gates: Array = trial["gates"]
+	for i in gate_nodes.size():
+		(gate_nodes[i] as Node3D).visible = i + 1 >= trial_gate and i + 1 <= trial_gate + 1
+	var g: Transform3D = gates[trial_gate]
+	var p := car.global_position
+	var d := Vector2(p.x - g.origin.x, p.z - g.origin.z).length()
+	if d < float(trial["w"]) * 0.5 + 4.0:
+		trial_gate += 1
+		sfx("coin", -3.0, 1.3)
+		fx.sparkle(g.origin + Vector3(0, 3, 0), Color("5cc8ff"), 10)
+		if trial_gate >= gates.size():
+			if drift_on:
+				_bank()
+			_finish_trial()
+			return
+		ui.popup_text("Checkpoint %d/%d" % [trial_gate - 1, gates.size() - 1], K.SKY)
+	var limit: float = (float(trial["medals"][2]) * 2.0) if trial["kind"] == "time" else 150.0
+	if trial_t > limit:
+		ui.toast("Out of time", "flag", K.PAPER, K.INK, 1.6)
+		_end_challenges()
+
+func _finish_trial() -> void:
+	var t := trial
+	_end_challenges()
+	var timed: bool = t["kind"] == "time"
+	var score: float = trial_t if timed else trial_pts
+	var medal := _medal(score, t["medals"], timed)
+	var best: float = float(save.data["trials"].get(t["id"], 0.0))
+	var better: bool = best <= 0.0 or (score < best if timed else score > best)
+	if better:
+		save.data["trials"][t["id"]] = snappedf(score, 0.01)
+	var old_medal := int(save.data["medals"].get(t["id"], 0))
+	var pay := 0
+	if medal > old_medal:
+		pay = MEDAL_PAY[medal] - MEDAL_PAY[old_medal]
+		save.data["medals"][t["id"]] = medal
+		save.data["coins"] = int(save.data["coins"]) + pay
+	_medal_stats()
+	var txt := ("%.2f s" % score) if timed else ("%s pts" % K.fmt(int(score)))
+	ui.challenge_result(t["name"], txt, medal, pay, better and best > 0.0)
+	_save_now()
+	ach_check()
+
+func _end_challenges() -> void:
+	zone = {}
+	trial = {}
+	for g in gate_nodes:
+		g.queue_free()
+	gate_nodes.clear()
+	ui.challenge_end()
+
+# ------------------------------------------------------------------ hidden coins
+
+func _build_coins() -> void:
+	coin_pool = Pool.new()
+	coin_pool.setup(M.get_mesh("coin"), island.coin_spots.size() + 4, toon, false, true)
+	add_child(coin_pool)
+	for c in island.coin_spots:
+		var slot := coin_pool.alloc()
+		coins_live.append({"id": c["id"], "pos": c["pos"], "slot": slot, "taken": save.data["coins_taken"].has(c["id"])})
+	_refresh_coins()
+
+func _refresh_coins() -> void:
+	for c in coins_live:
+		c["taken"] = save.data["coins_taken"].has(c["id"])
+		if c["taken"]:
+			coin_pool.put(c["slot"], Transform3D(Basis().scaled(Vector3.ONE * 0.001), c["pos"]))
+
+func _coins_tick(_dt: float) -> void:
+	var p := car.global_position + Vector3(0, 0.8, 0)
+	var b := Basis(Vector3.UP, time * 2.2).scaled(Vector3.ONE * 2.6)
+	for c in coins_live:
+		if c["taken"]:
+			continue
+		var cp: Vector3 = c["pos"]
+		var d := cp.distance_to(p)
+		if d > 180.0:
+			continue
+		coin_pool.put(c["slot"], Transform3D(b, cp + Vector3(0, sin(time * 2.0 + cp.x) * 0.25, 0)))
+		if d < 3.2 and state == DRIVE:
+			c["taken"] = true
+			save.data["coins_taken"].append(c["id"])
+			save.data["coins"] = int(save.data["coins"]) + COIN_PICKUP
+			coin_pool.put(c["slot"], Transform3D(Basis().scaled(Vector3.ONE * 0.001), cp))
+			fx.sparkle(cp, Color("ffd34d"), 12)
+			sfx("coin", 0.0, 1.2)
+			buzz(30, 0.6)
+			ui.found_coin(save.data["coins_taken"].size(), coins_live.size(), COIN_PICKUP)
+			ach_check()
 
 # ------------------------------------------------------------------ camera
 
-func _cam_update(dt: float, snap: bool) -> void:
-	var target := car.position
-	if car.dead and car.falling:
-		target = Vector3(car.position.x, maxf(car.position.y, -1.5), car.position.z)
-	var lead := world.F * ((4.4 if chase_state != "on" else 1.6) + (car.pace - 1.0) * 3.0) + Vector3(car.vel.x, 0, car.vel.z) * 0.16
-	if state == TITLE or state == GARAGE:
-		lead = world.F * 2.0
-	var want := Vector3(target.x, maxf(target.y * 0.6, -1.0), target.z) + lead
-	if args.has("peek"):   # testing: look off to the side of the road
-		want += world.S * float(args["peek"])
-	if snap:
-		cam_focus = want
-	else:
-		cam_focus = cam_focus.lerp(want, 1.0 - exp(-dt * 4.0))
-	var want_size := CAM_SIZE + (1.0 if not car.grounded and not car.dead else 0.0) + (1.2 if chase_state == "on" else 0.0) + (car.pace - 1.0) * 2.2
-	if state == TITLE:
-		want_size = CAM_SIZE - 1.8
-	if args.has("zoom"):   # testing: close-ups
-		want_size = float(args["zoom"])
-	cam_size = want_size if snap else lerpf(cam_size, want_size, 1.0 - exp(-dt * 2.0))
-	cam.size = cam_size
-	var fwd := cam.global_transform.basis.z
-	shake = maxf(0.0, shake - dt * 0.9)
-	var sh := Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * shake * 0.6 if shake > 0.0 else Vector3.ZERO
-	cam.position = cam_focus + fwd * 60.0 + cam.global_transform.basis * sh
+func _snap_cam() -> void:
+	cam_yaw = car.global_rotation.y
+	_cam(1.0, true)
 
-# ------------------------------------------------------------------ ghost of the best run
+func _cam(dt: float, snap := false) -> void:
+	var xf := car.global_transform
+	var fwd := -xf.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	var v := car.linear_velocity
+	v.y = 0.0
+	var dirv := fwd
+	if v.length() > 3.0 and car.speed > 0.0:
+		# look along where the car is going, so a drift shows off its side
+		dirv = fwd.slerp(v.normalized(), clampf(car.drift * 0.7 + 0.25, 0.0, 0.8))
+	var want := atan2(-dirv.x, -dirv.z)
+	var rate := 3.2 + clampf(v.length() / 10.0, 0.0, 3.0)
+	cam_yaw = want if snap else lerp_angle(cam_yaw, want, 1.0 - exp(-dt * rate))
+	var far := cam_mode == 1
+	var dist := (11.0 if far else 7.6) + clampf(v.length() * 0.05, 0.0, 2.0)
+	var height := (4.4 if far else 2.7)
+	var target := xf.origin + Vector3(0, 1.3, 0)
+	var back := Vector3(sin(cam_yaw), 0, cos(cam_yaw))
+	var desired := target + back * dist + Vector3(0, height, 0)
+	# don't sink into the hillside or walk through walls
+	var gy := island.height_at(desired.x, desired.z) + 1.2
+	desired.y = maxf(desired.y, gy)
+	var q := PhysicsRayQueryParameters3D.create(target, desired, 1)   # (the world only, not cars)
+	q.exclude = [car.get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if not hit.is_empty():
+		desired = (hit["position"] as Vector3) + (target - (hit["position"] as Vector3)).normalized() * 0.6
+	cam_pos = desired if snap else cam_pos.lerp(desired, 1.0 - exp(-dt * 9.0))
+	cam.position = cam_pos
+	if shake > 0.0:
+		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * shake * 0.18
+		shake = maxf(0.0, shake - dt * 2.5)
+	cam.look_at(target + dirv * 3.0 + Vector3(0, -0.2, 0), Vector3.UP)
+	cam.fov = lerpf(cam.fov, 62.0 + clampf(absf(car.speed) * 3.6 * 0.09, 0.0, 16.0), 1.0 - exp(-dt * 3.0))
 
-func _build_ghost() -> void:
-	for c in ghost.get_children():
-		c.queue_free()
-	var c := M.car(CARS.by_id(String(save.data["car"])))
-	var b := MeshInstance3D.new()
-	b.mesh = c["body"]
-	b.material_override = ghost_mat
-	b.position.y = c["ride"]
-	b.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	ghost.add_child(b)
-	for i in 4:
-		var w := MeshInstance3D.new()
-		w.mesh = c["wheel_f"] if i < 2 else c["wheel_r"]
-		w.material_override = ghost_mat
-		w.position = c["wheels"][i]
-		w.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		ghost.add_child(w)
+func _title_cam(dt: float) -> void:
+	title_t += dt
+	var c := car.global_position + Vector3(0, 1.2, 0)
+	var a := title_t * 0.12 + car.global_rotation.y + 2.4
+	var pos := c + Vector3(sin(a) * 10.5, 3.4 + sin(title_t * 0.3) * 0.6, cos(a) * 10.5)
+	pos.y = maxf(pos.y, island.height_at(pos.x, pos.z) + 1.5)
+	cam.position = cam.position.lerp(pos, 1.0 - exp(-dt * 2.0))
+	cam.look_at(c, Vector3.UP)
+	cam.fov = 58.0
+	cam_yaw = car.global_rotation.y
+	cam_pos = cam.position
 
-func _ghost_tick() -> void:
-	if not ghost_on or state != RUN:
-		ghost.visible = false
-		return
-	var n := ghost_play.size()
-	var last: Array = ghost_play[n - 1]
-	if run_t > float(last[0]) + 1.0:
-		ghost.visible = false
-		return
-	var i := clampi(int(run_t * 10.0), 0, n - 2)
-	while i < n - 2 and float(ghost_play[i + 1][0]) < run_t:
-		i += 1
-	while i > 0 and float(ghost_play[i][0]) > run_t:
-		i -= 1
-	var a: Array = ghost_play[i]
-	var b: Array = ghost_play[i + 1]
-	var k := clampf((run_t - float(a[0])) / maxf(0.001, float(b[0]) - float(a[0])), 0.0, 1.0)
-	var v := lerpf(a[1], b[1], k)
-	var u := lerpf(a[2], b[2], k)
-	var y := lerpf(a[3], b[3], k)
-	var tt := world.tangent(v)
-	var ryaw := lerp_angle(float(a[4]), float(b[4]), k)
-	var p := world.pos_at(v, u)
-	p.y = maxf(y, -6.0)
-	ghost.position = p
-	ghost.rotation = Vector3(0, atan2(-tt.x, -tt.z) + ryaw, 0)
-	ghost.visible = true
-	var fade := 1.0 - clampf(run_t - float(last[0]), 0.0, 1.0)
-	ghost_mat.set_shader_parameter("alpha", 0.38 * fade)
+func toggle_cam() -> void:
+	cam_mode = 1 - cam_mode
+	save.data["settings"]["cam"] = cam_mode
 
-func _make_best_line() -> Node3D:
-	var n := Node3D.new()
-	var mi := MeshInstance3D.new()
-	var mb := preload("res://scripts/core/mesh_builder.gd").new()
-	for i in 9:
-		var x := -4.0 + i
-		mb.cyl(Vector3(x, 0.45, 0), 0.035, 0.9, mb.rgb("ffffff"), 6)
-		mb.box(Vector3(x + 0.22, 0.78, 0), Vector3(0.42, 0.26, 0.02), mb.glow("ffc94d" if i % 2 == 0 else "ff7a6b"))
-	mb.box(Vector3(0, 0.02, 0), Vector3(9.0, 0.03, 0.18), mb.glow("fff3b0"))
-	mi.mesh = mb.commit()
-	mi.material_override = toon
-	n.add_child(mi)
-	var l := Label3D.new()
-	l.text = "BEST"
-	l.font = K.font(700)
-	l.font_size = 96
-	l.pixel_size = 0.008
-	l.outline_size = 18
-	l.outline_modulate = Color("4a3a33")
-	l.modulate = Color("ffc94d")
-	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	l.position = Vector3(0, 1.6, 0)
-	n.add_child(l)
-	return n
+# ------------------------------------------------------------------ sound
 
-func _best_line_tick() -> void:
-	if state != RUN or best_v < 40.0:
-		best_line.visible = false
-		return
-	var v := best_v
-	if world.gen_s * World.D < v + 2.0 or world.crumble_v > v:
-		best_line.visible = false
-		return
-	var t := world.tangent(v)
-	best_line.position = world.pos_at(v, 0.0)
-	best_line.rotation = Vector3(0, atan2(-t.x, -t.z), 0)
-	best_line.visible = world.ground_at(best_line.position) != World.NO_GROUND or max_v > v
+func _sound(dt: float) -> void:
+	var active := state == DRIVE
+	var roll: String = island.ROLL[car.surface] if car.surface < island.ROLL.size() else "road"
+	var skid := 0.0
+	for wd in car.wheels:
+		if wd["contact"]:
+			skid = maxf(skid, clampf((absf(float(wd["slip"])) - deg_to_rad(6.0)) / deg_to_rad(20.0), 0.0, 1.0))
+	if car.linear_velocity.length() < 3.0:
+		skid *= car.linear_velocity.length() / 3.0
+	sound.tick(dt, {"speed": absf(car.speed), "active": active, "grounded": car.grounded > 0, "drift": maxf(skid, car.wheelspin),
+		"air_t": car.air_t, "rpm_k": car.rpm, "throttle": car.throttle, "roll": roll, "pace": 2.6})
 
 # ------------------------------------------------------------------ input
 
-## Arrow steering: a quick tap is a gentle turn; holding winds up to full lock (and a drift).
-func _steer_input(dt: float) -> float:
-	if autopilot:
-		return _auto_steer()
-	var left := Input.is_key_pressed(KEY_LEFT) or Input.is_key_pressed(KEY_A)
-	var right := Input.is_key_pressed(KEY_RIGHT) or Input.is_key_pressed(KEY_D)
-	for side in touches.values():
-		if side < 0:
-			left = true
-		else:
-			right = true
-	hold_l = hold_l + dt if left else 0.0
-	hold_r = hold_r + dt if right else 0.0
-	var l := lerpf(0.5, 1.0, smoothstep(0.0, 0.35, hold_l)) if left else 0.0
-	var r := lerpf(0.5, 1.0, smoothstep(0.0, 0.35, hold_r)) if right else 0.0
-	ui.arrows_pressed(left, right)
-	return clampf(r - l, -1.0, 1.0)
-
-## Which arrow a touch belongs to: the left or right half of the screen below the top bar.
-func _arrow_side(p: Vector2) -> int:
-	var vs := get_viewport().get_visible_rect().size
-	if p.y < vs.y * 0.3:
-		return 0
-	return -1 if p.x < vs.x * 0.5 else 1
-
-func _clear_touches() -> void:
-	touches.clear()
-	title_touch = -1
-	hold_l = 0.0
-	hold_r = 0.0
-	ui.arrows_pressed(false, false)
-
 func _unhandled_input(e: InputEvent) -> void:
+	if e is InputEventKey and not e.echo:
+		var on: bool = e.pressed
+		match e.keycode:
+			KEY_LEFT, KEY_A:
+				held["left"] = on
+			KEY_RIGHT, KEY_D:
+				held["right"] = on
+			KEY_UP, KEY_W:
+				held["gas"] = on
+			KEY_DOWN, KEY_S:
+				held["brake"] = on
+			KEY_SPACE, KEY_SHIFT:
+				held["hand"] = on
+			KEY_R:
+				if on and state == DRIVE:
+					reset_car()
+			KEY_C:
+				if on:
+					toggle_cam()
+			KEY_ESCAPE, KEY_P:
+				if on:
+					if state == DRIVE:
+						pause()
+					elif state == PAUSED:
+						resume()
 	if e is InputEventScreenTouch:
 		if e.pressed:
-			if ui.blocks(e.position):
-				return
-			if state == TITLE:
-				title_touch = e.index
-			elif state == RUN:
-				var side := _arrow_side(e.position)
-				if side != 0:
-					touches[e.index] = side
+			var c := ui.control_at(e.position)
+			if c != "":
+				touches[e.index] = c
 		else:
 			touches.erase(e.index)
-			if state == TITLE and e.index == title_touch:
-				title_touch = -1
-				_start_run()
-	elif e is InputEventScreenDrag and touches.has(e.index):
-		# sliding a thumb across to the other side switches arrows
-		var side := _arrow_side(e.position)
-		if side != 0:
-			touches[e.index] = side
-	elif e is InputEventKey and e.pressed and not e.echo:
-		if state == TITLE and e.keycode in [KEY_SPACE, KEY_ENTER, KEY_UP, KEY_W]:
-			_start_run()
-		elif e.keycode == KEY_ESCAPE:
-			if state == RUN:
-				pause()
-			elif state == PAUSED:
-				ui.close_sheet()
-				resume()
+		_touch_held()
+	elif e is InputEventScreenDrag:
+		# slide a thumb from one button to its neighbour
+		if touches.has(e.index):
+			var c2 := ui.control_at(e.position)
+			if c2 != "":
+				touches[e.index] = c2
+			_touch_held()
+
+func _touch_held() -> void:
+	for k in ["left", "right", "gas", "brake", "hand"]:
+		var on := false
+		for t in touches.values():
+			if t == k:
+				on = true
+		held[k] = on or keys.get(k, false)
 
 func _notification(what: int) -> void:
 	match what:
@@ -1239,128 +1041,63 @@ func _notification(what: int) -> void:
 				ui.close_sheet()
 				if state == PAUSED:
 					resume()
-			elif state == RUN:
+			elif state == DRIVE:
 				pause()
 			elif state == GARAGE:
-				close_garage()
-			elif state == OVER:
-				go_home()
+				close_garage(TITLE)
 			elif state == TITLE:
+				_save_now()
 				get_tree().quit()
 		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_APPLICATION_FOCUS_OUT:
-			if state == RUN:
+			touches.clear()
+			held.clear()
+			if state == DRIVE:
 				pause()
+			elif state != LOADING:
+				_save_now()
+		NOTIFICATION_WM_CLOSE_REQUEST:
+			if state != LOADING:
+				_save_now()
 
-# ------------------------------------------------------------------ autopilot and screenshots (testing)
+# ------------------------------------------------------------------ autopilot (testing)
 
-func _auto_steer() -> float:
-	var v := world.v_of(car.position)
-	var best_off := 0.0
-	var best_score := -999.0
-	var aim := float(args.get("hug", "0"))
-	var offs := [0.0, -1.2, 1.2, -2.4, 2.4]
-	if args.has("hug"):
-		offs = [aim, aim * 0.85, aim * 0.7, aim * 0.5, 0.0]
-	for off in offs:
-		var sc := 0.0
-		for k in [3.0, 5.5, 8.0]:
-			var q := world.pos_at(v + k, off)
-			if world.ground_at(q) == World.NO_GROUND and world.ramp_at(q).is_empty():
-				sc -= 3.0
-		sc -= absf(off - aim) * 0.3
-		if sc > best_score:
-			best_score = sc
-			best_off = off
-	var tgt := world.pos_at(v + 5.0, best_off)
-	var d := tgt - car.position
-	var desired := atan2(-d.x, -d.z)
-	var err := angle_difference(car.yaw, desired)
-	var s := clampf(-err * 2.0 + car.yaw_rate * 0.3, -0.85, 0.85)
-	if args.has("wiggle"):
-		s = clampf(s + sin(run_t * 1.3) * 0.7, -1.0, 1.0)
-	if args.has("drifttest") and run_t > 3.0 and run_t < 5.0:
-		s = 1.0
-		if frames % 8 == 0:
-			print("DT t=%.2f drift=%.0f spd=%.2f yr=%.2f gr=%s" % [run_t, rad_to_deg(car.drift), car.speed(), car.yaw_rate, car.grounded])
-	return s
-
-## Testing: jump the car (and the crumble) ahead along the road.
-func _warp(v: float) -> void:
-	world.gen_s = int(floor((v - 24.0) / World.D))
-	world._plan_until(v + 120.0)
-	world.update_gen(v)
-	var p := world.pos_at(v, 0.0)
-	p.y = maxf(0.0, world.ground_at(p))
-	var t := world.tangent(v)
-	car.place(p, atan2(-t.x, -t.z))
-	car.active = state == RUN
-	world.crumble_v = v - 30.0
-	world.crumble_s = int(floor(world.crumble_v / World.D))
-	_cam_update(1.0, true)
-
-func _harness() -> void:
-	if args.has("perf") and state == RUN:
-		perf_acc += Performance.get_monitor(Performance.TIME_PROCESS)
-		perf_n += 1
-		perf_max = maxf(perf_max, Performance.get_monitor(Performance.TIME_PROCESS))
-		if perf_n >= 300:
-			print("PERF v=%d avg=%.2fms max=%.2fms seg=%s" % [int(max_v), perf_acc / perf_n * 1000.0, perf_max * 1000.0, world.segment_at(world.v_of(car.position)).get("kind", "")])
-			perf_acc = 0.0
-			perf_n = 0
-			perf_max = 0.0
-	if args.has("trace") and frames == 5:
-		var segs := []
-		for sg in world.segments:
-			segs.append("%s/%s@%d-%d" % [sg["type"], sg.get("kind", ""), int(sg["v0"]), int(sg["v1"])])
-		print("SEGS ", segs, " forced=", world.forced_v, " mounds=", world.pools["mound"].used(), " cells=", world.bump_cells.size())
-	if args.has("trace") and state == RUN and frames % 6 == 0:
-		var cv := world.v_of(car.position)
-		print("TR t=%.2f v=%.1f u=%.2f spd=%.2f yaw=%.2f drift=%.2f gr=%s steer=%.2f g=%.2f stuck=%.2f" % [run_t, cv, world.u_of(car.position) - world.center(cv), car.speed(), car.yaw, car.drift, car.grounded, car.steer, world.ground_at(car.position), car.stuck_t])
-	if args.has("auto") and state == RUN and car.fuel > 0.0:
-		slow_t = slow_t + get_process_delta_time() if car.speed() < 2.0 else 0.0
-		slow_max = maxf(slow_max, slow_t)
-	if args.has("shot"):
-		var at := int(args.get("frames", "90"))
-		if frames == at:
-			var img := get_viewport().get_texture().get_image()
-			img.save_png(String(args["shot"]))
-			print("shot saved ", args["shot"], " hour=", atmos.hour, " night=", atmos.night, " state=", state, " v=", world.v_of(car.position), " tiles=", world.tiles.size(), " fuel=", car.fuel)
-			if not args.has("keep"):
-				get_tree().quit()
-	if args.has("quit_after") and (run_t > float(args["quit_after"]) or (state == OVER and ui.over.visible)):
-		print("RESULT t=%.1f dist=%d style=%d coins=%d dead=%s why=%s state=%d tiles=%d walls=%d stuck=%.2f" % [run_t, int(max_v), style, run_coins, car.dead, death, state, world.tiles.size(), wall_hits, slow_max])
-		get_tree().quit()
-	if args.has("over") and frames == 40 and state == RUN:
-		max_v = 412.0
-		style = 286
-		run_coins = 23
-		save.data["best"] = 600
-		_finish_run(String(args["over"]))
-	if args.has("coins") and frames == 2:
-		save.data["coins"] = int(args["coins"])
-		ui.refresh_title()
-	if args.has("open") and frames == 3:
-		match String(args["open"]):
-			"missions": ui.open_missions()
-			"settings": ui.open_settings()
-			"daily": ui.open_daily()
-			"trophies":
-				for id in ["first_run", "d500", "plank1", "drift3", "coins500"]:
-					save.data["ach"][id] = true
-				save.data["stats"]["max_dist"] = 812
-				save.data["stats"]["distance"] = 6400
-				save.data["stats"]["chases"] = 2
-				ui.open_achievements()
-			"pause":
-				pause()
-	if args.has("auto") and state == OVER and args.has("loops"):
-		if frames % 60 == 0:
-			var left := int(args["loops"]) - 1
-			args["loops"] = str(left)
-			print("RUN-END dist=%d style=%d coins=%d why=%s t=%.1f" % [int(max_v), style, run_coins, death, run_t])
-			if left <= 0:
-				get_tree().quit()
-			else:
-				ui.hide_over()
-				_new_world(_random_seed() + frames, false)
-				_start_run()
+## Follows the roads: aims at a point ahead on the nearest road, lifts for bends, now and then drifts.
+func _autopilot(dt: float) -> void:
+	var p := car.global_position
+	var fwd := -car.global_transform.basis.z
+	if auto.is_empty() or frames % 20 == 0:
+		var bd := 1e18
+		for ri in island.roads.size():
+			var r: Dictionary = island.roads[ri]
+			if r["kind"] == "dirt" and ri % 2 == 0:
+				continue
+			var pts: PackedVector2Array = r["pts"]
+			for k in range(0, pts.size(), 2):
+				var d := pts[k].distance_squared_to(Vector2(p.x, p.z))
+				if d < bd:
+					bd = d
+					auto = {"r": ri, "k": k}
+	var r2: Dictionary = island.roads[auto["r"]]
+	var pts2: PackedVector2Array = r2["pts"]
+	var n := pts2.size()
+	var t: Vector2 = island._tangent(pts2, auto["k"], r2["closed"])
+	var dirn := 1 if t.dot(Vector2(fwd.x, fwd.z)) >= 0.0 else -1
+	var look := int(clampf(car.speed * 0.7, 6.0, 16.0))
+	var k2: int = auto["k"] + dirn * look
+	if r2["closed"]:
+		k2 = posmod(k2, n)
+	k2 = clampi(k2, 0, n - 1)
+	if not r2["closed"] and (k2 == 0 or k2 == n - 1) and Vector2(p.x, p.z).distance_to(pts2[k2]) < 12.0:
+		# end of the road: turn around on the spot (well, three points)
+		auto["k"] = clampi(auto["k"] - dirn * 4, 0, n - 1)
+	var aim := pts2[k2]
+	var to := Vector3(aim.x - p.x, 0, aim.y - p.z)
+	var ang := fwd.signed_angle_to(to.normalized(), Vector3.UP)
+	car.steer_in = clampf(-ang * 2.2, -1.0, 1.0)
+	var ahead: int = posmod(auto["k"] + dirn * 24, n) if r2["closed"] else clampi(auto["k"] + dirn * 24, 0, n - 1)
+	var t2: Vector2 = island._tangent(pts2, ahead, r2["closed"])
+	var bend := absf(t.angle_to(t2))
+	var vmax := lerpf(30.0, 11.0, clampf(bend / 1.2, 0.0, 1.0))
+	car.throttle = 1.0 if car.speed < vmax else 0.0
+	car.brake = 1.0 if car.speed > vmax + 5.0 else 0.0
+	car.handbrake = 1.0 if (bend > 0.6 and car.speed > 14.0 and int(time) % 7 < 3) else 0.0

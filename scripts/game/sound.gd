@@ -227,6 +227,12 @@ func tick(dt: float, v: Dictionary) -> void:
 		target = R[0] * (1.0 + 0.025 * sin(_t * 9.0))
 	elif v.get("empty", false):
 		target = lerpf(R[0], R[1], clampf(k, 0.0, 1.0))
+	elif v.has("rpm_k"):
+		# the car's own gearbox says where the needle is
+		var rk: float = v["rpm_k"]
+		target = lerpf(R[1] * 0.9, R[3] * 1.02, rk) * (1.0 + float(v.get("drift", 0.0)) * 0.05)
+		if not grounded:
+			target = maxf(target, R[3] * 0.85 * float(v.get("throttle", 0.0)))
 	elif not grounded:
 		target = R[3] * 0.9
 	else:

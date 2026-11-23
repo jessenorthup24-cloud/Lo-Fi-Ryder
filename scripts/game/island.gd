@@ -1,0 +1,1029 @@
+extends Node3D
+## The island: one whole little world, built from code and the Kenney kits, the same every time you play.
+## A town with a downtown and a plaza, a suburb, a castle on a hill, a forest lake, farms, a drift arena,
+## a harbour, a beach with a pier, all joined by a ring road. Terrain is a heightfield (2.5 m grid) that the
+## roads cut into; everything that never moves is merged into one mesh per 100 m chunk.
+
+const M := preload("res://scripts/core/models.gd")
+const MB := preload("res://scripts/core/mesh_builder.gd")
+const P := preload("res://scripts/core/palette.gd")
+const Pool := preload("res://scripts/game/pool.gd")
+const People := preload("res://scripts/game/people.gd")
+const Districts := preload("res://scripts/game/districts.gd")
+
+const HALF := 600.0          # the world spans -HALF..HALF on x and z
+const CELL := 2.5
+const N := 481               # height samples per side
+const CHUNK := 100.0         # static props merge per chunk
+const TCHUNK := 30           # terrain chunk, in cells (75 m)
+const ROAD_LIFT := 0.035     # road surface above the ground
+const MAP_LAYER := 1 << 19   # minimap-only meshes
+
+enum { S_GRASS, S_ASPHALT, S_CONCRETE, S_DIRT, S_SAND, S_COBBLE, S_FIELD, S_WOOD, S_FOREST }
+const GRIP := [0.78, 1.0, 0.97, 0.82, 0.66, 0.93, 0.74, 0.95, 0.76]
+const ROLL := ["grass", "road", "road", "gravel", "gravel", "road", "grass", "wood", "grass"]
+const SURF_NAMES := ["grass", "asphalt", "concrete", "dirt", "sand", "cobble", "field", "wood", "forest"]
+
+var noise := FastNoiseLite.new()
+var noise2 := FastNoiseLite.new()
+var rng := RandomNumberGenerator.new()
+var heights := PackedFloat32Array()
+var surf := PackedByteArray()
+var blocked := PackedByteArray()   # roads, lots and buildings: no scattering here
+var roads: Array = []
+var lots: Array = []
+var flats: Array = []              # [center, half size (Vector2), blend] areas kept flat
+var raises: Array = []      # [centre, half size, height, falloff]: ground built up level (the harbour quay)
+var season := 1
+var mat: ShaderMaterial
+var road_mat: ShaderMaterial
+var water_mat: ShaderMaterial
+var body: StaticBody3D
+var shapes := {}                   # cached Shape3D by key
+var statics := {}                  # Vector2i chunk -> {mesh name: [Transform3D]}
+var far_statics := {}              # landmarks seen from anywhere: mesh name -> [Transform3D]
+var pools := {}
+var breakables: Array = []         # {pool, slot, pos, yaw, sc, r, kind, home, state, t}
+var bgrid := {}                    # Vector2i (10 m) -> [breakable]
+var anims: Array = []
+var people: People
+var map_root: Node3D
+var zones: Array = []              # drift zones {id, name, pos, r, gold...}
+var trials: Array = []             # time trials {id, name, gates: [Transform3D], ...}
+var coin_spots: Array = []         # {id, pos}
+var places: Array = []             # named areas {name, pos, r}
+var spawn := Transform3D()
+var sea_y := 0.0
+var time := 0.0
+var coast_r := PackedFloat32Array()   # coast radius per degree
+
+func build(material: ShaderMaterial, s: int) -> void:
+	mat = material
+	season = s
+	rng.seed = 7
+	noise.seed = 11
+	noise.frequency = 1.0 / 140.0
+	noise.fractal_octaves = 3
+	noise2.seed = 23
+	noise2.frequency = 1.0 / 37.0
+	road_mat = mat.duplicate()
+	road_mat.set_shader_parameter("depth_bias", 0.0005)
+	var steps := [["water", _water], ["coast", _coast], ["plan", func(): Districts.plan(self)], ["heights", _heights],
+		["roads", _cut_roads], ["surfaces", _surfaces], ["terrain", _terrain], ["road meshes", _road_meshes], ["lots", _lot_meshes],
+		["bodies", _bodies], ["map", _map_meshes], ["populate", func(): Districts.populate(self)], ["scatter", func(): Districts.scatter(self)],
+		["merge", _merge_statics], ["decals", _decal_mesh]]
+	for st in steps:
+		var t0 := Time.get_ticks_usec()
+		(st[1] as Callable).call()
+		timings[st[0]] = (Time.get_ticks_usec() - t0) / 1000
+
+var timings := {}
+
+func _bodies() -> void:
+	body = StaticBody3D.new()
+	body.name = "Statics"
+	add_child(body)
+	_ground_collider()
+	people = People.new()
+	people.name = "People"
+	add_child(people)
+	people.setup(self, mat)
+	map_root = Node3D.new()
+	map_root.name = "Map"
+	add_child(map_root)
+
+func _decal_mesh() -> void:
+	var dm := MeshInstance3D.new()
+	dm.mesh = decals.commit()
+	dm.material_override = road_mat
+	dm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	dm.name = "Decals"
+	add_child(dm)
+
+# ---------------------------------------------------------------- shape of the land
+
+func _coast() -> void:
+	coast_r.resize(360)
+	for d in 360:
+		var a := deg_to_rad(float(d))
+		var r := 470.0
+		r -= 48.0 * _bump(a, PI * 0.5, 0.9)      # the bay in the south: the beach
+		r += 34.0 * _bump(a, -PI * 0.25, 0.7)    # the forest bulges out north-east
+		r += 18.0 * sin(3.0 * a + 1.0) + 10.0 * sin(7.0 * a + 2.0) + 5.0 * sin(13.0 * a)
+		coast_r[d] = r
+
+func _bump(a: float, c: float, w: float) -> float:
+	var d := absf(wrapf(a - c, -PI, PI))
+	return clampf(1.0 - d / w, 0.0, 1.0) ** 2 * (3.0 - 2.0 * clampf(1.0 - d / w, 0.0, 1.0))
+
+## How far inland a point is (negative: out at sea).
+func inland(x: float, z: float) -> float:
+	var a := atan2(z, x)
+	var f := fposmod(rad_to_deg(a), 360.0)
+	var i := int(f)
+	var r := lerpf(coast_r[i], coast_r[(i + 1) % 360], f - i)
+	return r - sqrt(x * x + z * z)
+
+## The raw land height before roads cut in.
+func h0(x: float, z: float) -> float:
+	var d := inland(x, z)
+	var shore := smoothstep(-55.0, 38.0, d)
+	var h := lerpf(-7.0, 1.3, shore)
+	var land := smoothstep(0.0, 70.0, d)
+	var hill := 0.0
+	# castle hill
+	var cd := Vector2(x + 30.0, z + 390.0).length()
+	hill += 38.0 * (1.0 - smoothstep(52.0, 178.0, cd)) * (1.0 + noise2.get_noise_2d(x, z) * 0.06 * smoothstep(55.0, 90.0, cd))
+	# forest hills around the lake
+	var fd := Vector2(x - 285.0, z + 255.0).length()
+	var fm := 1.0 - smoothstep(120.0, 230.0, fd)
+	hill += fm * (7.0 + 9.0 * noise.get_noise_2d(x, z)) * smoothstep(40.0, 80.0, fd)
+	# gentle rolls everywhere else
+	hill += 1.6 * noise.get_noise_2d(x * 1.7 + 300.0, z * 1.7) + 0.6
+	var flat := 0.0
+	for f in flats:
+		var c: Vector2 = f[0]
+		var hs: Vector2 = f[1]
+		var q := Vector2(absf(x - c.x) - hs.x, absf(z - c.y) - hs.y)
+		var dd := Vector2(maxf(q.x, 0.0), maxf(q.y, 0.0)).length() + minf(maxf(q.x, q.y), 0.0)
+		flat = maxf(flat, 1.0 - smoothstep(0.0, float(f[2]), dd))
+	h += maxf(hill, 0.0) * land * (1.0 - flat * 0.92)
+	# the lake
+	var ld := Vector2(x - 285.0, z + 255.0).length()
+	h -= 9.5 * (1.0 - smoothstep(26.0, 52.0, ld))
+	for r in raises:
+		var rc: Vector2 = r[0]
+		var rh: Vector2 = r[1]
+		var rq := Vector2(absf(x - rc.x) - rh.x, absf(z - rc.y) - rh.y)
+		var rd := Vector2(maxf(rq.x, 0.0), maxf(rq.y, 0.0)).length() + minf(maxf(rq.x, rq.y), 0.0)
+		if rd < float(r[3]):
+			h = lerpf(h, float(r[2]), 1.0 - smoothstep(0.0, float(r[3]), rd))
+	return h
+
+func _heights() -> void:
+	# the land is smooth, so sample it every 5 m and fill in between
+	var n2 := (N - 1) / 2 + 1
+	var coarse := PackedFloat32Array()
+	coarse.resize(n2 * n2)
+	for j in n2:
+		var z := -HALF + j * CELL * 2.0
+		for i in n2:
+			coarse[j * n2 + i] = h0(-HALF + i * CELL * 2.0, z)
+	heights.resize(N * N)
+	for j in N:
+		var j0 := j / 2
+		var j1 := mini(j0 + 1, n2 - 1)
+		var fz := 0.5 if j % 2 == 1 else 0.0
+		for i in N:
+			var i0 := i / 2
+			var i1 := mini(i0 + 1, n2 - 1)
+			var fx := 0.5 if i % 2 == 1 else 0.0
+			var a := coarse[j0 * n2 + i0]
+			var b := coarse[j0 * n2 + i1]
+			var c := coarse[j1 * n2 + i0]
+			var d := coarse[j1 * n2 + i1]
+			heights[j * N + i] = lerpf(lerpf(a, b, fx), lerpf(c, d, fx), fz)
+
+## Ground height (bilinear over the grid, like the collision).
+func height_at(x: float, z: float) -> float:
+	var fx := clampf((x + HALF) / CELL, 0.0, N - 1.001)
+	var fz := clampf((z + HALF) / CELL, 0.0, N - 1.001)
+	var i := int(fx)
+	var j := int(fz)
+	var tx := fx - i
+	var tz := fz - j
+	var a := heights[j * N + i]
+	var b := heights[j * N + i + 1]
+	var c := heights[(j + 1) * N + i]
+	var d := heights[(j + 1) * N + i + 1]
+	# the same diagonal split as the mesh and the collision
+	if tx + tz <= 1.0:
+		return a + (b - a) * tx + (c - a) * tz
+	return d + (c - d) * (1.0 - tx) + (b - d) * (1.0 - tz)
+
+func normal_at(x: float, z: float) -> Vector3:
+	var e := CELL
+	return Vector3(height_at(x - e, z) - height_at(x + e, z), 2.0 * e, height_at(x, z - e) - height_at(x, z + e)).normalized()
+
+func surface_at(x: float, z: float) -> int:
+	var i := clampi(int(round((x + HALF) / CELL)), 0, N - 1)
+	var j := clampi(int(round((z + HALF) / CELL)), 0, N - 1)
+	return surf[j * N + i]
+
+func grip_at(x: float, z: float) -> float:
+	return GRIP[surface_at(x, z)]
+
+func _cell(x: float, z: float) -> int:
+	var i := clampi(int(round((x + HALF) / CELL)), 0, N - 1)
+	var j := clampi(int(round((z + HALF) / CELL)), 0, N - 1)
+	return j * N + i
+
+func is_blocked(x: float, z: float) -> bool:
+	return blocked[_cell(x, z)] != 0
+
+func block_rect(c: Vector2, hs: Vector2, yaw := 0.0, pad := 1.0) -> void:
+	var r := hs.length() + pad
+	var bs := Basis(Vector3.UP, -yaw)
+	var i0 := int((c.x - r + HALF) / CELL)
+	var i1 := int((c.x + r + HALF) / CELL) + 1
+	var j0 := int((c.y - r + HALF) / CELL)
+	var j1 := int((c.y + r + HALF) / CELL) + 1
+	for j in range(maxi(j0, 0), mini(j1, N - 1) + 1):
+		for i in range(maxi(i0, 0), mini(i1, N - 1) + 1):
+			var p := Vector3(-HALF + i * CELL - c.x, 0, -HALF + j * CELL - c.y)
+			var l := bs * p
+			if absf(l.x) <= hs.x + pad and absf(l.z) <= hs.y + pad:
+				blocked[j * N + i] = 1
+
+func is_free(c: Vector2, hs: Vector2, yaw := 0.0) -> bool:
+	var bs := Basis(Vector3.UP, yaw)
+	for p in [Vector3(-hs.x, 0, -hs.y), Vector3(hs.x, 0, -hs.y), Vector3(-hs.x, 0, hs.y), Vector3(hs.x, 0, hs.y), Vector3.ZERO,
+			Vector3(0, 0, -hs.y), Vector3(0, 0, hs.y), Vector3(-hs.x, 0, 0), Vector3(hs.x, 0, 0)]:
+		var w: Vector3 = bs * p
+		if is_blocked(c.x + w.x, c.y + w.z):
+			return false
+	return true
+
+# ---------------------------------------------------------------- roads
+
+## kind: ring, main, street, lane, mountain, dirt. Points are xz control points; the road is a
+## Catmull-Rom spline through them, sampled every 2.5 m.
+func add_road(name: String, ctrl: Array, kind: String, closed := false) -> Dictionary:
+	var w: float = {"ring": 12.0, "main": 12.0, "road": 11.0, "street": 10.0, "lane": 8.0, "mountain": 9.0, "dirt": 6.5}[kind]
+	var pts := _spline(ctrl, closed)
+	var r := {"name": name, "pts": pts, "y": PackedFloat32Array(), "w": w, "kind": kind, "closed": closed,
+		"walk": kind == "street" or kind == "main", "surf": S_DIRT if kind == "dirt" else S_ASPHALT}
+	roads.append(r)
+	return r
+
+func _spline(ctrl: Array, closed: bool) -> PackedVector2Array:
+	var dense := PackedVector2Array()
+	var n := ctrl.size()
+	var segs := n if closed else n - 1
+	for s in segs:
+		var p0: Vector2 = ctrl[(s - 1 + n) % n] if (closed or s > 0) else ctrl[0] * 2.0 - ctrl[1]
+		var p1: Vector2 = ctrl[s]
+		var p2: Vector2 = ctrl[(s + 1) % n]
+		var p3: Vector2 = ctrl[(s + 2) % n] if (closed or s + 2 < n) else p2 * 2.0 - p1
+		var steps := maxi(2, int(p1.distance_to(p2) / 1.0))
+		for k in steps:
+			var t := float(k) / steps
+			# centripetal-ish: plain Catmull-Rom is fine with even control points
+			var t2 := t * t
+			var t3 := t2 * t
+			dense.append(0.5 * ((2.0 * p1) + (-p0 + p2) * t + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3))
+	if not closed:
+		dense.append(ctrl[n - 1])
+	# even spacing
+	var out := PackedVector2Array()
+	out.append(dense[0])
+	var acc := 0.0
+	for k in range(1, dense.size()):
+		var a := dense[k - 1]
+		var b := dense[k]
+		var l := a.distance_to(b)
+		while acc + l >= CELL:
+			var t := (CELL - acc) / l
+			a = a.lerp(b, t)
+			l = a.distance_to(b)
+			out.append(a)
+			acc = 0.0
+		acc += l
+	if not closed and out[out.size() - 1].distance_to(dense[dense.size() - 1]) > 0.5:
+		out.append(dense[dense.size() - 1])
+	return out
+
+func _cut_roads() -> void:
+	# each road's height: the land under it, smoothed so slopes stay drivable
+	for r in roads:
+		var pts: PackedVector2Array = r["pts"]
+		var n := pts.size()
+		var y := PackedFloat32Array()
+		y.resize(n)
+		for k in n:
+			y[k] = height_at(pts[k].x, pts[k].y)
+		for pass_i in 3:
+			var y2 := y.duplicate()
+			for k in n:
+				var s := 0.0
+				var c := 0
+				for o in range(-6, 7):
+					var kk := k + o
+					if r["closed"]:
+						kk = posmod(kk, n)
+					elif kk < 0 or kk >= n:
+						continue
+					s += y[kk]
+					c += 1
+				y2[k] = s / c
+			y = y2
+		r["y"] = y
+	# cut and fill: the ground meets the road flat across, blending out over the verge
+	var best_d := PackedFloat32Array()
+	best_d.resize(N * N)
+	best_d.fill(1e9)
+	var best_y := PackedFloat32Array()
+	best_y.resize(N * N)
+	var best_w := PackedFloat32Array()
+	best_w.resize(N * N)
+	for r in roads:
+		var pts: PackedVector2Array = r["pts"]
+		var ys: PackedFloat32Array = r["y"]
+		var core: float = r["w"] * 0.5 + (3.5 if r["walk"] else 1.2)
+		var reach := core + 9.0
+		var n := pts.size()
+		var segs := n if r["closed"] else n - 1
+		for k in segs:
+			var a := pts[k]
+			var b := pts[(k + 1) % n]
+			var ya := ys[k]
+			var yb := ys[(k + 1) % n]
+			var ab := b - a
+			var ll := ab.length_squared()
+			var i0 := maxi(int((minf(a.x, b.x) - reach + HALF) / CELL), 0)
+			var i1 := mini(int((maxf(a.x, b.x) + reach + HALF) / CELL) + 1, N - 1)
+			var j0 := maxi(int((minf(a.y, b.y) - reach + HALF) / CELL), 0)
+			var j1 := mini(int((maxf(a.y, b.y) + reach + HALF) / CELL) + 1, N - 1)
+			for j in range(j0, j1 + 1):
+				var pz := -HALF + j * CELL
+				for i in range(i0, i1 + 1):
+					var px := -HALF + i * CELL
+					var t := clampf(((px - a.x) * ab.x + (pz - a.y) * ab.y) / maxf(ll, 0.0001), 0.0, 1.0)
+					var qx := a.x + ab.x * t - px
+					var qz := a.y + ab.y * t - pz
+					var d := sqrt(qx * qx + qz * qz)
+					var idx := j * N + i
+					if d < reach and d < best_d[idx]:
+						best_d[idx] = d
+						best_y[idx] = lerpf(ya, yb, t)
+						best_w[idx] = 1.0 if d <= core else smoothstep(reach, core, d)
+	for idx in N * N:
+		if best_d[idx] < 1e8:
+			heights[idx] = lerpf(heights[idx], best_y[idx], best_w[idx])
+	# roads follow the cut ground exactly
+	for r in roads:
+		var pts: PackedVector2Array = r["pts"]
+		var ys: PackedFloat32Array = r["y"]
+		for k in pts.size():
+			ys[k] = height_at(pts[k].x, pts[k].y)
+		r["y"] = ys
+
+func _surfaces() -> void:
+	surf.resize(N * N)
+	blocked.resize(N * N)
+	for j in N:
+		var z := -HALF + j * CELL
+		for i in N:
+			var x := -HALF + i * CELL
+			var h := heights[j * N + i]
+			var s := S_GRASS
+			if h < 2.1 and inland(x, z) < 75.0:
+				s = S_SAND
+			elif Vector2(x - 285.0, z + 255.0).length() < 230.0 and h > 2.5:
+				s = S_FOREST
+			surf[j * N + i] = s
+	for l in lots:
+		_paint_rect(l["c"], l["hs"], l.get("yaw", 0.0), l["surf"], true)
+	for f in Districts.fields(self):
+		_paint_rect(f["c"], f["hs"], f.get("yaw", 0.0), S_FIELD, false)
+	for r in roads:
+		var pts: PackedVector2Array = r["pts"]
+		var hw: float = r["w"] * 0.5
+		var walk: bool = r["walk"]
+		for k in pts.size():
+			var p := pts[k]
+			var rr := hw + (3.0 if walk else 0.0) + 0.6
+			for j in range(int((p.y - rr + HALF) / CELL), int((p.y + rr + HALF) / CELL) + 2):
+				for i in range(int((p.x - rr + HALF) / CELL), int((p.x + rr + HALF) / CELL) + 2):
+					if i < 0 or j < 0 or i >= N or j >= N:
+						continue
+					var d := Vector2(-HALF + i * CELL, -HALF + j * CELL).distance_to(p)
+					var idx := j * N + i
+					if d <= hw + 0.6:
+						surf[idx] = r["surf"]
+					elif walk and d <= hw + 3.2 and surf[idx] != S_ASPHALT:
+						surf[idx] = S_CONCRETE
+					if d <= rr:
+						blocked[idx] = 1
+
+func _paint_rect(c: Vector2, hs: Vector2, yaw: float, s: int, block: bool) -> void:
+	var r := hs.length()
+	var bs := Basis(Vector3.UP, -yaw)
+	for j in range(maxi(int((c.y - r + HALF) / CELL), 0), mini(int((c.y + r + HALF) / CELL) + 2, N)):
+		for i in range(maxi(int((c.x - r + HALF) / CELL), 0), mini(int((c.x + r + HALF) / CELL) + 2, N)):
+			var l := bs * Vector3(-HALF + i * CELL - c.x, 0, -HALF + j * CELL - c.y)
+			if absf(l.x) <= hs.x and absf(l.z) <= hs.y:
+				surf[j * N + i] = s
+				if block:
+					blocked[j * N + i] = 1
+
+## A paved (or sandy, or wooden) area: flat, drawn just above the ground.
+func add_lot(c: Vector2, hs: Vector2, s: int, yaw := 0.0, flatten := true) -> void:
+	lots.append({"c": c, "hs": hs, "surf": s, "yaw": yaw})
+	if flatten:
+		flats.append([c, hs + Vector2(2, 2), 22.0])
+
+# ---------------------------------------------------------------- meshes
+
+func _slot_col(slot: int) -> Color:
+	return MB.pal(slot)
+
+func _ground_slot(idx: int, x: float, z: float, slope: float) -> int:
+	var s := surf[idx]
+	var h := heights[idx]
+	if h < -0.15:
+		return P.SAND
+	if slope > 0.55:
+		return P.ROCK
+	match s:
+		S_SAND:
+			return P.SAND
+		S_FIELD:
+			return P.CROP if int(floor((x + z * 0.15) / 3.2)) % 2 == 0 else P.SOIL
+		S_DIRT:
+			return P.DIRT
+		S_FOREST:
+			return P.GRASS_FOREST
+		S_CONCRETE, S_ASPHALT, S_COBBLE:
+			return P.GRASS
+	if slope > 0.34:
+		return P.MOSS
+	return P.GRASS
+
+func _terrain() -> void:
+	var chunks := (N - 1) / TCHUNK
+	var cols := PackedColorArray()
+	cols.resize(N * N)
+	var nrm := PackedVector3Array()
+	nrm.resize(N * N)
+	for j in N:
+		for i in N:
+			var idx := j * N + i
+			var hl := heights[j * N + maxi(i - 1, 0)]
+			var hr := heights[j * N + mini(i + 1, N - 1)]
+			var hu := heights[maxi(j - 1, 0) * N + i]
+			var hd := heights[mini(j + 1, N - 1) * N + i]
+			var n := Vector3(hl - hr, 2.0 * CELL, hu - hd).normalized()
+			nrm[idx] = n
+			var x := -HALF + i * CELL
+			var z := -HALF + j * CELL
+			cols[idx] = _slot_col(_ground_slot(idx, x, z, 1.0 - n.y + (1.0 - n.y)))
+	for cj in chunks:
+		for ci in chunks:
+			var lo := 1e9
+			var hi := -1e9
+			for j in range(cj * TCHUNK, cj * TCHUNK + TCHUNK + 1):
+				for i in range(ci * TCHUNK, ci * TCHUNK + TCHUNK + 1):
+					lo = minf(lo, heights[j * N + i])
+					hi = maxf(hi, heights[j * N + i])
+			if hi < -3.0:
+				continue
+			var vv := PackedVector3Array()
+			var nn := PackedVector3Array()
+			var cc := PackedColorArray()
+			var ii := PackedInt32Array()
+			var w := TCHUNK + 1
+			for j in range(cj * TCHUNK, cj * TCHUNK + w):
+				for i in range(ci * TCHUNK, ci * TCHUNK + w):
+					var idx := j * N + i
+					vv.append(Vector3(-HALF + i * CELL, heights[idx], -HALF + j * CELL))
+					nn.append(nrm[idx])
+					cc.append(cols[idx])
+			for j in TCHUNK:
+				for i in TCHUNK:
+					var a := j * w + i
+					# a b / c d, split along b-c (matches height_at)
+					ii.append_array([a, a + 1, a + w, a + 1, a + w + 1, a + w])
+			var arr := []
+			arr.resize(Mesh.ARRAY_MAX)
+			arr[Mesh.ARRAY_VERTEX] = vv
+			arr[Mesh.ARRAY_NORMAL] = nn
+			arr[Mesh.ARRAY_COLOR] = cc
+			arr[Mesh.ARRAY_INDEX] = ii
+			var m := ArrayMesh.new()
+			m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			var mi := MeshInstance3D.new()
+			mi.mesh = m
+			mi.material_override = mat
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF if hi - lo < 6.0 else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+			mi.name = "Ground_%d_%d" % [ci, cj]
+			add_child(mi)
+
+func _water() -> void:
+	water_mat = ShaderMaterial.new()
+	water_mat.shader = load("res://shaders/sea.gdshader")
+	var sea := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(5000, 5000)
+	pm.subdivide_width = 0
+	sea.mesh = pm
+	sea.material_override = water_mat
+	sea.position.y = sea_y
+	sea.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	sea.name = "Sea"
+	add_child(sea)
+
+## Ribbon meshes for every road, split by chunk, with kerbs-free sidewalks and painted lines.
+func _road_meshes() -> void:
+	var by_chunk := {}
+	var junction_pts := _junctions()
+	for r in roads:
+		var pts: PackedVector2Array = r["pts"]
+		var ys: PackedFloat32Array = r["y"]
+		var n := pts.size()
+		var hw: float = r["w"] * 0.5
+		var kind: String = r["kind"]
+		var col: Color = _slot_col(P.ASPHALT_DK)
+		if kind == "dirt":
+			col = _slot_col(P.DIRT)
+		var line_w := MB.rgb("f4f1e8")
+		var line_y := MB.rgb("f6c64a")
+		var segs := n if r["closed"] else n - 1
+		for k in segs:
+			var a := pts[k]
+			var b := pts[(k + 1) % n]
+			var ya := ys[k] + ROAD_LIFT
+			var yb := ys[(k + 1) % n] + ROAD_LIFT
+			var ta := _tangent(pts, k, r["closed"])
+			var tb := _tangent(pts, (k + 1) % n, r["closed"])
+			var na := Vector2(-ta.y, ta.x)
+			var nb := Vector2(-tb.y, tb.x)
+			var key := Vector2i(int(floor(a.x / CHUNK)), int(floor(a.y / CHUNK)))
+			if not by_chunk.has(key):
+				by_chunk[key] = MB.new()
+			var mb: MB = by_chunk[key]
+			var up := Vector3.UP
+			var pa := Vector3(a.x, ya, a.y)
+			var pb := Vector3(b.x, yb, b.y)
+			var la := Vector3(na.x, 0, na.y)
+			var lb := Vector3(nb.x, 0, nb.y)
+			mb.quad(pa - la * hw, pb - lb * hw, pb + lb * hw, pa + la * hw, up, col)
+			if r["walk"]:
+				var sw := _slot_col(P.CONCRETE)
+				for sd in [-1.0, 1.0]:
+					var i0: float = hw * sd
+					var o0: float = (hw + 3.0) * sd
+					var p1 := pa + la * i0 + Vector3(0, 0.04, 0)
+					var p2 := pb + lb * i0 + Vector3(0, 0.04, 0)
+					var p3 := pb + lb * o0 + Vector3(0, 0.04, 0)
+					var p4 := pa + la * o0 + Vector3(0, 0.04, 0)
+					if sd > 0:
+						mb.quad(p1, p2, p3, p4, up, sw)
+					else:
+						mb.quad(p4, p3, p2, p1, up, sw)
+			if kind == "dirt":
+				continue
+			var near_j := false
+			for jp in junction_pts:
+				if (jp as Vector2).distance_squared_to(a) < 196.0:
+					near_j = true
+					break
+			if near_j:
+				continue
+			var lift := Vector3(0, 0.015, 0)
+			# centre line: dashed (solid yellow on the mountain)
+			var dash := kind == "mountain" or (k / 2) % 3 != 0
+			if kind != "lane" and dash:
+				var cw := 0.13
+				var cc: Color = line_y if kind in ["ring", "mountain", "main", "road"] else line_w
+				mb.quad(pa - la * cw + lift, pb - lb * cw + lift, pb + lb * cw + lift, pa + la * cw + lift, up, cc)
+			if kind in ["ring", "mountain", "main", "road"]:
+				for sd in [-1.0, 1.0]:
+					var e0: float = (hw - 0.55) * sd
+					var e1: float = (hw - 0.35) * sd
+					var q1 := pa + la * e0 + lift
+					var q2 := pb + lb * e0 + lift
+					var q3 := pb + lb * e1 + lift
+					var q4 := pa + la * e1 + lift
+					if sd > 0:
+						mb.quad(q1, q2, q3, q4, up, line_w)
+					else:
+						mb.quad(q4, q3, q2, q1, up, line_w)
+	for key in by_chunk:
+		var mb: MB = by_chunk[key]
+		var mi := MeshInstance3D.new()
+		mi.mesh = mb.commit()
+		mi.material_override = road_mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.name = "Road_%d_%d" % [key.x, key.y]
+		add_child(mi)
+
+func _tangent(pts: PackedVector2Array, k: int, closed: bool) -> Vector2:
+	var n := pts.size()
+	var a := pts[posmod(k - 1, n)] if (closed or k > 0) else pts[k]
+	var b := pts[(k + 1) % n] if (closed or k < n - 1) else pts[k]
+	return (b - a).normalized()
+
+## Points where two roads meet (no painted lines there).
+func _junctions() -> Array:
+	var out := []
+	for ri in roads.size():
+		var r: Dictionary = roads[ri]
+		var pts: PackedVector2Array = r["pts"]
+		for k in range(0, pts.size(), 2):
+			var p := pts[k]
+			for rj in roads.size():
+				if rj == ri:
+					continue
+				var o: Dictionary = roads[rj]
+				var lim: float = (float(o["w"]) * 0.5 + 1.0)
+				var op: PackedVector2Array = o["pts"]
+				for m in range(0, op.size(), 2):
+					if op[m].distance_squared_to(p) < lim * lim:
+						out.append(p)
+						break
+	return out
+
+func _lot_meshes() -> void:
+	var mb := MB.new()
+	for l in lots:
+		var c: Vector2 = l["c"]
+		var hs: Vector2 = l["hs"]
+		var yaw: float = l.get("yaw", 0.0)
+		var slot: int = {S_ASPHALT: P.ASPHALT_DK, S_CONCRETE: P.CONCRETE, S_COBBLE: P.COBBLE, S_DIRT: P.DIRT, S_SAND: P.SAND,
+			S_WOOD: P.PLANK}.get(int(l["surf"]), P.CONCRETE)
+		var bs := Basis(Vector3.UP, yaw)
+		# a grid of quads that follows the ground
+		var nx := maxi(1, int(hs.x * 2.0 / 5.0))
+		var nz := maxi(1, int(hs.y * 2.0 / 5.0))
+		for j in nz:
+			for i in nx:
+				var corners := []
+				for o in [Vector2(i, j), Vector2(i + 1, j), Vector2(i + 1, j + 1), Vector2(i, j + 1)]:
+					var lp := Vector3(-hs.x + o.x * hs.x * 2.0 / nx, 0, -hs.y + o.y * hs.y * 2.0 / nz)
+					var wp := bs * lp + Vector3(c.x, 0, c.y)
+					wp.y = height_at(wp.x, wp.z) + ROAD_LIFT * 1.5
+					corners.append(wp)
+				mb.quad(corners[3], corners[2], corners[1], corners[0], Vector3.UP, _slot_col(slot))
+	var mi := MeshInstance3D.new()
+	mi.mesh = mb.commit()
+	mi.material_override = road_mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.name = "Lots"
+	add_child(mi)
+
+# ---------------------------------------------------------------- collision
+
+func _ground_collider() -> void:
+	var hm := HeightMapShape3D.new()
+	hm.map_width = N
+	hm.map_depth = N
+	var data := PackedFloat32Array()
+	data.resize(N * N)
+	for k in N * N:
+		data[k] = heights[k] / CELL
+	hm.map_data = data
+	var cs := CollisionShape3D.new()
+	cs.shape = hm
+	cs.scale = Vector3.ONE * CELL
+	cs.name = "Ground"
+	body.add_child(cs)
+
+func _shape_box(size: Vector3) -> BoxShape3D:
+	var key := "b%.1f_%.1f_%.1f" % [size.x, size.y, size.z]
+	if not shapes.has(key):
+		var b := BoxShape3D.new()
+		b.size = size
+		shapes[key] = b
+	return shapes[key]
+
+func _shape_cyl(r: float, h: float) -> CylinderShape3D:
+	var key := "c%.2f_%.1f" % [r, h]
+	if not shapes.has(key):
+		var c := CylinderShape3D.new()
+		c.radius = r
+		c.height = h
+		shapes[key] = c
+	return shapes[key]
+
+## Everything solid besides the ground lives on one body straight in the physics server (thousands of
+## shapes; far cheaper than a node each).
+var props_body := RID()
+
+func _props_body() -> RID:
+	if not props_body.is_valid():
+		props_body = PhysicsServer3D.body_create()
+		PhysicsServer3D.body_set_mode(props_body, PhysicsServer3D.BODY_MODE_STATIC)
+		if is_inside_tree():
+			PhysicsServer3D.body_set_space(props_body, get_world_3d().space)
+		PhysicsServer3D.body_set_collision_layer(props_body, 1)
+		PhysicsServer3D.body_set_collision_mask(props_body, 0)
+	return props_body
+
+func _enter_tree() -> void:
+	if props_body.is_valid():
+		PhysicsServer3D.body_set_space(props_body, get_world_3d().space)
+
+func _exit_tree() -> void:
+	if props_body.is_valid():
+		PhysicsServer3D.free_rid(props_body)
+		props_body = RID()
+
+func add_box_collider(xf: Transform3D, size: Vector3) -> void:
+	PhysicsServer3D.body_add_shape(_props_body(), _shape_box(size).get_rid(), xf)
+
+func add_cyl_collider(p: Vector3, r: float, h: float) -> void:
+	PhysicsServer3D.body_add_shape(_props_body(), _shape_cyl(r, h).get_rid(), Transform3D(Basis(), p + Vector3(0, h * 0.5, 0)))
+
+## The exact shape of a mesh (ramps, half-pipes) to drive on.
+func add_mesh_collider(name: String, xf: Transform3D) -> void:
+	var key := "m" + name
+	if not shapes.has(key):
+		shapes[key] = M.get_mesh(name).create_trimesh_shape()
+	PhysicsServer3D.body_add_shape(_props_body(), (shapes[key] as Shape3D).get_rid(), xf)
+
+# ---------------------------------------------------------------- placing things
+
+## Puts a model in the world for good. col: "box" (its bounds), "cyl" (a trunk), "mesh", "" (none).
+## Returns its transform. y < -1000: sits on the ground.
+func put(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, col := "box", y := -10000.0, landmark := false) -> Transform3D:
+	var m := M.get_mesh(name)
+	var ab := m.get_aabb()
+	var bs := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * sc)
+	# x, z is the middle of the footprint
+	var cen := bs * Vector3(ab.get_center().x, 0, ab.get_center().z)
+	x -= cen.x
+	z -= cen.z
+	if y < -1000.0:
+		# rest on the lowest ground under the footprint so nothing floats
+		y = height_at(x, z)
+		if ab.size.x * sc > 3.0 or ab.size.z * sc > 3.0:
+			for o in [Vector3(ab.position.x, 0, ab.position.z), Vector3(ab.end.x, 0, ab.position.z),
+					Vector3(ab.position.x, 0, ab.end.z), Vector3(ab.end.x, 0, ab.end.z)]:
+				var w: Vector3 = bs * o
+				y = minf(y, height_at(x + w.x, z + w.z))
+			y -= 0.05
+	var xf := Transform3D(bs, Vector3(x, y, z))
+	if landmark:
+		if not far_statics.has(name):
+			far_statics[name] = []
+		far_statics[name].append(xf)
+	else:
+		var key := Vector2i(int(floor(x / CHUNK)), int(floor(z / CHUNK)))
+		if not statics.has(key):
+			statics[key] = {}
+		if not statics[key].has(name):
+			statics[key][name] = []
+		statics[key][name].append(xf)
+	match col:
+		"box":
+			var c := ab.get_center() * sc
+			var size := ab.size * sc * 0.96
+			add_box_collider(Transform3D(Basis(Vector3.UP, yaw), xf.origin + Basis(Vector3.UP, yaw) * c), size)
+		"cyl":
+			add_cyl_collider(xf.origin, clampf(minf(ab.size.x, ab.size.z) * sc * 0.12, 0.18, 0.6), ab.size.y * sc)
+		"mesh":
+			add_mesh_collider(name, xf)
+	return xf
+
+## Something you can knock over (lamps, benches, cones...). It springs back once you're gone.
+func put_breakable(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, r := 0.5, y := -10000.0) -> void:
+	if not pools.has(name):
+		var p: Pool = Pool.new()
+		p.setup(M.get_mesh(name), 200, mat, false, true)
+		p.name = "B_" + name
+		add_child(p)
+		pools[name] = p
+	var slot: int = pools[name].alloc()
+	if slot < 0:
+		return
+	var ab := M.get_mesh(name).get_aabb()
+	var cen := Basis(Vector3.UP, yaw) * Vector3(ab.get_center().x, 0, ab.get_center().z) * sc
+	x -= cen.x
+	z -= cen.z
+	if y < -1000.0:
+		y = height_at(x, z)
+	var pos := Vector3(x, y, z)
+	var b := {"pool": name, "slot": slot, "pos": pos, "home": pos, "yaw": yaw, "sc": sc, "r": r, "state": 0, "t": 0.0,
+		"vel": Vector3.ZERO, "spin": Vector3.ZERO, "basis": Basis(Vector3.UP, yaw).scaled(Vector3.ONE * sc)}
+	pools[name].put(slot, Transform3D(b["basis"], pos))
+	breakables.append(b)
+	var g := Vector2i(int(floor(x / 10.0)), int(floor(z / 10.0)))
+	if not bgrid.has(g):
+		bgrid[g] = []
+	bgrid[g].append(b)
+
+## Something that moves on its own (a windmill's blades, a pet, a boat). Districts drives it.
+func add_anim(name: String, pos: Vector3, yaw := 0.0, sc := 1.0) -> Dictionary:
+	if not pools.has(name):
+		var p: Pool = Pool.new()
+		p.setup(M.get_mesh(name), 48, mat, false, true)
+		p.name = "A_" + name
+		add_child(p)
+		pools[name] = p
+	var slot: int = pools[name].alloc()
+	if slot < 0:
+		return {}
+	var an := {"pool": name, "slot": slot, "pos": pos, "yaw": yaw, "sc": sc, "ph": rng.randf() * TAU}
+	pools[name].put(slot, Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3.ONE * sc), pos))
+	anims.append(an)
+	return an
+
+var decals := MB.new()
+
+## A flat patch drawn on the ground (driveways, paths).
+func decal(c: Vector2, hs: Vector2, yaw: float, slot: int, lift := 1.2) -> void:
+	var bs := Basis(Vector3.UP, yaw)
+	var cs := []
+	for o in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+		var w: Vector3 = bs * Vector3(o.x * hs.x, 0, o.y * hs.y) + Vector3(c.x, 0, c.y)
+		w.y = height_at(w.x, w.z) + ROAD_LIFT * lift
+		cs.append(w)
+	decals.quad(cs[3], cs[2], cs[1], cs[0], Vector3.UP, _slot_col(slot))
+
+## A wooden deck on posts (quays, the pier) you can drive onto, with a ramp up from the land side.
+func deck(c: Vector2, hs: Vector2, top: float, yaw := 0.0) -> void:
+	var mb := MB.new()
+	var bs := Basis(Vector3.UP, yaw)
+	var plank := _slot_col(P.PLANK)
+	var dark := _slot_col(P.WOOD_DARK)
+	var n := int(hs.y * 2.0 / 0.9)
+	for k in n:
+		var z := -hs.y + (k + 0.5) * hs.y * 2.0 / n
+		mb.box(Vector3(0, top - 0.12, z), Vector3(hs.x * 2.0, 0.24, hs.y * 2.0 / n - 0.08), plank if k % 3 != 1 else _slot_col(P.TRUNK), bs)
+	for px in [-hs.x + 0.4, hs.x - 0.4]:
+		var z := -hs.y + 1.0
+		while z < hs.y:
+			var ground := minf(height_at(c.x + (bs * Vector3(px, 0, z)).x, c.y + (bs * Vector3(px, 0, z)).z), top - 0.3)
+			var ph := top - ground + 1.5
+			mb.box(Vector3(px, top - ph * 0.5, z), Vector3(0.45, ph, 0.45), dark, bs)
+			z += 4.5
+	var mi := MeshInstance3D.new()
+	mi.mesh = mb.commit()
+	mi.material_override = mat
+	mi.position = Vector3(c.x, 0, c.y)
+	mi.name = "Deck"
+	add_child(mi)
+	add_box_collider(Transform3D(bs, Vector3(c.x, top - 0.5, c.y)), Vector3(hs.x * 2.0, 1.0, hs.y * 2.0))
+	for k in range(-int(hs.y), int(hs.y), 3):
+		for sd in [-1.0, 1.0]:
+			blocked[_cell(c.x + (bs * Vector3(sd * hs.x, 0, k)).x, c.y + (bs * Vector3(sd * hs.x, 0, k)).z)] = 1
+
+## Knock over anything the car runs into. Returns how hard the car was slowed (0..1).
+func hit_breakables(p: Vector3, vel: Vector3, radius: float) -> Array:
+	var hits := []
+	var g := Vector2i(int(floor(p.x / 10.0)), int(floor(p.z / 10.0)))
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			var cell: Array = bgrid.get(g + Vector2i(dx, dz), [])
+			for b in cell:
+				if b["state"] != 0:
+					continue
+				var d: Vector3 = b["pos"] - p
+				d.y = 0.0
+				if d.length() < radius + float(b["r"]) and absf(b["pos"].y - p.y) < 3.0:
+					var push := vel * 0.9 + Vector3(0, 3.5 + vel.length() * 0.18, 0)
+					b["state"] = 1
+					b["t"] = 0.0
+					b["vel"] = push + d.normalized() * 2.0
+					b["spin"] = Vector3(randf_range(-6, 6), randf_range(-4, 4), randf_range(-6, 6))
+					hits.append(b)
+	return hits
+
+func _tick_breakables(dt: float, car_pos: Vector3) -> void:
+	for b in breakables:
+		if b["state"] == 0:
+			continue
+		b["t"] += dt
+		if b["state"] == 1:
+			b["vel"].y -= 18.0 * dt
+			b["pos"] += b["vel"] * dt
+			var s: Vector3 = b["spin"]
+			b["basis"] = (Basis(Vector3(1, 0, 0), s.x * dt) * Basis(Vector3.UP, s.y * dt) * Basis(Vector3(0, 0, 1), s.z * dt)) * b["basis"]
+			var gy := height_at(b["pos"].x, b["pos"].z)
+			if b["pos"].y < gy:
+				b["pos"].y = gy
+				b["vel"] *= Vector3(0.5, -0.25, 0.5)
+				b["spin"] *= 0.5
+			var k := 1.0 - clampf((b["t"] - 3.0) / 1.0, 0.0, 1.0)
+			pools[b["pool"]].put(b["slot"], Transform3D(b["basis"].scaled(Vector3.ONE * maxf(k, 0.001)), b["pos"]))
+			if b["t"] > 4.0:
+				b["state"] = 2
+				pools[b["pool"]].put(b["slot"], Transform3D(Basis().scaled(Vector3.ONE * 0.001), b["home"]))
+		elif b["state"] == 2:
+			# back where it was once nobody's looking
+			if b["t"] > 25.0 and (b["home"] as Vector3).distance_to(car_pos) > 60.0:
+				b["state"] = 0
+				b["pos"] = b["home"]
+				b["basis"] = Basis(Vector3.UP, b["yaw"]).scaled(Vector3.ONE * float(b["sc"]))
+				pools[b["pool"]].put(b["slot"], Transform3D(b["basis"], b["pos"]))
+
+## Merge every static model into one mesh per chunk (plus one for the landmarks).
+func _merge_statics() -> void:
+	for key in statics:
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var any := false
+		for nm in statics[key]:
+			var m := M.get_mesh(nm)
+			for xf in statics[key][nm]:
+				st.append_from(m, 0, xf)
+				any = true
+		if not any:
+			continue
+		var mi := MeshInstance3D.new()
+		mi.mesh = st.commit()
+		mi.material_override = mat
+		mi.visibility_range_end = 330.0
+		mi.visibility_range_end_margin = 30.0
+		mi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
+		mi.name = "Props_%d_%d" % [key.x, key.y]
+		add_child(mi)
+	var st2 := SurfaceTool.new()
+	st2.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for nm in far_statics:
+		var m := M.get_mesh(nm)
+		for xf in far_statics[nm]:
+			st2.append_from(m, 0, xf)
+	if not far_statics.is_empty():
+		var mi2 := MeshInstance3D.new()
+		mi2.mesh = st2.commit()
+		mi2.material_override = mat
+		mi2.name = "Landmarks"
+		add_child(mi2)
+	statics.clear()
+	far_statics.clear()
+
+# ---------------------------------------------------------------- minimap
+
+func _map_meshes() -> void:
+	# land: the coastline filled in
+	var poly := PackedVector2Array()
+	for d in range(0, 360, 2):
+		var a := deg_to_rad(float(d))
+		var r: float = coast_r[d] - 6.0
+		poly.append(Vector2(cos(a), sin(a)) * r)
+	var tris := Geometry2D.triangulate_polygon(poly)
+	var mb := MB.new()
+	var land := MB.rgb("9fd67c")
+	for t in range(0, tris.size(), 3):
+		var a := poly[tris[t]]
+		var b := poly[tris[t + 1]]
+		var c := poly[tris[t + 2]]
+		mb.tri(Vector3(a.x, -5, a.y), Vector3(c.x, -5, c.y), Vector3(b.x, -5, b.y), Vector3.UP, Vector3.UP, Vector3.UP, land)
+	_map_mesh(mb, "MapLand")
+	# roads, drawn fat so they read on the little map
+	var rb := MB.new()
+	for r in roads:
+		var pts: PackedVector2Array = r["pts"]
+		var n := pts.size()
+		var hw: float = maxf(float(r["w"]) * 0.9, 6.0)
+		var col := MB.rgb("ffffff") if r["kind"] != "dirt" else MB.rgb("e8c79a")
+		var segs := n if r["closed"] else n - 1
+		for k in range(0, segs, 2):
+			var a := pts[k]
+			var b := pts[mini(k + 2, n - 1) if not r["closed"] else (k + 2) % n]
+			var dd := (b - a).normalized()
+			var nn := Vector2(-dd.y, dd.x) * hw
+			mb_quad_flat(rb, a - nn - dd * 2.0, b - nn + dd * 2.0, b + nn + dd * 2.0, a + nn - dd * 2.0, 0.0, col)
+	for l in lots:
+		var c: Vector2 = l["c"]
+		var hs: Vector2 = l["hs"]
+		var bs := Basis(Vector3.UP, l.get("yaw", 0.0))
+		var cs := []
+		for o in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+			var w: Vector3 = bs * Vector3(o.x * hs.x, 0, o.y * hs.y)
+			cs.append(Vector2(c.x + w.x, c.y + w.z))
+		mb_quad_flat(rb, cs[0], cs[1], cs[2], cs[3], -0.5, MB.rgb("f3ead8"))
+	_map_mesh(rb, "MapRoads")
+
+func mb_quad_flat(mb: MB, a: Vector2, b: Vector2, c: Vector2, d: Vector2, y: float, col: Color) -> void:
+	mb.quad(Vector3(d.x, y, d.y), Vector3(c.x, y, c.y), Vector3(b.x, y, b.y), Vector3(a.x, y, a.y), Vector3.UP, col)
+
+func _map_mesh(mb: MB, nm: String) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mb.commit()
+	var um := StandardMaterial3D.new()
+	um.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	um.vertex_color_use_as_albedo = true
+	um.vertex_color_is_srgb = true
+	mi.material_override = um
+	mi.layers = MAP_LAYER
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position.y = 300.0
+	mi.name = nm
+	map_root.add_child(mi)
+	return mi
+
+## A marker on the minimap (a flat coloured disc).
+func map_marker(pos: Vector3, col: Color, r := 9.0) -> MeshInstance3D:
+	var mb := MB.new()
+	var segs := 16
+	for k in segs:
+		var a0 := TAU * k / segs
+		var a1 := TAU * (k + 1) / segs
+		mb.tri(Vector3(0, 0, 0), Vector3(cos(a1) * r, 0, sin(a1) * r), Vector3(cos(a0) * r, 0, sin(a0) * r), Vector3.UP, Vector3.UP, Vector3.UP, MB.rgb(col))
+	var mi := _map_mesh(mb, "Marker")
+	mi.position = Vector3(pos.x, 301.0, pos.z)
+	return mi
+
+# ---------------------------------------------------------------- per frame
+
+func tick(dt: float, car_pos: Vector3, car_vel: Vector3) -> void:
+	time += dt
+	_tick_breakables(dt, car_pos)
+	Districts.tick_anims(self, dt, car_pos)
+	people.tick(dt, car_pos, car_vel, time)
+	people.tick_visibility()
+	for p in pools.values():
+		p.visible = p.used() > 0
