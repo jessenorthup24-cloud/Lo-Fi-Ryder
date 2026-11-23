@@ -378,7 +378,7 @@ func _process(dt: float) -> void:
 	atmos.tick(dt)
 	var cp := car.global_position
 	island.tick(dt, cp, car.linear_velocity)
-	traffic.tick(dt, cp, car.linear_velocity)
+	traffic.tick(dt, cp, car.linear_velocity, -cam.global_transform.basis.z)
 	if traffic.honk != Vector3.INF and state == DRIVE:
 		var hd: float = traffic.honk.distance_to(cp)
 		sfx("horn_lo" if randf() < 0.5 else "horn_hi", clampf(-4.0 - hd * 0.3, -16.0, -4.0), randf_range(0.95, 1.08))

@@ -44,8 +44,14 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - The city is a grid of named avenues and streets. Every block is filled in neat rows of buildings
   sized to fit, with shops along Main Street, tall towers downtown, and gardens or car parks in the
   middle of each block. Nothing is scattered at random inside town.
-- Traffic drives on the right, keeps its distance and gives way to other cars and to you. People walk the
-  pavements, sit on benches, watch you drift and wave.
+- Roads meet at proper junctions: pavements stop at the kerb and pick up across a zebra crossing, side
+  roads have stop lines, and every junction sits level. Nothing solid stands in a road or in the middle
+  of a pavement (lamps at the kerb, people by the shop fronts).
+- Traffic drives on the right and follows smooth curves through junctions. Side roads give way to the
+  main road, equal streets take turns, left turns wait for oncoming cars, and Main Street's crossroads
+  run on traffic lights (timed as a green wave). Cars keep their distance, never stop in a junction,
+  stop for you and U-turn at dead ends. People walk the pavements (they don't wander into the road),
+  sit on benches, watch you drift and wave.
 - Seasons: autumn colours from September, snow and decorations in winter, blossom in spring. Windows
   and lamps light up after dusk.
 
@@ -55,10 +61,10 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | --- | --- |
 | `boot/` | The over-the-air updater (first scene). Keep it small: the copy inside an installed APK can't update itself. |
 | `scenes/main.tscn`, `scripts/main.gd` | Game states, input, camera, drift scoring, challenges, saving |
-| `scripts/game/island.gd` | Heightfield, roads (splines cut into the land), lots, colliders, merged static meshes, minimap layer |
+| `scripts/game/island.gd` | Heightfield, roads (splines cut into the land), the junction network, road markings, lots, colliders, merged static meshes, minimap layer |
 | `scripts/game/districts.gd` | The island plan: districts, blocks, places, challenges and everything placed in them |
 | `scripts/game/drift_car.gd` | Car physics: raycast wheels, tyre model, gearbox, handbrake and drift assist |
-| `scripts/game/traffic.gd` | Traffic cars that follow the roads |
+| `scripts/game/traffic.gd` | Traffic: lanes, junction turns and right of way, traffic lights |
 | `scripts/game/people.gd` | People: stand, sit, walk, watch, wave and hop aside |
 | `scripts/game/atmos.gd` | Day and night, seasons, sky and sun |
 | `scripts/game/achievements.gd`, `save.gd`, `cars.gd` | Trophies, save data, the car list |
@@ -67,7 +73,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `shaders/` | Toon shader with the season palette, sea, wipe |
 | `tools/kenney/bake_kenney.gd` | Bakes the chosen Kenney kit models into `assets/kenney/` (people posed, arms loose) |
 | `tools/look/` | Look-dev: `island_look.gd` photographs parts of the island, `kgrid.gd` makes a model contact sheet |
-| `tools/test/` | `handling.gd` (handling report with phone-style inputs), `road_audit.gd` (nothing solid in the road), `collide_test.gd`, `probe.gd` (ground heights) |
+| `tools/test/` | `handling.gd` (handling report), `road_audit.gd` (nothing in roads or pavements), `road_surface.gd` (roads meet the ground and each other), `road_net.gd` (junctions and loose ends), `traffic_soak.gd` (overlaps, jams, cars off the road), `collide_test.gd`, `probe.gd` |
 | `tools/audio/`, `tools/music/` | Sound synthesis scripts; the CC0 music list the build fetches |
 
 There are no autoloads and no `class_name`s, so an update pack can replace any script before it loads.
@@ -82,6 +88,7 @@ godot --path . -- --drive --season=3             # 0 spring, 1 summer, 2 autumn,
 xvfb-run godot --path . -- --drive --shot=/tmp/x.png --shot_at=200 --quit_after=30
 godot --headless --path . -s res://tools/test/handling.gd -- bug,hotrod all   # handling report
 godot --headless --path . -s res://tools/test/road_audit.gd                  # props in the road
+godot --headless --path . -s res://tools/test/traffic_soak.gd -- 300         # five minutes of traffic
 ```
 
 ## Later: Play Store and ads

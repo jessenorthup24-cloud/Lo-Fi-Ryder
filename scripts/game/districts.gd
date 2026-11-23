@@ -44,7 +44,9 @@ static func plan(I) -> void:
 	I.add_road("Ring Road", [Vector2(-300, 80), Vector2(-335, -80), Vector2(-290, -215), Vector2(-170, -255),
 		Vector2(-60, -238), Vector2(70, -250), Vector2(200, -215), Vector2(330, -130), Vector2(385, 10), Vector2(380, 160),
 		Vector2(300, 250), Vector2(160, 330), Vector2(0, 352), Vector2(-150, 348), Vector2(-260, 300), Vector2(-315, 200)], "ring", true)
-	I.add_road("Main Street", [Vector2(-306, 61), Vector2(-260, 60), Vector2(100, 60), Vector2(150, 58), Vector2(200, 46),
+	# (control points spaced evenly, so the curve never overshoots)
+	I.add_road("Main Street", [Vector2(-306, 61), Vector2(-260, 60), Vector2(-200, 60), Vector2(-140, 60), Vector2(-80, 60),
+		Vector2(-20, 60), Vector2(40, 60), Vector2(100, 60), Vector2(150, 58), Vector2(200, 46),
 		Vector2(290, 38), Vector2(388, 30)], "main")
 	# the city grid: avenues north-south every 60 m, streets east-west
 	for av in AVENUES:
@@ -66,20 +68,22 @@ static func plan(I) -> void:
 	I.add_road("Willow Way", [Vector2(-288, -150), Vector2(-312, -146), Vector2(-332, -140)], "lane")
 	I.add_road("Birch Court", [Vector2(-212, -222), Vector2(-205, -238), Vector2(-198, -251)], "lane")
 	# up the castle hill: one lazy turn around it
-	var spiral := []
-	for k in 17:
+	# a short way up off the ring road first, so the climb never runs alongside it
+	var spiral := [Vector2(CASTLE.x, -240.0)]
+	for k in 16:
 		var t := float(k) / 16.0
 		var a := deg_to_rad(90.0 + 360.0 * t)
-		var r := 125.0 - 80.0 * t
+		var r := 106.0 - 61.0 * t
 		spiral.append(CASTLE + Vector2(cos(a), sin(a)) * r)
-	spiral.append(CASTLE + Vector2(0, 30))
-	spiral.append(CASTLE + Vector2(0, 10))
+	# and a gentle swing in through the gate
+	for q in [Vector2(6, 43), Vector2(0, 33), Vector2(0, 21), Vector2(0, 10)]:
+		spiral.append(CASTLE + q)
 	I.add_road("Castle Climb", spiral, "mountain")
 	I.add_road("Pinewood Pass", [Vector2(200, -215), Vector2(212, -275), Vector2(250, -318), Vector2(310, -324),
 		Vector2(352, -292), Vector2(368, -232), Vector2(352, -170), Vector2(330, -132)], "mountain")
-	I.add_road("Camp Track", [Vector2(212, -272), Vector2(232, -262), Vector2(246, -250)], "dirt")
+	I.add_road("Camp Track", [Vector2(212, -272), Vector2(224, -266), Vector2(234, -258)], "dirt")
 	I.add_road("Farm Track", [Vector2(290, 36), Vector2(292, 100), Vector2(290, 170), Vector2(300, 248)], "dirt")
-	I.add_road("Field Lane", [Vector2(222, 132), Vector2(290, 132), Vector2(378, 136)], "dirt")
+	I.add_road("Field Lane", [Vector2(175, 132), Vector2(222, 132), Vector2(290, 132), Vector2(378, 136)], "dirt")
 	I.add_road("Barn Lane", [Vector2(235, 44), Vector2(235, 8)], "dirt")
 	I.add_road("Bowl Road", [Vector2(175, 48), Vector2(175, 163)], "road")
 	I.add_road("Bowl Exit", [Vector2(175, 247), Vector2(180, 285), Vector2(190, 316)], "road")
@@ -281,6 +285,8 @@ static func _near_junction(I, p: Vector2, d := 12.0) -> bool:
 	return hits >= 2
 
 static func _person(I, x: float, z: float, pose := "stand", yaw := INF, y := 0.0) -> void:
+	if I.audit_on:
+		I.audit.append(["person " + pose, [Vector2(x, z)]])
 	var pos := Vector3(x, I.height_at(x, z) + y, z)
 	var pr: Dictionary = I.people.spawn(I.rng.randi_range(0, 99), pose, pos, I.rng.randf() * TAU if yaw == INF else yaw, 0)
 	if pr.is_empty():
@@ -350,25 +356,29 @@ static func _town(I, rr: RandomNumberGenerator) -> void:
 					elif zi == 2:
 						main_side = "N"
 					_fill_block(I, rr, rect, kind, main_side)
-	# street life: lamps, parked cars, people standing about, traffic lights
+	# street life. A pavement is 3 m wide: lamps stand at the kerb, people stop by the shop fronts, and the
+	# middle is kept clear for walking.
 	for road in _city_roads():
 		var r := _road(I, road)
 		var hw: float = r["w"] * 0.5
+		var ri: int = I.roads.find(r)
 		for side in [-1.0, 1.0]:
-			for sp in _along(I, road, (hw + 2.4) * side, 24.0, 6.0 if side > 0 else 18.0):
+			for sp in _along(I, road, (hw + 0.45) * side, 24.0, 6.0 if side > 0 else 18.0):
 				var p: Vector2 = sp["p"]
-				if not _in_city(p) or _near_junction(I, p, 11.0):
+				if not _in_city(p) or _near_junction(I, p, 14.0) or I.on_carriageway(p, ri, 0.6):
 					continue
 				I.put_breakable("k_retro_detail-light-single", p.x, p.y, _yaw_to(-sp["n"] * side), 1.0, 0.3)
-		for sp3 in _along(I, road, (hw + 1.4) * (1.0 if rr.randf() < 0.5 else -1.0), 40.0, 9.0):
+		var sgn := 1.0 if rr.randf() < 0.5 else -1.0
+		for sp3 in _along(I, road, (hw + 2.65) * sgn, 40.0, 9.0):
 			var p3: Vector2 = sp3["p"]
-			if _in_city(p3) and rr.randf() < 0.5 and not _near_junction(I, p3, 9.0):
-				_person(I, p3.x, p3.y)
+			if _in_city(p3) and rr.randf() < 0.5 and not _near_junction(I, p3, 12.0) and not I.on_carriageway(p3, ri, 0.8):
+				_person(I, p3.x, p3.y, "stand", _yaw_to(-(sp3["n"] as Vector2) * sgn))
 	# people out walking along the pavements
 	for road in _city_roads():
 		var r2 := _road(I, road)
 		var pts: PackedVector2Array = r2["pts"]
 		var hw2: float = r2["w"] * 0.5
+		var ri2: int = I.roads.find(r2)
 		var k := 4
 		while k < pts.size() - 20:
 			var len := rr.randi_range(12, 26)
@@ -376,14 +386,14 @@ static func _town(I, rr: RandomNumberGenerator) -> void:
 			var path := PackedVector3Array()
 			for q in range(k, mini(k + len, pts.size() - 1), 2):
 				var t: Vector2 = I._tangent(pts, q, false)
-				var pp := pts[q] + Vector2(-t.y, t.x) * (hw2 + 1.3) * side
+				var pp := pts[q] + Vector2(-t.y, t.x) * (hw2 + 1.6) * side
+				# along the pavement as far as the next kerb (nobody wanders into the traffic)
+				if I.on_carriageway(pp, ri2, 0.5):
+					break
 				path.append(Vector3(pp.x, I.height_at(pp.x, pp.y) + 0.06, pp.y))
 			if path.size() >= 3 and _in_city(Vector2(path[0].x, path[0].z)):
 				I.people.spawn_walker(rr.randi_range(0, 99), path, rr.randf_range(1.1, 1.6))
 			k += len + rr.randi_range(4, 14)
-	for x in CITY_X:
-		for c in [Vector2(-8.6, -8.6), Vector2(8.6, 8.6)]:
-			I.put("k_retro_detail-light-traffic", x + c.x, 60 + c.y, PI * 0.25 if c.x < 0 else -PI * 0.75, 1.0, "cyl")
 	# the gas station on Castle Road
 	I.put("station", -44, -132, PI * 0.5, 4.0, "box")
 	I.put_breakable("k_retro_detail-barrier-type-a", -36, -122, 0.0, 1.0, 0.6)
@@ -620,7 +630,8 @@ static func _castle(I, rr: RandomNumberGenerator) -> void:
 	I.put("k_castle_siege-catapult", c.x + 13, c.y + 9, -PI * 0.3, 1.0, "box")
 	I.put("k_arena_statue", c.x + 12, c.y - 14, 0.0, 1.0, "box")
 	for k in 4:
-		_person(I, c.x + rr.randf_range(-15, 15), c.y + rr.randf_range(4, 18))
+		# either side of the drive in, not on it
+		_person(I, c.x + (1.0 if k % 2 == 0 else -1.0) * rr.randf_range(7, 15), c.y + rr.randf_range(4, 18))
 	_pet(I, "parrot", c.x - 6, c.y - 10)
 	# trees down the hillside and rocks by the cliffs
 	for k in 40:

@@ -23,6 +23,13 @@ const VIEWS := {
 	"carpark": [Vector3(-230, 40, 70), Vector3(-230, 0, 30), 55.0],
 	"harbourtop": [Vector3(-420, 130, 162.1), Vector3(-420, 0, 162), 60.0],
 	"bowltop": [Vector3(175, 150, 205.1), Vector3(175, 0, 205), 60.0],
+	"j4": [Vector3(-140, 38, 0.1), Vector3(-140, 0, 0), 60.0],
+	"jmain": [Vector3(-140, 38, 60.1), Vector3(-140, 0, 60), 60.0],
+	"jt": [Vector3(-260, 38, 0.1), Vector3(-260, 0, 0), 60.0],
+	"jring": [Vector3(-303, 45, 61.1), Vector3(-303, 0, 61), 60.0],
+	"jcastle": [Vector3(-80, 45, -132.1), Vector3(-80, 0, -132), 60.0],
+	"jmaple": [Vector3(-288, 45, -150.1), Vector3(-288, 0, -150), 60.0],
+	"jstreet": [Vector3(-170, 9, 12), Vector3(-140, 0, 0), 60.0],
 	"spawntop": [Vector3(-262, 140, 61.1), Vector3(-262, 0, 61), 60.0],
 }
 

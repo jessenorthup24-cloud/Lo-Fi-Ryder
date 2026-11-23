@@ -31,6 +31,9 @@ var heights := PackedFloat32Array()
 var surf := PackedByteArray()
 var blocked := PackedByteArray()   # roads, lots and buildings: no scattering here
 var roads: Array = []
+## Where roads meet. Each node: {"c": centre, "arms": [{"r", "s" (sample at the mouth), "dir" (+1: away from the
+## node towards higher samples), "stop" (distance from the centre to the mouth), "walk"}], "members": [[r, s]]}
+var nodes: Array = []
 var lots: Array = []
 var flats: Array = []              # [center, half size (Vector2), blend] areas kept flat
 var audit_on := false       # tools: record where things are put, to check none sit in the road
@@ -71,7 +74,7 @@ func build(material: ShaderMaterial, s: int) -> void:
 	road_mat = mat.duplicate()
 	road_mat.set_shader_parameter("depth_bias", 0.0005)
 	var steps := [["water", _water], ["coast", _coast], ["plan", func(): Districts.plan(self)], ["heights", _heights],
-		["roads", _cut_roads], ["surfaces", _surfaces], ["terrain", _terrain], ["road meshes", _road_meshes], ["lots", _lot_meshes],
+		["roads", _road_levels], ["network", func(): _network(); _level_junctions()], ["cut", _cut_terrain], ["surfaces", _surfaces], ["terrain", _terrain], ["road meshes", _road_meshes], ["lots", _lot_meshes],
 		["bodies", _bodies], ["map", _map_meshes], ["populate", func(): Districts.populate(self)], ["scatter", func(): Districts.scatter(self)],
 		["merge", _merge_statics], ["decals", _decal_mesh]]
 	for st in steps:
@@ -295,7 +298,7 @@ func _spline(ctrl: Array, closed: bool) -> PackedVector2Array:
 		out.append(dense[dense.size() - 1])
 	return out
 
-func _cut_roads() -> void:
+func _road_levels() -> void:
 	# each road's height: the land under it, smoothed so slopes stay drivable
 	for r in roads:
 		var pts: PackedVector2Array = r["pts"]
@@ -320,6 +323,49 @@ func _cut_roads() -> void:
 				y2[k] = s / c
 			y = y2
 		r["y"] = y
+
+## Where roads meet they must meet at one height: every road through a junction comes level with the
+## biggest road there, flat across the junction and easing back to its own line over the next stretch.
+func _level_junctions() -> void:
+	for nd in nodes:
+		var widest := 0.0
+		var max_hw := 0.0
+		for m in nd["members"]:
+			widest = maxf(widest, float(roads[m[0]]["w"]))
+		var h := 0.0
+		var cnt := 0
+		for m in nd["members"]:
+			var r: Dictionary = roads[m[0]]
+			max_hw = maxf(max_hw, float(r["w"]) * 0.5)
+			if float(r["w"]) >= widest - 0.1:
+				h += _road_y_at(r, float(m[1]))
+				cnt += 1
+		h /= maxf(cnt, 1)
+		nd["y"] = h
+		var flat := max_hw + 4.0
+		var blend := 26.0
+		for m in nd["members"]:
+			var r: Dictionary = roads[m[0]]
+			var ys: PackedFloat32Array = r["y"]
+			var n := ys.size()
+			var s0: float = m[1]
+			for k in n:
+				var ds := absf(float(k) - s0)
+				if r["closed"]:
+					ds = minf(ds, float(n) - ds)
+				var d := ds * CELL
+				if d < flat + blend:
+					ys[k] = lerpf(h, ys[k], smoothstep(flat, flat + blend, d))
+			r["y"] = ys
+
+func _road_y_at(r: Dictionary, sv: float) -> float:
+	var ys: PackedFloat32Array = r["y"]
+	var n := ys.size()
+	var k := clampi(int(floor(sv)), 0, n - 1)
+	var k2 := (k + 1) % n if r["closed"] else mini(k + 1, n - 1)
+	return lerpf(ys[k], ys[k2], sv - floor(sv))
+
+func _cut_terrain() -> void:
 	# cut and fill: the ground meets the road flat across, blending out over the verge
 	var best_d := PackedFloat32Array()
 	best_d.resize(N * N)
@@ -525,11 +571,28 @@ func _water() -> void:
 	sea.name = "Sea"
 	add_child(sea)
 
-## Ribbon meshes for every road, split by chunk, with kerbs-free sidewalks and painted lines.
+## Ribbon meshes for every road, split by chunk: the carriageway, pavements that stop at the kerb of any
+## road they meet (and pick up again on the far side, joined by a zebra crossing), painted lines that
+## leave junctions clear, and stop lines where side roads meet.
 func _road_meshes() -> void:
 	var by_chunk := {}
-	var junction_pts := _junctions()
-	for r in roads:
+	# where each road meets others: [sample, half span in samples, other roads there]
+	var meets := {}
+	for nd in nodes:
+		var others := []
+		for m in nd["members"]:
+			others.append(m[0])
+		for m in nd["members"]:
+			var ri: int = m[0]
+			var stop := 0.0
+			for m2 in nd["members"]:
+				if m2[0] != ri:
+					stop = maxf(stop, float(roads[m2[0]]["w"]) * 0.5 + 3.4)
+			if not meets.has(ri):
+				meets[ri] = []
+			meets[ri].append([float(m[1]), (stop + 1.0) / CELL, others, nd])
+	for ri in roads.size():
+		var r: Dictionary = roads[ri]
 		var pts: PackedVector2Array = r["pts"]
 		var ys: PackedFloat32Array = r["y"]
 		var n := pts.size()
@@ -541,6 +604,7 @@ func _road_meshes() -> void:
 		var line_w := MB.rgb("f4f1e8")
 		var line_y := MB.rgb("f6c64a")
 		var segs := n if r["closed"] else n - 1
+		var my_meets: Array = meets.get(ri, [])
 		for k in segs:
 			var a := pts[k]
 			var b := pts[(k + 1) % n]
@@ -560,27 +624,49 @@ func _road_meshes() -> void:
 			var la := Vector3(na.x, 0, na.y)
 			var lb := Vector3(nb.x, 0, nb.y)
 			mb.quad(pa - la * hw, pb - lb * hw, pb + lb * hw, pa + la * hw, up, col)
+			# which junctions this bit of road is in (or near)
+			var near_m := []
+			var in_j := false
+			for mt in my_meets:
+				var ds := absf(float(k) + 0.5 - float(mt[0]))
+				if r["closed"]:
+					ds = minf(ds, float(n) - ds)
+				if ds < float(mt[1]) + 4.0:
+					near_m.append(mt)
+				if ds < float(mt[1]):
+					in_j = true
 			if r["walk"]:
 				var sw := _slot_col(P.CONCRETE)
 				for sd in [-1.0, 1.0]:
-					var i0: float = hw * sd
-					var o0: float = (hw + 3.0) * sd
-					var p1 := pa + la * i0 + Vector3(0, 0.04, 0)
-					var p2 := pb + lb * i0 + Vector3(0, 0.04, 0)
-					var p3 := pb + lb * o0 + Vector3(0, 0.04, 0)
-					var p4 := pa + la * o0 + Vector3(0, 0.04, 0)
-					if sd > 0:
-						mb.quad(p1, p2, p3, p4, up, sw)
-					else:
-						mb.quad(p4, p3, p2, p1, up, sw)
-			if kind == "dirt":
-				continue
-			var near_j := false
-			for jp in junction_pts:
-				if (jp as Vector2).distance_squared_to(a) < 196.0:
-					near_j = true
-					break
-			if near_j:
+					for u in 4:
+						var t0 := u / 4.0
+						var t1 := (u + 1) / 4.0
+						var c0 := pa.lerp(pb, t0)
+						var c1 := pa.lerp(pb, t1)
+						var l0 := la.lerp(lb, t0).normalized()
+						var l1 := la.lerp(lb, t1).normalized()
+						if not near_m.is_empty():
+							# does this bit of pavement sit on another road's carriageway?
+							var mid: Vector3 = (c0 + c1) * 0.5 + (l0 + l1).normalized() * (hw + 1.5) * sd
+							var blocked_here := false
+							for mt in near_m:
+								for oj in mt[2]:
+									if oj != ri and _near_road_d(oj, Vector2(mid.x, mid.z), mt[3]) < float(roads[oj]["w"]) * 0.5 + 0.2:
+										blocked_here = true
+							if blocked_here:
+								continue
+						var i0: float = hw * sd
+						var o0: float = (hw + 3.0) * sd
+						var lift2 := Vector3(0, 0.04, 0)
+						var p1 := c0 + l0 * i0 + lift2
+						var p2 := c1 + l1 * i0 + lift2
+						var p3 := c1 + l1 * o0 + lift2
+						var p4 := c0 + l0 * o0 + lift2
+						if sd > 0:
+							mb.quad(p1, p2, p3, p4, up, sw)
+						else:
+							mb.quad(p4, p3, p2, p1, up, sw)
+			if kind == "dirt" or in_j:
 				continue
 			var lift := Vector3(0, 0.015, 0)
 			# centre line: dashed (solid yellow on the mountain)
@@ -601,6 +687,39 @@ func _road_meshes() -> void:
 						mb.quad(q1, q2, q3, q4, up, line_w)
 					else:
 						mb.quad(q4, q3, q2, q1, up, line_w)
+	# zebra crossings and stop lines at the mouths of junctions
+	for nd in nodes:
+		for arm in nd["arms"]:
+			var ri: int = arm["r"]
+			var r: Dictionary = roads[ri]
+			if r["kind"] == "dirt":
+				continue
+			var hw: float = arm["hw"]
+			# the widest other road here that has pavements: the zebra links them across this road
+			var hw_walk := 0.0
+			var hw_any := 0.0
+			for m in nd["members"]:
+				if m[0] != ri:
+					hw_any = maxf(hw_any, float(roads[m[0]]["w"]) * 0.5)
+					if roads[m[0]]["walk"]:
+						hw_walk = maxf(hw_walk, float(roads[m[0]]["w"]) * 0.5)
+			var white := MB.rgb("f4f1e8")
+			var zebra_far := 0.0
+			if hw_walk > 0.0 and r["walk"]:
+				var f := _arm_frame(ri, float(arm["at"]), int(arm["dir"]), hw_walk + 1.6)
+				var mbz: MB = _chunk_mb(by_chunk, f[0])
+				var nstripes := int((hw * 2.0 - 1.0) / 0.9)
+				for q in nstripes:
+					var off: float = -hw + 0.5 + 0.225 + q * 0.9 + ((hw * 2.0 - 1.0) - nstripes * 0.9) * 0.5
+					_flat_rect(mbz, f[0], f[1], f[2], f[3], off, 0.225, 1.3, white)
+				zebra_far = hw_walk + 3.0
+			if not arm["minor"] or r["kind"] in ["ring", "mountain"]:
+				continue
+			var stop_d := maxf(zebra_far + 0.5, hw_any + 1.8)
+			var f2 := _arm_frame(ri, float(arm["at"]), int(arm["dir"]), stop_d)
+			var mbs: MB = _chunk_mb(by_chunk, f2[0])
+			# traffic heading in towards the junction keeps right: the line spans that half
+			_flat_rect(mbs, f2[0], f2[1], f2[2], f2[3], (hw - 0.25) * 0.5 * -1.0, (hw - 0.25) * 0.5, 0.2, white)
 	for key in by_chunk:
 		var mb: MB = by_chunk[key]
 		var mi := MeshInstance3D.new()
@@ -610,31 +729,246 @@ func _road_meshes() -> void:
 		mi.name = "Road_%d_%d" % [key.x, key.y]
 		add_child(mi)
 
+# ---------------------------------------------------------------- the road network
+
+func _road_segs_grid() -> Dictionary:
+	var grid := {}
+	for ri in roads.size():
+		var pts: PackedVector2Array = roads[ri]["pts"]
+		var n := pts.size()
+		var segs := n if roads[ri]["closed"] else n - 1
+		for k in segs:
+			var a := pts[k]
+			var b := pts[(k + 1) % n]
+			for gx in range(int(floor(minf(a.x, b.x) / 20.0)), int(floor(maxf(a.x, b.x) / 20.0)) + 1):
+				for gz in range(int(floor(minf(a.y, b.y) / 20.0)), int(floor(maxf(a.y, b.y) / 20.0)) + 1):
+					var key := Vector2i(gx, gz)
+					if not grid.has(key):
+						grid[key] = []
+					grid[key].append([ri, k])
+	return grid
+
+## Nearest point on road ri to p: [distance, sample position s, point].
+func road_nearest(ri: int, p: Vector2) -> Array:
+	var pts: PackedVector2Array = roads[ri]["pts"]
+	var n := pts.size()
+	var segs := n if roads[ri]["closed"] else n - 1
+	var best := [1e9, 0.0, Vector2.ZERO]
+	for k in segs:
+		var a := pts[k]
+		var b := pts[(k + 1) % n]
+		var q := Geometry2D.get_closest_point_to_segment(p, a, b)
+		var d := q.distance_to(p)
+		if d < best[0]:
+			var t := 0.0 if a.distance_squared_to(b) < 0.0001 else a.distance_to(q) / a.distance_to(b)
+			best = [d, float(k) + t, q]
+	return best
+
+func _network() -> void:
+	nodes.clear()
+	var raw := []      # [point, [[road, s], [road, s]]]
+	var grid := _road_segs_grid()
+	# where two centre lines cross
+	for key in grid:
+		var lst: Array = grid[key]
+		for i in lst.size():
+			for j in range(i + 1, lst.size()):
+				var e1: Array = lst[i]
+				var e2: Array = lst[j]
+				if e1[0] == e2[0]:
+					continue
+				var p1: PackedVector2Array = roads[e1[0]]["pts"]
+				var p2: PackedVector2Array = roads[e2[0]]["pts"]
+				var a := p1[e1[1]]
+				var b := p1[(int(e1[1]) + 1) % p1.size()]
+				var c := p2[e2[1]]
+				var d := p2[(int(e2[1]) + 1) % p2.size()]
+				var hit = Geometry2D.segment_intersects_segment(a, b, c, d)
+				if hit != null:
+					var hp: Vector2 = hit
+					raw.append([hp, [[e1[0], float(e1[1]) + a.distance_to(hp) / maxf(a.distance_to(b), 0.001)],
+						[e2[0], float(e2[1]) + c.distance_to(hp) / maxf(c.distance_to(d), 0.001)]]])
+	# where a road ends on (or just short of) another
+	for ri in roads.size():
+		if roads[ri]["closed"]:
+			continue
+		var pts: PackedVector2Array = roads[ri]["pts"]
+		for e in [0, pts.size() - 1]:
+			for rj in roads.size():
+				if rj == ri:
+					continue
+				var nr := road_nearest(rj, pts[e])
+				if float(nr[0]) < float(roads[rj]["w"]) * 0.5 + 2.5:
+					raw.append([nr[2], [[ri, float(e)], [rj, float(nr[1])]]])
+	# gather the meeting points that belong together
+	var groups := []
+	for it in raw:
+		var hit_g := -1
+		for gi in groups.size():
+			if (groups[gi]["c"] as Vector2).distance_to(it[0]) < 10.0:
+				hit_g = gi
+				break
+		if hit_g < 0:
+			groups.append({"c": it[0], "pts": [it[0]], "m": []})
+			hit_g = groups.size() - 1
+		var g: Dictionary = groups[hit_g]
+		g["pts"].append(it[0])
+		var cs := Vector2.ZERO
+		for q in g["pts"]:
+			cs += q
+		g["c"] = cs / float(g["pts"].size())
+		for m in it[1]:
+			g["m"].append(m)
+	for g in groups:
+		# one position per road
+		var per := {}
+		for m in g["m"]:
+			if not per.has(m[0]):
+				per[m[0]] = []
+			per[m[0]].append(m[1])
+		var members := []
+		for ri in per:
+			var ss: Array = per[ri]
+			var sum := 0.0
+			for v in ss:
+				sum += v
+			members.append([ri, sum / ss.size()])
+		if members.size() < 2:
+			continue
+		var node := {"c": g["c"], "members": members, "arms": []}
+		# who gives way: narrower roads, and a road that ends here (the stem of a T); where equal roads
+		# cross, everyone does (an all-way stop)
+		var max_w := 0.0
+		var ends_here := {}
+		for m in members:
+			max_w = maxf(max_w, float(roads[m[0]]["w"]))
+			var nn: int = (roads[m[0]]["pts"] as PackedVector2Array).size()
+			ends_here[m[0]] = not roads[m[0]]["closed"] and (float(m[1]) < 2.0 or float(m[1]) > nn - 3.0)
+		var through := false
+		for m in members:
+			if not ends_here[m[0]] and float(roads[m[0]]["w"]) >= max_w - 0.1:
+				through = true
+		# Main Street's crossroads in town run on traffic lights (a green wave at the speed limit)
+		var kinds := []
+		for m in members:
+			kinds.append(roads[m[0]]["kind"])
+		if members.size() == 2 and "main" in kinds and "street" in kinds and not ends_here[members[0][0]] and not ends_here[members[1][0]]:
+			node["signal"] = true
+			node["phase"] = -float(g["c"].x) / 12.5
+		for m in members:
+			var ri: int = m[0]
+			var r: Dictionary = roads[ri]
+			var n: int = (r["pts"] as PackedVector2Array).size()
+			var hw_o := 0.0
+			for m2 in members:
+				if m2[0] != ri:
+					hw_o = maxf(hw_o, float(roads[m2[0]]["w"]) * 0.5)
+			var walk: bool = r["walk"]
+			var stop := hw_o + (3.8 if walk else 1.6)
+			for dirn in [1, -1]:
+				var sm: float = float(m[1]) + dirn * stop / CELL
+				if r["closed"]:
+					sm = fposmod(sm, float(n))
+				elif sm < 0.0 or sm > n - 1.0:
+					continue
+				var minor: bool = float(r["w"]) < max_w - 0.1 or (ends_here[ri] and through) or not through
+				if not ends_here[ri] and float(r["w"]) >= max_w - 0.1 and through:
+					minor = false
+				# an all-way stop only where equal roads cross with nobody running through
+				var all_way := true
+				for m3 in members:
+					if float(roads[m3[0]]["w"]) != float(r["w"]) or ends_here[m3[0]]:
+						all_way = false
+				if all_way:
+					minor = true
+					node["all_way"] = true
+				if node.get("signal", false):
+					minor = true
+				node["arms"].append({"r": ri, "s": sm, "dir": dirn, "stop": stop, "walk": walk, "hw": float(r["w"]) * 0.5,
+					"at": float(m[1]), "minor": minor})
+		nodes.append(node)
+
+## Is p on the carriageway of any road other than skip (and how far in)?
+func on_carriageway(p: Vector2, skip := -1, margin := 0.0) -> bool:
+	for ri in roads.size():
+		if ri == skip:
+			continue
+		var pts: PackedVector2Array = roads[ri]["pts"]
+		var hw: float = float(roads[ri]["w"]) * 0.5 + margin
+		# cheap reject on the bounding box
+		var bb: Rect2 = roads[ri].get("bb", Rect2())
+		if bb.size == Vector2.ZERO:
+			bb = Rect2(pts[0], Vector2.ZERO)
+			for q in pts:
+				bb = bb.expand(q)
+			roads[ri]["bb"] = bb
+		if not bb.grow(hw).has_point(p):
+			continue
+		if float(road_nearest(ri, p)[0]) < hw:
+			return true
+	return false
+
+## Distance from p to road ri near the junction nd (only looks at the stretch of road around it).
+func _near_road_d(ri: int, p: Vector2, nd: Dictionary) -> float:
+	var s0 := -1.0
+	for m in nd["members"]:
+		if m[0] == ri:
+			s0 = m[1]
+	var pts: PackedVector2Array = roads[ri]["pts"]
+	var n := pts.size()
+	var closed: bool = roads[ri]["closed"]
+	var best := 1e9
+	for o in range(-12, 12):
+		var k := int(s0) + o
+		if closed:
+			k = posmod(k, n)
+		elif k < 0 or k >= n - 1:
+			continue
+		var q := Geometry2D.get_closest_point_to_segment(p, pts[k], pts[(k + 1) % n])
+		best = minf(best, q.distance_to(p))
+	return best
+
+## A point on road ri, dist metres from sample s0 in direction dirn: [point (Vector3, on the road), along
+## (unit, pointing away from the junction), across (unit, to the right of along), y]
+func _arm_frame(ri: int, s0: float, dirn: int, dist: float) -> Array:
+	var r: Dictionary = roads[ri]
+	var pts: PackedVector2Array = r["pts"]
+	var n := pts.size()
+	var sv := s0 + dirn * dist / CELL
+	if r["closed"]:
+		sv = fposmod(sv, float(n))
+	else:
+		sv = clampf(sv, 0.0, n - 1.001)
+	var k := int(floor(sv))
+	var k2 := (k + 1) % n
+	var f := sv - k
+	var p := pts[k].lerp(pts[k2], f)
+	var t := (pts[k2] - pts[k]).normalized() * dirn
+	var ys: PackedFloat32Array = r["y"]
+	var y := lerpf(ys[k], ys[k2], f) + ROAD_LIFT + 0.02
+	return [Vector3(p.x, y, p.y), Vector3(t.x, 0, t.y), Vector3(-t.y, 0, t.x), y]
+
+func _chunk_mb(by_chunk: Dictionary, p: Vector3) -> MB:
+	var key := Vector2i(int(floor(p.x / CHUNK)), int(floor(p.z / CHUNK)))
+	if not by_chunk.has(key):
+		by_chunk[key] = MB.new()
+	return by_chunk[key]
+
+## A painted rectangle on the road: centred off metres across from c, half width hx across, half length hz along.
+func _flat_rect(mb: MB, c: Vector3, along: Vector3, across: Vector3, _y: float, off: float, hx: float, hz: float, col: Color) -> void:
+	var m := c + across * off
+	var q1 := m - across * hx - along * hz
+	var q2 := m + across * hx - along * hz
+	var q3 := m + across * hx + along * hz
+	var q4 := m - across * hx + along * hz
+	mb.quad(q4, q3, q2, q1, Vector3.UP, col)
+
 func _tangent(pts: PackedVector2Array, k: int, closed: bool) -> Vector2:
 	var n := pts.size()
 	var a := pts[posmod(k - 1, n)] if (closed or k > 0) else pts[k]
 	var b := pts[(k + 1) % n] if (closed or k < n - 1) else pts[k]
 	return (b - a).normalized()
 
-## Points where two roads meet (no painted lines there).
-func _junctions() -> Array:
-	var out := []
-	for ri in roads.size():
-		var r: Dictionary = roads[ri]
-		var pts: PackedVector2Array = r["pts"]
-		for k in range(0, pts.size(), 2):
-			var p := pts[k]
-			for rj in roads.size():
-				if rj == ri:
-					continue
-				var o: Dictionary = roads[rj]
-				var lim: float = (float(o["w"]) * 0.5 + 1.0)
-				var op: PackedVector2Array = o["pts"]
-				for m in range(0, op.size(), 2):
-					if op[m].distance_squared_to(p) < lim * lim:
-						out.append(p)
-						break
-	return out
 
 func _lot_meshes() -> void:
 	var mb := MB.new()
