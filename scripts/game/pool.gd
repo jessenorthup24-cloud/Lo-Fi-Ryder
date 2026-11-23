@@ -1,10 +1,12 @@
 extends MultiMeshInstance3D
 ## Many copies of one mesh in a single draw call. Slots are handed out and returned; a free slot is
-## scaled to zero. (The compatibility renderer needs instance colors switched on for vertex colors
+## scaled to zero, and only slots up to the highest one in use are drawn. (The compatibility renderer needs instance colors switched on for vertex colors
 ## and custom data to reach the shader, so every slot gets white.)
 
 var _free: Array[int] = []
 var _cap := 0
+var _on := PackedByteArray()   # which slots are handed out
+var _hi := 0                   # slots past this are all free, so they aren't drawn
 var HIDDEN := Transform3D(Basis().scaled(Vector3.ZERO), Vector3(0, -9999, 0))
 
 func setup(mesh: Mesh, capacity: int, mat: Material, custom := false, shadows := true) -> void:
@@ -25,11 +27,22 @@ func setup(mesh: Mesh, capacity: int, mat: Material, custom := false, shadows :=
 	_free.clear()
 	for i in range(capacity - 1, -1, -1):
 		_free.push_back(i)
+	_on.resize(capacity)
+	_on.fill(0)
+	_set_hi(0)
+
+func _set_hi(h: int) -> void:
+	_hi = h
+	multimesh.visible_instance_count = h
 
 func alloc() -> int:
 	if _free.is_empty():
 		return -1
-	return _free.pop_back()
+	var i: int = _free.pop_back()
+	_on[i] = 1
+	if i >= _hi:
+		_set_hi(i + 1)
+	return i
 
 func release(i: int) -> void:
 	if i < 0:
@@ -37,6 +50,12 @@ func release(i: int) -> void:
 	multimesh.set_instance_transform(i, HIDDEN)
 	multimesh.set_instance_color(i, Color.WHITE)
 	_free.push_back(i)
+	_on[i] = 0
+	if i == _hi - 1:
+		var h := i
+		while h > 0 and _on[h - 1] == 0:
+			h -= 1
+		_set_hi(h)
 
 func put(i: int, xf: Transform3D) -> void:
 	if i >= 0:
@@ -60,3 +79,5 @@ func clear_all() -> void:
 	_free.clear()
 	for i in range(_cap - 1, -1, -1):
 		_free.push_back(i)
+	_on.fill(0)
+	_set_hi(0)

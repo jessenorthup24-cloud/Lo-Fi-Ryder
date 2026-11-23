@@ -36,9 +36,11 @@ islands that crumble away behind you, while the days, seasons and weather roll b
 - Police chases: drive past a parked cruiser and it gives chase along your exact path. Hit the glowing
   boost pads to stay ahead for the stretch shown on screen. Get away for +40 coins; get caught and you
   lose 30% of your fuel.
-- The road runs past little places (farms, villages, ponds, orchards, beaches, piers, cafés, campsites,
-  mountains, cabins, sky ruins, balloon ports, cloud gardens) with toy people who wave as you pass and
-  cheer your stunts. They always hop out of the way.
+- The road runs past little places (farms, villages, toy towns, skate parks, ponds, orchards, beaches,
+  piers, cafés, seaside shops, campsites, mountains, cabins, sky castles, sky ruins, balloon ports, cloud
+  gardens) with little people who wave as you pass and cheer your stunts, and cube pets that hop about.
+  They always hop out of the way. In winter there are snowmen, presents and decorated trees, and house
+  windows light up at night.
 - Score = distance + style (drifts, near misses, air, spins, clean landings) + 5 per coin.
 - Coins buy cars and upgrades in the Garage. Missions pay out extra coins. The Daily run gives everyone
   the same road for the day, and your best daily attempt comes back as a ghost.
@@ -63,7 +65,8 @@ islands that crumble away behind you, while the days, seasons and weather roll b
 | `tools/audio/make_audio.py` | Synthesizes the UI and pickup sound effects (`python3 tools/audio/make_audio.py sfx`) |
 | `tools/audio/make_vehicle.py` | Synthesizes the vehicle sounds: 4-layer engines per family, tyres per surface, skids, siren |
 | `tools/music/` | CC0 music list and the script the build uses to fetch, trim and encode it (cached on the `music` branch) |
-| `tools/look/` | Icon renderer and look-dev scripts |
+| `tools/look/` | Icon renderer and look-dev scripts (`kgrid.gd` renders a contact sheet of baked Kenney models) |
+| `tools/kenney/bake_kenney.gd` | Bakes the chosen Kenney kit models into `assets/kenney/` (people posed, arms loose) |
 
 There are no autoloads and no `class_name`s, so an update pack can replace any script before it loads.
 
@@ -88,7 +91,10 @@ xvfb-run godot --path . -- --auto --shot=/tmp/x.png --frames=200   # screenshot,
 
 ## Credits
 
-Models and sound effects are made in code for this game. Music: CC0 lo-fi hip hop by HoliznaCC0 and
+Most models and all sound effects are made in code for this game. The cars are the Tiny Car Pack. The
+people, pets, houses, shops, skate park, camping gear, castle and holiday bits are from Kenney's CC0 kits
+(kenney.nl: Mini Characters, Cube Pets, City Kit Suburban and Commercial, Mini Skate, Survival Kit, Mini
+Forest, Castle Kit, Holiday Kit). Music: CC0 lo-fi hip hop by HoliznaCC0 and
 omfgdude from OpenGameArt (see `tools/music/sources.json`; the list of tracks actually used is
 `tracks.json` on the `music` branch). The font is Fredoka (SIL Open Font License,
 `assets/fonts/LICENSE_Fredoka.txt`).

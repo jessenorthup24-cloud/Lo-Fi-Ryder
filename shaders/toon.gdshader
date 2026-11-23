@@ -1,6 +1,8 @@
 shader_type spatial;
 render_mode cull_back, specular_disabled;
 
+// Vertex colour alpha picks the colour source: <0.2 palette slot, 0.2-0.4 tile top/side from the instance,
+// 0.4-0.48 window glass (painted, lit at night), 0.48-0.6 glowing, 0.6-0.8 painted colour as is, above that sRGB.
 // Season palette: 64 color slots x 4 rows (spring, summer, autumn, winter).
 uniform sampler2D palette : source_color, filter_nearest, repeat_disable;
 uniform float season = 0.0;          // 0..4, wraps; blends near the end of each season
@@ -30,6 +32,7 @@ varying float v_glow;
 varying vec3 v_world;
 varying vec3 v_nrm;
 varying float v_direct;
+varying float v_win;
 
 float hsh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p) {
@@ -58,6 +61,7 @@ vec3 pal(float idx) {
 void vertex() {
 	vec4 c = COLOR;
 	v_glow = 0.0;
+	v_win = 0.0;
 	v_direct = c.a > 0.6 ? 1.0 : 0.0;
 	if (c.a < 0.2) {
 		v_col = pal(floor(c.r * 255.0 + 0.5));
@@ -65,9 +69,16 @@ void vertex() {
 		// tile part: top or side slot comes from the instance; .b jitters brightness per tile
 		float idx = c.r > 0.5 ? INSTANCE_CUSTOM.r : INSTANCE_CUSTOM.g;
 		v_col = pal(floor(idx * 255.0 + 0.5)) * (0.95 + INSTANCE_CUSTOM.b * 0.1);
+	} else if (c.a < 0.48) {
+		// window glass (the Kenney houses): painted by day, lit warm at night
+		v_col = c.rgb;
+		v_win = 1.0;
 	} else if (c.a < 0.6) {
 		v_col = lin(c.rgb);
 		v_glow = 1.0;
+	} else if (c.a < 0.8) {
+		// colours as the artist painted them (the Kenney models)
+		v_col = c.rgb;
 	} else {
 		v_col = lin(c.rgb);
 	}
@@ -84,7 +95,7 @@ void vertex() {
 }
 
 void fragment() {
-	vec3 col = v_col * tint;
+	vec3 col = mix(v_col, vec3(1.0, 0.8, 0.45), v_win * night * 0.75) * tint;
 	if (decay > 0.0 && v_glow < 0.5) {
 		// weathering: blotchy grime, and moss creeping over anything facing up
 		// (living things - anything already green - stay fresh)
@@ -100,7 +111,7 @@ void fragment() {
 	ALBEDO = col;
 	ROUGHNESS = 1.0;
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
-	vec3 emi = mix(col, rim_color, 0.55) * rim * rim_strength * 1.5 + col * v_glow * night * 1.4 + col * v_glow * 0.25 + vec3(flash);
+	vec3 emi = mix(col, rim_color, 0.55) * rim * rim_strength * 1.5 + col * v_glow * night * 1.4 + col * v_glow * 0.25 + vec3(1.0, 0.78, 0.42) * v_win * night * 1.2 + vec3(flash);
 	float ahead = dot(v_world - fog_origin, fog_dir);
 	float below = clamp((-v_world.y - 1.0) * 0.045, 0.0, 1.0);
 	float fa = smoothstep(fog_start, fog_start + fog_len, ahead) * fog_amount;

@@ -35,7 +35,8 @@ const DECOR := {
 		"flowers": [4.0, 0.0, "flat", 1.0], "tuft": [4.0, 0.0, "flat", 1.0], "hay": [1.4, 0.42, "soft", 0.0],
 		"sunflower": [1.4, 0.3, "soft", 0.8], "fence": [1.6, 0.5, "wood", 0.0], "rock": [1.0, 0.36, "rock", 0.0],
 		"barn": [0.22, 1.5, "solid", 0.0], "windmill": [0.2, 0.85, "solid", 0.0]},
-	"forest": {"pine": [4.0, 0.42, "wood", 0.3], "pine_tall": [3.0, 0.45, "wood", 0.25], "tree_round": [1.5, 0.45, "wood", 0.5],
+	"forest": {"pine": [3.0, 0.42, "wood", 0.3], "pine_tall": [2.2, 0.45, "wood", 0.25], "tree_round": [1.5, 0.45, "wood", 0.5],
+		"k_forest_tree": [2.0, 0.42, "wood", 0.25], "k_forest_tree-high": [1.2, 0.45, "wood", 0.2], "k_forest_rocks-low": [0.8, 0.5, "rock", 0.0],
 		"fern": [3.0, 0.0, "flat", 1.0], "mushroom": [2.0, 0.3, "soft", 0.0], "stump": [1.4, 0.3, "wood", 0.0],
 		"log": [1.0, 0.55, "wood", 0.0], "rock": [1.6, 0.36, "rock", 0.0], "cabin": [0.2, 1.3, "solid", 0.0]},
 	"seaside": {"umbrella": [2.0, 0.35, "soft", 0.2], "deck_chair": [1.4, 0.35, "wood", 0.0], "dune_grass": [4.0, 0.0, "flat", 1.0],
@@ -51,6 +52,15 @@ const OBSTACLES := {
 	"sky": {"cloud_puff": 3.0, "crystal": 2.0, "pillar": 1.0},
 }
 const RUIN_SWAP := {}   # (the post-apocalyptic look is retired: props stay as built)
+# winter: now and then a snowman, a present or a candy cane turns up instead of the usual roadside thing
+const WINTER_DECOR := {"k_holi_snowman": [3.0, 0.42, "soft", 0.0], "k_holi_snowman-hat": [2.0, 0.42, "soft", 0.0],
+	"k_holi_present-a-cube": [1.5, 0.28, "soft", 0.0], "k_holi_present-b-round": [1.5, 0.28, "soft", 0.0],
+	"k_holi_candy-cane-red": [1.2, 0.15, "wood", 0.0]}
+# little animals (Kenney cube pets) for each kind of place: they hop about, watch you and skip out of your way
+const PETS := {"farm": ["cow", "pig", "chick", "hog"], "town": ["dog", "cat", "bunny"], "campsite": ["fox", "deer", "bunny", "beaver"],
+	"cabin": ["beaver", "fox", "deer"], "beach": ["crab", "penguin", "crab"], "garden": ["bee", "parrot", "bunny"],
+	"castle": ["lion", "parrot", "dog"], "pond": ["bunny", "fox"], "orchard": ["pig", "bunny", "hog"], "skatepark": ["dog"]}
+const PET_STYLE := {"bee": "hover", "parrot": "hover", "crab": "scuttle", "fish": "hover"}
 const BIG := ["barn", "windmill", "cabin", "hut", "lighthouse", "house_ruin", "house_ruin_b", "house_ruin_c", "wreck_car", "wall_ruin"]
 
 var game: Node          # main.gd
@@ -118,11 +128,14 @@ var fx: Node                # set by main, for chimney smoke and puffs
 
 # Places beside the road, per region: [type, weight]
 const PLACE_TYPES := {
-	"countryside": [["farm", 3.0], ["village", 3.0], ["pond", 2.0], ["orchard", 1.5]],
-	"seaside": [["beach", 3.0], ["pier", 2.0], ["cafe", 1.5]],
+	"countryside": [["farm", 3.0], ["town", 3.0], ["village", 1.6], ["pond", 2.0], ["orchard", 1.5], ["skatepark", 1.6]],
+	"seaside": [["beach", 3.0], ["pier", 2.0], ["cafe", 1.5], ["shops", 2.2], ["skatepark", 1.2]],
 	"forest": [["campsite", 3.0], ["mountain", 3.0], ["cabin", 1.5]],
-	"sky": [["ruins", 3.0], ["balloons", 2.5], ["garden", 1.5]],
+	"sky": [["castle", 2.6], ["ruins", 2.0], ["balloons", 2.5], ["garden", 1.5]],
 }
+const HOUSES := ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u"]
+const SHOPS := ["a", "b", "c", "d", "e", "f", "g", "h"]
+const TOWNHOUSES := ["house-a", "house-b", "house-c", "tower-a", "tower-b"]
 const TILE_POOLS := {"tile_field": 260, "tile_cobble": 260, "tile_plank": 160, "tile_pier": 60, "tile_rock": 360}
 
 func setup(g: Node, material: ShaderMaterial, font: Font) -> void:
@@ -136,6 +149,8 @@ func setup(g: Node, material: ShaderMaterial, font: Font) -> void:
 		for nm in DECOR[b]:
 			if not pools.has(nm):
 				pools[nm] = _pool(nm, 260 if DECOR[b][nm][1] < 0.8 else 24, false, DECOR[b][nm][2] != "flat", DECOR[b][nm][3])
+	for nm in WINTER_DECOR:
+		pools[nm] = _pool(nm, 60, false, true)
 	for nm in ["coin", "fuel", "ramp", "bridge", "station", "arch", "marker", "lamp", "windmill_blades", "pad",
 			"deck_plank", "deck_track_a", "deck_track_b", "deck_stilt", "deck_stand", "mound", "mud", "slick_dome", "slick_pillow",
 			"rail_piece", "rail_post"]:
@@ -407,12 +422,13 @@ func _plan_rough(seg: Dictionary, d: float) -> void:
 	var v0: float = seg["v0"]
 	var v1: float = seg["v1"]
 	var w: float = seg["w"]
-	# desert life in the cracks
+	# desert plants in the cracks
+	_ensure_pool("k_forest_plant", 60)
 	for k in rng.randi_range(3, 6):
 		var bv := rng.randf_range(v0 + 3.0, v1 - 3.0)
 		var bp := pos_at(bv, rng.randf_range(-w + 1.0, w - 1.0))
-		if bump_at(bp) < 0.05:
-			_add_item_prop("bud_glow", bp, rng.randf() * TAU, rng.randf_range(0.9, 1.3), 0.0, "flat", _stripe_of(bv))
+		if bump_at(bp) < 0.05 and pools["k_forest_plant"].used() < 58:
+			_add_item_prop("k_forest_plant", bp, rng.randf() * TAU, rng.randf_range(1.2, 1.8), 0.0, "flat", _stripe_of(bv))
 
 func _add_mound(p: Vector3, r: float, h: float, top: int, rz := -1.0, n_exp := 2.0, pool := "mound", yaw := INF) -> void:
 	var slot: int = pools[pool].alloc()
@@ -1043,6 +1059,19 @@ func _place_tile(pl: Dictionary, a: float, d: float) -> Dictionary:
 		"ruins":
 			if noise.get_noise_2d(a * 0.6 + pl["va"] * 0.1, d * 0.6) > -0.05:
 				return {"kind": "ground", "pool": "tile_cobble", "top": P.COBBLE}
+		"town":
+			if d < din + 1.5:
+				return {"kind": "ground", "pool": "tile_cobble", "top": P.CONCRETE}
+		"shops":
+			if d < din + 3.4:
+				return {"kind": "ground", "pool": "tile_plank", "top": P.PLANK}
+			return {"kind": "ground", "top": P.SAND}
+		"skatepark":
+			if d > din + 1.0 and a > 0.6 and a < L - 0.6:
+				return {"kind": "ground", "pool": "tile_cobble", "top": P.CONCRETE}
+		"castle":
+			if d > din + 1.2:
+				return {"kind": "ground", "pool": "tile_cobble", "top": P.COBBLE}
 		"balloons":
 			if absf(a - L * 0.5) < 3.2 and d > din + 0.8 and d < dout - 0.6:
 				return {"kind": "ground", "pool": "tile_plank", "top": P.PLANK}
@@ -1130,7 +1159,7 @@ func _pl_prop(pl: Dictionary, nm: String, a: float, d: float, yaw: float, sc := 
 
 func _pl_person(pl: Dictionary, a: float, d: float, pose := "stand", yaw := INF, y := 0.0) -> void:
 	var p := _pl_pos(pl, a, d) + Vector3(0, y, 0)
-	var pr := people.spawn(rng.randi_range(0, 99), pose, p, _pl_yaw(pl) if yaw == INF else yaw, _stripe_of(pl["va"] + a))
+	var pr := people.spawn(rng.randi_range(0, 99), pose, p, _pl_yaw(pl) + PI if yaw == INF else yaw, _stripe_of(pl["va"] + a))
 	if not pr.is_empty():
 		_stripe_add(pr["s"], {"kind": "person", "p": pr})
 
@@ -1160,6 +1189,8 @@ func _place_props(pl: Dictionary) -> void:
 				fa += 1.6
 			_pl_prop(pl, "hay", L - 0.8, dout - 0.8, rng.randf() * TAU, 1.0, 0.42, "soft")
 			_pl_person(pl, L * 0.45, din + 1.0)
+			for k in rng.randi_range(2, 3):
+				_pl_pet(pl, rng.randf_range(din + 1.8, dout - 1.4), rng.randf_range(4.4, L - 1.8))
 		"village":
 			var n := 2 if L < 13.0 else 3
 			var houses := ["cottage_a", "cottage_b", "cottage_c"]
@@ -1172,7 +1203,7 @@ func _place_props(pl: Dictionary) -> void:
 				_pl_prop(pl, "flower_bed", ha + 1.0, dout - 3.0, face, 0.8, 0.3, "soft")
 			_pl_prop(pl, "well", L * 0.5, din + 2.3, 0.0, 1.0, 0.45, "solid")
 			_pl_prop(pl, "bench", L * 0.5 + 1.8, din + 2.4, face, 1.0, 0.45, "wood")
-			_pl_person(pl, L * 0.5 + 1.8, din + 2.45, "sit", face)
+			_pl_person(pl, L * 0.5 + 1.8, din + 2.45, "sit", face, 0.33)
 			_pl_prop(pl, "lamp", 1.0, din + 0.6, 0.0, 1.0, 0.18, "metal")
 			_pl_prop(pl, "lamp", L - 1.0, din + 0.6, 0.0, 1.0, 0.18, "metal")
 			_pl_prop(pl, "mailbox", 2.6, din + 3.6, face, 1.0, 0.2, "metal")
@@ -1181,6 +1212,8 @@ func _place_props(pl: Dictionary) -> void:
 				_pl_prop(pl, "parked_" + String(parked["id"]), L - 2.6, din + 1.4, along, 1.0, 0.6, "solid")
 			_pl_person(pl, L * 0.5 - 1.4, din + 1.6)
 			_pl_person(pl, L * 0.5 + 0.6, din + 1.2)
+			if _winter():
+				_holiday(pl, L * 0.5 - 2.9, din + 2.9)
 		"pond":
 			var pc := Vector2(L * 0.5, mid + 0.6)
 			for k in 3:
@@ -1193,9 +1226,11 @@ func _place_props(pl: Dictionary) -> void:
 				var ang2 := TAU * k / 5.0 + 0.3
 				_pl_prop(pl, "reeds", pc.x + cos(ang2) * L * 0.38, pc.y + sin(ang2) * (dout - din) * 0.36, rng.randf() * TAU, 1.0, 0.0, "flat")
 			_pl_prop(pl, "bench", 1.6, din + 1.2, face, 1.0, 0.45, "wood")
-			_pl_person(pl, 1.6, din + 1.25, "sit", face + PI)
+			_pl_person(pl, 1.6, din + 1.25, "sit", face + PI, 0.33)
 			_pl_prop(pl, "tree_round", L - 1.2, dout - 0.8, 0.0, 1.0, 0.45, "wood")
 			_pl_prop(pl, "flowers", 1.2, dout - 1.0, 0.0, 1.0, 0.0, "flat")
+			if rng.randf() < 0.6:
+				_pl_pet(pl, din + 1.0, L - 2.4)
 		"orchard":
 			var rows := 2 if dout - din < 6.4 else 3
 			var ta := 1.6
@@ -1206,6 +1241,7 @@ func _place_props(pl: Dictionary) -> void:
 			_pl_prop(pl, "apple_crate", 2.8, din + 0.7, rng.randf() * TAU, 1.0, 0.3, "wood")
 			_pl_prop(pl, "apple_crate", 3.4, din + 0.9, rng.randf() * TAU, 1.0, 0.3, "wood")
 			_pl_person(pl, 2.9, din + 2.6)
+			_pl_pet(pl, din + 0.8, L * 0.5 + 1.0)
 		"beach":
 			var cols := [Color("ff7a6b"), Color("6ec6ff"), Color("ffd166"), Color("8fd19e"), Color("a998f2")]
 			for k in 3:
@@ -1224,6 +1260,7 @@ func _place_props(pl: Dictionary) -> void:
 			_pl_prop(pl, "beach_ball", L - 1.8, din + 1.6, 0.0, 1.0, 0.2, "soft")
 			_pl_prop(pl, "sandcastle", L - 1.4, dout - 2.4, rng.randf() * TAU, 0.8, 0.4, "sand")
 			_pl_person(pl, L - 2.6, dout - 1.9)
+			_pl_pet(pl, dout - 2.0, 1.4 + rng.randf() * 2.0)
 		"pier":
 			var pa := L * 0.5
 			_pl_prop(pl, "crate", pa - 0.4, din + 2.8, rng.randf() * TAU, 0.8, 0.3, "wood")
@@ -1243,28 +1280,35 @@ func _place_props(pl: Dictionary) -> void:
 			for k in 2:
 				var ca2 := 2.0 if k == 0 else L - 2.0
 				_pl_prop(pl, "cafe_table", ca2, din + 2.0, 0.0, 1.0, 0.3, "metal")
-				_pl_person(pl, ca2 + 0.55, din + 2.0, "sit", face + PI * 0.5)
+				_pl_prop(pl, "stump", ca2 + 0.62, din + 2.0, rng.randf() * TAU, 0.9, 0.0, "flat")
+				_pl_person(pl, ca2 + 0.62, din + 2.0, "sit", face + PI * 0.5, 0.34)
 			_pl_prop(pl, "deck_chair", L * 0.5 + 2.6, dout - 1.4, face, 1.0, 0.3, "wood")
 			_pl_prop(pl, "umbrella", L * 0.5 - 2.6, dout - 1.4, 0.0, 1.0, 0.3, "soft")
 		"campsite":
 			var cc := Vector2(L * 0.5, mid)
-			var fire := _pl_prop(pl, "campfire", cc.x, cc.y, 0.0, 1.0, 0.35, "rock")
+			var fire := _pl_prop(pl, "k_surv_campfire-pit", cc.x, cc.y, rng.randf() * TAU, 1.0, 0.35, "rock")
 			var fl := _pl_prop(pl, "flame", cc.x, cc.y, 0.0, 1.0, 0.0, "flat", 0.05)
 			_pl_anim("flame", fl)
 			_pl_anim("smoke", fire, {"at": _pl_pos(pl, cc.x, cc.y) + Vector3(0, 0.6, 0), "grey": true})
-			var tents := [Color("ff8a5c"), Color("3db5a6"), Color("6ec6ff")]
+			var tents := ["k_forest_tent", "k_surv_tent-canvas"]
 			for k in 2:
 				var tang := PI * 0.35 + k * PI * 0.75
 				var tp := cc + Vector2(cos(tang), sin(tang)) * 2.3
-				var tt := _pl_prop(pl, "tent", tp.x, tp.y, rng.randf() * TAU, 1.0, 0.75, "solid")
-				if not tt.is_empty():
-					if tt["pool"] == "tent": pools["tent"].tint(tt["slot"], tents[(k + rng.randi_range(0, 2)) % 3])
+				var tyaw: float = atan2(-(_pl_pos(pl, cc.x, cc.y) - _pl_pos(pl, tp.x, tp.y)).x, -(_pl_pos(pl, cc.x, cc.y) - _pl_pos(pl, tp.x, tp.y)).z)
+				_pl_prop(pl, tents[(k + rng.randi_range(0, 1)) % 2], tp.x, tp.y, tyaw, 1.0, 0.75, "solid")
+			_pl_prop(pl, "k_surv_bedroll", cc.x - 2.6, cc.y + 0.6, rng.randf() * TAU, 1.0, 0.0, "flat")
+			_pl_prop(pl, "k_surv_barrel", L - 2.0, din + 1.0, rng.randf() * TAU, 1.0, 0.3, "wood")
+			_pl_prop(pl, "k_surv_chest", L - 2.7, din + 0.9, face, 1.0, 0.3, "wood")
+			_pl_prop(pl, "k_surv_signpost", 1.6, din + 0.6, face + 0.4, 1.4, 0.15, "wood")
+			_pl_pet(pl, dout - 1.2, L * 0.5 + rng.randf_range(-3.0, 3.0))
+			if _winter():
+				_pl_prop(pl, "k_holi_snowman-hat", L - 1.6, dout - 2.0, face, 1.0, 0.4, "soft")
 			for k in 2:
 				var lang := PI * 1.2 + k * PI * 0.6
 				var lp := cc + Vector2(cos(lang), sin(lang)) * 1.2
 				_pl_prop(pl, "log", lp.x, lp.y, lang, 0.8, 0.0, "flat")
 				var lyaw: float = atan2(-(_pl_pos(pl, cc.x, cc.y) - _pl_pos(pl, lp.x, lp.y)).x, -(_pl_pos(pl, cc.x, cc.y) - _pl_pos(pl, lp.x, lp.y)).z)
-				_pl_person(pl, lp.x, lp.y, "sit", lyaw, 0.12)
+				_pl_person(pl, lp.x, lp.y, "sit", lyaw, 0.3)
 			var cn := _pl_prop(pl, "canoe", 1.4, dout - 1.0, along, 1.0, 0.45, "wood")
 			if not cn.is_empty():
 				pools["canoe"].tint(cn["slot"], Color("ef5b4c"))
@@ -1317,6 +1361,7 @@ func _place_props(pl: Dictionary) -> void:
 			_pl_prop(pl, "stump", L * 0.5 - 2.0, din + 2.0, 0.0, 1.0, 0.3, "wood")
 			_pl_prop(pl, "mailbox", L * 0.5 - 1.2, din + 0.8, face, 1.0, 0.2, "metal")
 			_pl_person(pl, L * 0.5 - 1.4, din + 2.2)
+			_pl_pet(pl, din + 1.4, L * 0.5 + 1.6)
 			_pl_prop(pl, "lookout", 1.4, dout - 1.2, face, 0.9, 0.7, "solid")
 			_pl_prop(pl, "fern", L - 1.0, din + 1.2, 0.0, 1.0, 0.0, "flat")
 		"ruins":
@@ -1349,9 +1394,144 @@ func _place_props(pl: Dictionary) -> void:
 			_pl_prop(pl, "flower_bed", L * 0.5, din + 1.6, face, 1.0, 0.3, "soft")
 			_pl_prop(pl, "cloud_puff", 1.4, din + 1.2, 0.0, 1.0, 0.45, "cloud")
 			_pl_prop(pl, "bench", L * 0.5 + 2.4, din + 2.8, face, 1.0, 0.45, "wood")
-			_pl_person(pl, L * 0.5 + 2.4, din + 2.85, "sit", face)
+			_pl_person(pl, L * 0.5 + 2.4, din + 2.85, "sit", face, 0.33)
+			_pl_pet(pl, din + 2.0, L * 0.5 - 1.4)
 
-## Ducks paddle, boats bob, balloons float, fires flicker, chimneys smoke.
+		"town":
+			# a little street of houses with front yards
+			var n2 := 2 if L < 13.5 else 3
+			var picks := HOUSES.duplicate()
+			_shuffle(picks)
+			var mods := TOWNHOUSES.duplicate()
+			_shuffle(mods)
+			for k in n2:
+				var ha := 2.4 + k * (L - 4.8) / maxf(1.0, n2 - 1)
+				var hn := "k_sub_building-type-" + String(picks[k])
+				if rng.randf() < 0.35:
+					hn = "k_mod_building-sample-" + String(mods[k % mods.size()])
+				_pl_prop(pl, hn, ha, dout - 1.75, face, 1.0, 1.3, "solid")
+				# yard: a little fence, a planter or a tree
+				if rng.randf() < 0.6:
+					_pl_prop(pl, "k_sub_fence-low", ha + 1.0 * (1.0 if k % 2 == 0 else -1.0), din + 2.3, face, 0.9, 0.0, "flat")
+				else:
+					_pl_prop(pl, "k_sub_planter", ha + 0.9, din + 2.2, face, 1.0, 0.35, "soft")
+				if k < n2 - 1:
+					_pl_prop(pl, "k_sub_tree-large", ha + (L - 4.8) / maxf(1.0, n2 - 1) * 0.5, dout - 2.6, 0.0, 0.9 + rng.randf() * 0.25, 0.3, "wood")
+			_pl_prop(pl, "k_holi_lantern", 1.0, din + 0.7, face, 1.0, 0.18, "metal")
+			_pl_prop(pl, "k_retro_detail-light-single", L - 1.0, din + 0.5, face + PI * 0.5, 1.0, 0.15, "metal")
+			_pl_prop(pl, "mailbox", 3.4, din + 1.9, face, 1.0, 0.2, "metal")
+			if rng.randf() < 0.6:
+				_pl_prop(pl, "k_retro_detail-bench", L * 0.5 - 3.4, din + 1.0, face, 1.0, 0.4, "wood")
+				_pl_person(pl, L * 0.5 - 3.4, din + 1.0, "sit", face + PI, 0.32)
+			var parked2: Dictionary = CARS.LIST[rng.randi_range(1, CARS.LIST.size() - 1)]
+			if not (parked2["id"] in ["bus", "firetruck", "dump", "monster"]) and rng.randf() < 0.7:
+				_pl_prop(pl, "parked_" + String(parked2["id"]), L * 0.5 + 0.2, din + 2.5, along, 1.0, 0.6, "solid")
+			_pl_person(pl, L * 0.5 - 1.6, din + 1.1)
+			_pl_person(pl, L * 0.5 + 1.9, din + 1.3)
+			_pl_pet(pl, din + 2.8)
+			if _winter():
+				_holiday(pl, L - 2.2, din + 3.0)
+		"shops":
+			# a seaside parade: shopfronts behind a boardwalk with tables out front
+			var n3 := 2 if L < 13.5 else 3
+			var sp := SHOPS.duplicate()
+			_shuffle(sp)
+			for k in n3:
+				var sa := 2.2 + k * (L - 4.4) / maxf(1.0, n3 - 1)
+				if k == 1 and rng.randf() < 0.5:
+					_pl_prop(pl, "k_mod_building-sample-tower-" + ("a" if rng.randf() < 0.5 else "b"), sa, dout - 1.4, face, 1.0, 1.0, "solid")
+				else:
+					_pl_prop(pl, "k_com_building-" + String(sp[k]), sa, dout - 1.3, face, 1.0, 1.1, "solid")
+				var ta3 := sa + (0.9 if k % 2 == 0 else -0.9)
+				_pl_prop(pl, "k_com_detail-parasol-" + ("a" if k % 2 == 0 else "b"), ta3, din + 2.3, rng.randf() * TAU, 1.0, 0.35, "soft")
+				_pl_prop(pl, "stump", ta3 + 0.75, din + 2.3, rng.randf() * TAU, 0.9, 0.0, "flat")
+				_pl_person(pl, ta3 + 0.75, din + 2.3, "sit", face + PI * 0.5, 0.34)
+			_pl_prop(pl, "k_holi_lantern", L * 0.5, din + 0.6, face, 1.0, 0.18, "metal")
+			_pl_prop(pl, "crate", 1.0, din + 3.2, rng.randf() * TAU, 0.8, 0.3, "wood")
+			_pl_prop(pl, "umbrella", L - 1.0, din + 1.2, 0.0, 0.8, 0.3, "soft")
+			_pl_person(pl, L * 0.5 - 0.8, din + 1.4)
+			_pl_person(pl, L * 0.5 + 1.4, din + 1.7, "stand", face + PI)
+			if _winter():
+				_holiday(pl, 1.4, din + 1.6)
+		"skatepark":
+			# a mini skate park: half-pipes at the back, boxes and rails, a skater going back and forth
+			for k in 2:
+				_pl_prop(pl, "k_skate_half-pipe", L * 0.5 + (k * 2 - 1) * 1.1, dout - 1.25, face, 1.0, 1.0, "solid")
+			_pl_prop(pl, "k_skate_ramp", 1.6, din + 3.1, along + PI * 0.5, 1.0, 0.8, "solid")
+			_pl_prop(pl, "k_skate_obstacle-box-grind", L - 1.7, din + 3.1, along, 1.0, 0.6, "solid")
+			_pl_prop(pl, "k_skate_rail-low", L * 0.5, din + 3.25, along, 1.0, 0.0, "flat")
+			_pl_prop(pl, "k_skate_bench", L * 0.5 - 2.2, din + 0.8, face, 1.0, 0.45, "wood")
+			_pl_person(pl, L * 0.5 - 2.2, din + 0.8, "sit", face + PI, 0.3)
+			_pl_person(pl, L * 0.5 + 1.8, din + 0.9, "stand", face)
+			_pl_prop(pl, "k_skate_skateboard", L * 0.5 + 2.4, din + 1.0, rng.randf() * TAU, 1.0, 0.0, "flat")
+			_pl_skater(pl, 2.6, L - 2.8, din + 2.0)
+			for k in 2:
+				_pl_prop(pl, "k_arena_banner", 0.9 if k == 0 else L - 0.9, dout - 0.8, face, 1.0, 0.25, "wood")
+			_pl_prop(pl, "crate", L - 0.9, din + 1.4, 0.0, 0.8, 0.3, "wood")
+			_pl_prop(pl, "k_arena_trophy", L - 0.9, din + 1.4, face, 0.9, 0.0, "flat", 0.48)
+			_pl_pet(pl, din + 1.2)
+		"castle":
+			# a toy castle: two towers with pennants, a wall and an archway between
+			var th: float = M.ksize("k_castle_tower-square-base").y
+			for k in 2:
+				var ta4 := 1.5 if k == 0 else L - 1.5
+				_pl_prop(pl, "k_castle_tower-square-base", ta4, dout - 1.4, face, 1.0, 1.1, "solid")
+				_pl_prop(pl, "k_castle_tower-square-mid", ta4, dout - 1.4, face, 1.0, 0.0, "flat", th)
+				_pl_prop(pl, "k_castle_tower-square-top-roof", ta4, dout - 1.4, face, 1.0, 0.0, "flat", th * 2.0)
+				var fg := _pl_prop(pl, "k_castle_flag-pennant", ta4, dout - 1.4, along, 1.0, 0.0, "flat", th * 2.0 + M.ksize("k_castle_tower-square-top-roof").y * 0.85)
+				_pl_anim("flag", fg)
+			var wl: float = M.ksize("k_castle_wall").x
+			var wa := 1.5 + 1.1 + wl * 0.5
+			var mid_a := L * 0.5
+			while wa < L - 1.5 - 1.1 - wl * 0.3:
+				if absf(wa - mid_a) > wl * 0.6:
+					_pl_prop(pl, "k_castle_wall", wa, dout - 1.4, face, 1.0, 1.0, "solid")
+				wa += wl
+			_pl_prop(pl, "k_castle_bridge-straight", mid_a, dout - 1.4, face + PI * 0.5, 1.0, 0.0, "flat")
+			_pl_prop(pl, "k_castle_tree-large", 0.9, din + 1.6, rng.randf() * TAU, 0.9, 0.35, "wood")
+			_pl_prop(pl, "k_arena_statue", L - 2.6, din + 2.0, face, 1.0, 0.35, "rock")
+			_pl_prop(pl, "k_arena_banner", mid_a - 1.9, dout - 0.5, face, 1.0, 0.0, "flat")
+			_pl_prop(pl, "k_arena_banner", mid_a + 1.9, dout - 0.5, face, 1.0, 0.0, "flat")
+			_pl_person(pl, mid_a - 0.9, din + 2.0)
+			_pl_person(pl, mid_a + 0.8, din + 2.4, "stand", face + PI)
+			_pl_pet(pl, din + 2.6)
+
+## A tree with presents and a snowman, for winter.
+func _holiday(pl: Dictionary, a: float, d: float) -> void:
+	_pl_prop(pl, "k_holi_tree-decorated", a, d, rng.randf() * TAU, 0.85, 0.4, "wood")
+	_pl_prop(pl, "k_holi_present-a-cube", a + 0.7, d - 0.5, rng.randf() * TAU, 1.0, 0.0, "flat")
+	_pl_prop(pl, "k_holi_present-b-round", a - 0.6, d - 0.6, rng.randf() * TAU, 1.0, 0.0, "flat")
+	_pl_prop(pl, "k_holi_snowman-hat" if rng.randf() < 0.5 else "k_holi_snowman", a - 1.6, d - 0.2, _pl_yaw(pl), 1.0, 0.4, "soft")
+
+## One of the place's animals, somewhere in it.
+func _pl_pet(pl: Dictionary, d: float, a := -1.0) -> void:
+	var kinds: Array = PETS.get(String(pl["type"]), [])
+	if kinds.is_empty():
+		return
+	var L: float = pl["vb"] - pl["va"]
+	var animal: String = kinds[rng.randi_range(0, kinds.size() - 1)]
+	var aa := a if a >= 0.0 else rng.randf_range(1.5, L - 1.5)
+	var pr := _pl_prop(pl, "k_pets_animal-" + animal, aa, d, _pl_yaw(pl) + rng.randf_range(-1.0, 1.0), 1.0, 0.0, "flat")
+	if pr.is_empty():
+		return
+	_pl_anim("critter", pr, {"style": PET_STYLE.get(animal, "hop"), "home": pr["pos"], "p": pr["pos"], "yaw": pr["yaw"],
+		"cur": pr["yaw"], "vy": 0.0, "y": 0.0, "t": rng.randf_range(0.4, 2.5), "hv": Vector3.ZERO, "squash": 0.0})
+
+## A skater rolling back and forth between a and b, popping an ollie in the middle.
+func _pl_skater(pl: Dictionary, a0: float, a1: float, d: float) -> void:
+	var pa := _pl_pos(pl, a0, d)
+	var pb := _pl_pos(pl, a1, d)
+	var board := _pl_prop(pl, "k_skate_skateboard", (a0 + a1) * 0.5, d, 0.0, 1.0, 0.0, "flat")
+	if board.is_empty():
+		return
+	var pr := people.spawn(rng.randi_range(0, 99), "stand", pa, 0.0, _stripe_of(pl["va"] + a0))
+	if not pr.is_empty():
+		pr["ride"] = true
+		pr["arms"] = 0.7
+		_stripe_add(pr["s"], {"kind": "person", "p": pr})
+	_pl_anim("skate", board, {"rider": pr, "p0": pa, "p1": pb, "sp": rng.randf_range(0.7, 0.9)})
+
+## Ducks paddle, boats bob, balloons float, fires flicker, chimneys smoke, pets hop, skaters skate.
 func _tick_anims(dt: float, time: float, car_pos: Vector3) -> void:
 	var dead := []
 	for an in anims:
@@ -1391,6 +1571,30 @@ func _tick_anims(dt: float, time: float, car_pos: Vector3) -> void:
 			"flame":
 				var k := 1.0 + sin(time * 17.0 + ph) * 0.15 + sin(time * 9.0) * 0.1
 				pools[pr["pool"]].put(pr["slot"], Transform3D(Basis(Vector3.UP, time * 2.0).scaled(Vector3(1.0 / k, k * 1.1, 1.0 / k)), base))
+			"critter":
+				_tick_critter(an, pr, dt, time, car_pos)
+			"skate":
+				var u := time * float(an["sp"]) + ph
+				var x := 0.5 - 0.5 * cos(u)
+				var p0: Vector3 = an["p0"]
+				var p1: Vector3 = an["p1"]
+				var pp := p0.lerp(p1, x)
+				var dirv := (p1 - p0).normalized() * signf(sin(u) + 0.0001)
+				var c := cos(u)
+				var oy := 0.0
+				if absf(c) < 0.22:
+					oy = 0.32 * (1.0 - (c / 0.22) * (c / 0.22))
+				var yaw := atan2(-dirv.x, -dirv.z)
+				var tilt := clampf(oy * 2.0, 0.0, 0.5) * (1.0 if c > 0.0 else -1.0)
+				pools[pr["pool"]].put(pr["slot"], Transform3D(Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, tilt * 0.5), pp + Vector3(0, oy, 0)))
+				pr["pos"] = pp
+				var rd: Dictionary = an["rider"]
+				if not rd.is_empty() and not rd.get("gone", false):
+					rd["pos"] = pp
+					rd["y"] = oy + 0.1
+					rd["face"] = yaw + PI * 0.5
+			"flag":
+				pools[pr["pool"]].put(pr["slot"], Transform3D(Basis(Vector3.UP, pr["yaw"] + sin(time * 1.7 + ph) * 0.35), base))
 			"smoke":
 				an["t"] -= dt
 				if an["t"] <= 0.0 and fx and base.distance_to(car_pos) < 30.0:
@@ -1407,6 +1611,72 @@ func _tick_anims(dt: float, time: float, car_pos: Vector3) -> void:
 			old.append(pl)
 	for pl in old:
 		places.erase(pl)
+
+## A cube pet: hops about near home, turns to watch you, and skips out of the way. Squashes when it lands.
+func _tick_critter(an: Dictionary, pr: Dictionary, dt: float, time: float, car_pos: Vector3) -> void:
+	var ph: float = an["ph"]
+	var home: Vector3 = an["home"]
+	var cp: Vector3 = an["p"]
+	var to_car := car_pos - cp
+	to_car.y = 0.0
+	var dist := to_car.length()
+	var style: String = an["style"]
+	if style == "hover":
+		var ang := time * 0.8 + ph
+		var hp := home + Vector3(cos(ang) * 0.7, 0.75 + sin(time * 2.6 + ph) * 0.12, sin(ang) * 0.7)
+		var tng := Vector3(-sin(ang), 0, cos(ang))
+		pools[pr["pool"]].put(pr["slot"], Transform3D(Basis(Vector3.UP, atan2(-tng.x, -tng.z)), hp))
+		pr["pos"] = hp
+		return
+	an["t"] -= dt
+	var grounded: bool = an["y"] <= 0.0 and an["vy"] == 0.0
+	if grounded and dist < 1.9:
+		# skip out of the way
+		var away := -to_car.normalized() if dist > 0.01 else Vector3.RIGHT
+		an["vy"] = 3.4
+		an["hv"] = away * 2.4
+		an["yaw"] = atan2(-away.x, -away.z)
+	elif grounded and an["t"] <= 0.0:
+		an["t"] = randf_range(1.0, 3.2)
+		var want: float = an["yaw"] + randf_range(-1.0, 1.0)
+		var step := 0.45
+		if dist < 9.0:
+			want = atan2(-to_car.x, -to_car.z)
+			step = 0.0
+		var back := home - cp
+		back.y = 0.0
+		if back.length() > 0.9:
+			want = atan2(-back.x, -back.z)
+			step = 0.6
+		an["yaw"] = want
+		if style == "scuttle":
+			# crabs go sideways
+			var side := Basis(Vector3.UP, want) * Vector3(1.0 if randf() < 0.5 else -1.0, 0, 0)
+			an["vy"] = 1.2
+			an["hv"] = side * 0.9
+		else:
+			an["vy"] = 2.4
+			an["hv"] = Basis(Vector3.UP, want) * Vector3(0, 0, -step)
+	if an["vy"] != 0.0 or an["y"] > 0.0:
+		an["vy"] -= 13.0 * dt
+		an["y"] += an["vy"] * dt
+		cp += an["hv"] * dt
+		var off := cp - home
+		off.y = 0.0
+		if off.length() > 1.8:
+			cp = home + off.normalized() * 1.8
+		if an["y"] <= 0.0:
+			an["y"] = 0.0
+			an["vy"] = 0.0
+			an["hv"] = Vector3.ZERO
+			an["squash"] = 1.0
+	an["squash"] = move_toward(an["squash"], 0.0, dt * 5.0)
+	an["cur"] = lerp_angle(an["cur"], an["yaw"], 1.0 - exp(-dt * 9.0))
+	an["p"] = cp
+	var sy := 1.0 + clampf(float(an["vy"]) * 0.035, -0.1, 0.12) - float(an["squash"]) * 0.16
+	var sxz := 1.0 / sqrt(maxf(0.5, sy))
+	pools[pr["pool"]].put(pr["slot"], Transform3D(Basis(Vector3.UP, an["cur"]).scaled(Vector3(sxz, sy, sxz)), cp + Vector3(0, an["y"], 0)))
+	pr["pos"] = cp
 
 func _add_coin(p: Vector3, s: int, on_ground := false) -> void:
 	var slot: int = pools["coin"].alloc()
@@ -1700,7 +1970,9 @@ func _maybe_prop(tile: Dictionary, u: float, v: float, c: float, seg: Dictionary
 			choice = _pick_decor(biome, _hash(i, j, 8), rim)
 	if choice == "":
 		return
-	var info: Array = DECOR[biome][choice] if DECOR[biome].has(choice) else [1.0, 0.4, "wood", 0.0]
+	if _winter() and biome != "sky" and biome != "seaside" and not (choice in BIG) and _hash(i, j, 21) < 0.08 and dist > 1.6:
+		choice = _pick(_winter_table(), _hash(i, j, 22))
+	var info: Array = DECOR[biome][choice] if DECOR[biome].has(choice) else WINTER_DECOR.get(choice, [1.0, 0.4, "wood", 0.0])
 	if choice in BIG:
 		# big buildings need solid ground around them and stay off the racing line
 		if dist < 3.0:
@@ -1734,6 +2006,16 @@ func _maybe_prop(tile: Dictionary, u: float, v: float, c: float, seg: Dictionary
 		var bs: int = pools["windmill_blades"].alloc()
 		prop["blades"] = bs
 		windmills.append(prop)
+
+## Is it winter (or about to be) where the road is being laid?
+func _winter() -> bool:
+	return game != null and game.get("atmos") != null and game.atmos.season_idx == 3
+
+func _winter_table() -> Dictionary:
+	var t := {}
+	for k in WINTER_DECOR:
+		t[k] = WINTER_DECOR[k][0]
+	return t
 
 func _pick(table: Dictionary, r: float) -> String:
 	var total := 0.0

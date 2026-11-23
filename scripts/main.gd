@@ -1061,6 +1061,8 @@ func _cam_update(dt: float, snap: bool) -> void:
 	if state == TITLE or state == GARAGE:
 		lead = world.F * 2.0
 	var want := Vector3(target.x, maxf(target.y * 0.6, -1.0), target.z) + lead
+	if args.has("peek"):   # testing: look off to the side of the road
+		want += world.S * float(args["peek"])
 	if snap:
 		cam_focus = want
 	else:
@@ -1068,6 +1070,8 @@ func _cam_update(dt: float, snap: bool) -> void:
 	var want_size := CAM_SIZE + (1.0 if not car.grounded and not car.dead else 0.0) + (1.2 if chase_state == "on" else 0.0) + (car.pace - 1.0) * 2.2
 	if state == TITLE:
 		want_size = CAM_SIZE - 1.8
+	if args.has("zoom"):   # testing: close-ups
+		want_size = float(args["zoom"])
 	cam_size = want_size if snap else lerpf(cam_size, want_size, 1.0 - exp(-dt * 2.0))
 	cam.size = cam_size
 	var fwd := cam.global_transform.basis.z

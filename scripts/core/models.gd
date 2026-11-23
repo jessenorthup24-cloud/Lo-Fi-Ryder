@@ -1,5 +1,6 @@
 extends RefCounted
-## Every model in the game, built from code. Meshes are cached by name.
+## Every model in the game, built from code, plus the Tiny Car Pack cars and the Kenney (CC0) kits baked into
+## assets/. Meshes are cached by name.
 
 const MB := preload("res://scripts/core/mesh_builder.gd")
 const P := preload("res://scripts/core/palette.gd")
@@ -10,6 +11,9 @@ static var _cache := {}
 
 static func get_mesh(name: String) -> ArrayMesh:
 	if _cache.has(name):
+		return _cache[name]
+	if name.begins_with("k_"):
+		_cache[name] = _k_mesh(name)
 		return _cache[name]
 	var m: ArrayMesh = load("res://scripts/core/models.gd").call("_m_" + name)
 	_cache[name] = m
@@ -1487,70 +1491,77 @@ static func parked(def: Dictionary) -> ArrayMesh:
 	_cache[key] = m
 	return m
 
-# ---------------------------------------------------------------- toy people (peg figures)
+# ---------------------------------------------------------------- Kenney kits (CC0, kenney.nl)
+# Baked by tools/kenney/bake_kenney.gd into assets/kenney/k_<pack>_<model>.res, facing -Z, painted colours kept.
+# Each kit has its own scale; these bring them in line with the toy world (tile 1.6 m, people about 1 m tall).
 
-# skin, hair, shirt, pants, hat ("" none / "cap" / "sunhat" / "beanie"), hat colour
-const PEOPLE := [
-	["f1c7a5", "4a3226", "ff7a6b", "4a6fa5", "", ""],
-	["c98e66", "2b1d16", "3db5a6", "e8d9b5", "cap", "ffc94d"],
-	["8d5a3b", "1d1512", "ffc94d", "3a3f4a", "", ""],
-	["ffdcc0", "d9a441", "a998f2", "4a6fa5", "sunhat", "f3e1b0"],
-	["e0ac82", "6b3e26", "6ec6ff", "8a5a35", "beanie", "ef5b4c"],
-	["a86b47", "2b1d16", "ffffff", "3db5a6", "cap", "ff7a6b"],
-]
+const K_PACK_SCALE := {"sub": 2.0, "com": 2.1, "mod": 1.3, "retro": 2.0, "arena": 1.3, "skate": 2.2, "surv": 2.6, "forest": 1.2,
+	"castle": 2.2, "holi": 0.9, "chars": 1.35}
+const K_SCALE := {"k_surv_tree": 1.45, "k_surv_tree-tall": 1.45, "k_surv_tree-autumn": 1.45, "k_surv_tree-autumn-tall": 1.45,
+	"k_surv_rock-flat-grass": 1.0, "k_surv_rock-a": 1.3, "k_surv_rock-b": 1.3, "k_surv_rock-c": 1.3,
+	"k_skate_skateboard": 1.4, "k_skate_scooter": 1.6, "k_skate_bench": 1.5,
+	"k_holi_candy-cane-red": 2.0, "k_holi_gingerbread-man": 2.2, "k_holi_present-a-cube": 1.1, "k_holi_present-b-round": 1.1,
+	"k_holi_present-a-rectangle": 1.1, "k_holi_lights-colored": 2.0, "k_sub_tree-large": 2.4, "k_sub_tree-small": 2.4,
+	"k_castle_tree-large": 1.1, "k_com_detail-parasol-a": 2.6, "k_com_detail-parasol-b": 2.6}
+# pets are all about the same size in the kit: give them heights
+const K_PET_H := {"cow": 0.8, "elephant": 0.85, "giraffe": 0.95, "deer": 0.75, "bee": 0.32, "chick": 0.38, "crab": 0.32,
+	"caterpillar": 0.32, "fish": 0.4, "parrot": 0.45, "penguin": 0.5, "bunny": 0.45, "hog": 0.55, "pig": 0.55, "polar": 0.65,
+	"lion": 0.65, "tiger": 0.6, "panda": 0.6}
+static var _kmeta := {}
 
-static func person(v: int, sit: bool) -> ArrayMesh:
-	var key := "person_%d_%s" % [v, "sit" if sit else "stand"]
-	if _cache.has(key):
-		return _cache[key]
-	var d: Array = PEOPLE[v]
-	var skin := MB.rgb(d[0]); var hair := MB.rgb(d[1]); var shirt := MB.rgb(d[2]); var pants := MB.rgb(d[3])
-	var b := MB.new()
-	var lift := 0.0 if not sit else -0.22
-	for x in [-0.08, 0.08]:
-		if sit:
-			b.cyl(Vector3(x, 0.2, -0.12), 0.07, 0.3, pants, 7, Basis(Vector3.RIGHT, PI * 0.5))
-			b.cyl(Vector3(x, 0.08, -0.27), 0.065, 0.2, pants, 7)
-			b.cbox(Vector3(x, 0.02, -0.3), Vector3(0.1, 0.05, 0.16), 0.02, MB.rgb("3a3540"))
-		else:
-			b.cyl(Vector3(x, 0.19, 0), 0.07, 0.34, pants, 7)
-			b.cbox(Vector3(x, 0.03, -0.03), Vector3(0.1, 0.06, 0.17), 0.02, MB.rgb("3a3540"))
-	b.cyl(Vector3(0, 0.54 + lift, 0), 0.165, 0.38, shirt, 12)
-	b.sphere(Vector3(0, 0.72 + lift, 0), 0.165, shirt, 12, 6, Vector3(1, 0.45, 1))
-	b.sphere(Vector3(0, 0.36 + lift, 0), 0.165, pants, 12, 6, Vector3(1, 0.35, 1))
-	var hy := 0.93 + lift
-	b.sphere(Vector3(0, hy, 0), 0.155, skin, 12, 7)
-	b.sphere(Vector3(0, hy + 0.03, 0.02), 0.162, hair, 12, 6, Vector3(1, 0.75, 1))
-	b.sphere(Vector3(-0.05, hy + 0.0, -0.145), 0.018, MB.rgb("2b2530"), 5, 3)
-	b.sphere(Vector3(0.05, hy + 0.0, -0.145), 0.018, MB.rgb("2b2530"), 5, 3)
-	b.sphere(Vector3(0, hy - 0.05, -0.15), 0.014, MB.rgb("e87a7a"), 5, 3, Vector3(1.6, 0.6, 1))
-	match String(d[4]):
-		"cap":
-			b.sphere(Vector3(0, hy + 0.07, 0.0), 0.165, MB.rgb(d[5]), 12, 6, Vector3(1, 0.6, 1))
-			b.cbox(Vector3(0, hy + 0.06, -0.18), Vector3(0.2, 0.025, 0.14), 0.01, MB.rgb(d[5]))
-		"sunhat":
-			b.cyl(Vector3(0, hy + 0.08, 0), 0.3, 0.02, MB.rgb(d[5]), 14)
-			b.cyl(Vector3(0, hy + 0.14, 0), 0.14, 0.12, MB.rgb(d[5]), 12)
-			b.cyl(Vector3(0, hy + 0.1, 0), 0.145, 0.03, MB.rgb("ef8a8a"), 12)
-		"beanie":
-			b.sphere(Vector3(0, hy + 0.06, 0.0), 0.168, MB.rgb(d[5]), 12, 6, Vector3(1, 0.72, 1))
-			b.sphere(Vector3(0, hy + 0.2, 0.0), 0.05, MB.rgb("ffffff"), 6, 3)
-	var m := b.commit()
-	_cache[key] = m
+static func kmeta() -> Dictionary:
+	if _kmeta.is_empty():
+		_kmeta = JSON.parse_string(FileAccess.get_file_as_string("res://assets/kenney/kenney_meta.json"))
+	return _kmeta
+
+static func kscale(name: String) -> float:
+	if K_SCALE.has(name):
+		return K_SCALE[name]
+	var pack := name.get_slice("_", 1)
+	if pack == "pets":
+		var a: Array = kmeta().get(name, [0, 0, 0, 1, 1, 1])
+		return float(K_PET_H.get(name.trim_prefix("k_pets_animal-"), 0.5)) / float(a[4])
+	return K_PACK_SCALE.get(pack, 1.0)
+
+## Size of a Kenney model as the game shows it.
+static func ksize(name: String) -> Vector3:
+	var a: Array = kmeta().get(name, [0, 0, 0, 1, 1, 1])
+	return Vector3(a[3], a[4], a[5]) * kscale(name)
+
+static func _k_mesh(name: String) -> ArrayMesh:
+	var src: ArrayMesh = load("res://assets/kenney/%s.res" % name)
+	var key := name
+	if name.begins_with("k_chars_"):
+		key = "k_chars_" + name.get_slice("_", 2)
+	var sc := kscale(key)
+	if is_equal_approx(sc, 1.0):
+		return src
+	var a := src.surface_get_arrays(0)
+	var vv: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
+	for k in vv.size():
+		vv[k] *= sc
+	a[Mesh.ARRAY_VERTEX] = vv
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a)
 	return m
 
-## One arm, hanging down from the shoulder (origin). Rotate it to wave.
-static func arm(v: int) -> ArrayMesh:
-	var key := "arm_%d" % v
-	if _cache.has(key):
-		return _cache[key]
-	var d: Array = PEOPLE[v]
-	var b := MB.new()
-	b.cyl(Vector3(0, -0.13, 0), 0.05, 0.26, MB.rgb(d[2]), 6)
-	b.sphere(Vector3(0, -0.3, 0), 0.055, MB.rgb(d[0]), 6, 4)
-	var m := b.commit()
-	_cache[key] = m
-	return m
+# ---------------------------------------------------------------- toy people (Kenney mini characters)
+# Each has a body and two loose arms (pivots at the shoulders) for standing and for sitting.
+
+const CHARS := ["character-female-b", "character-female-c", "character-female-d", "character-female-e", "character-female-f",
+	"character-male-a", "character-male-b", "character-male-c", "character-male-d", "character-male-e", "character-male-f",
+	"character-male-g", "character-worker"]
+
+## pose "stand" / "sit"; part "" body, "al" / "ar" arms
+static func kperson(v: int, pose: String, part := "") -> ArrayMesh:
+	var nm := "k_chars_%s_%s" % [CHARS[v % CHARS.size()], pose]
+	return get_mesh(nm if part == "" else nm + "_" + part)
+
+## Shoulder positions [left, right] for a character's pose.
+static func kshoulders(v: int, pose: String) -> Array:
+	var a: Array = kmeta()["k_chars_%s_%s_pivots" % [CHARS[v % CHARS.size()], pose]]
+	var sc: float = K_PACK_SCALE["chars"]
+	return [Vector3(a[0], a[1], a[2]) * sc, Vector3(a[3], a[4], a[5]) * sc]
 
 static func _m_rainbow() -> ArrayMesh:
 	var b := MB.new()

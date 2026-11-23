@@ -1,15 +1,17 @@
 extends Node3D
-## Little peg-figure people who live in the places beside the road. They turn to watch you, wave as
-## you pass, cheer at stunts nearby, and hop out of the way so you can never hit them. When the
-## ground crumbles under them they pop away in a puff (they're fine).
+## The little people (Kenney mini characters) who live in the places beside the road. They turn to watch
+## you, wave as you pass, cheer at stunts nearby, and hop out of the way so you can never hit them. When
+## the ground crumbles under them they pop away in a puff (they're fine).
 
 const M := preload("res://scripts/core/models.gd")
 const Pool := preload("res://scripts/game/pool.gd")
+const POSES := ["stand", "sit"]
+const SIT_LIFT := 0.06   # a sitter's seat is this far below its origin
 
 var world: Node
 var mat: ShaderMaterial
-var bodies := {}     # "v_pose" -> Pool
-var arms := {}       # v -> Pool
+var pools := {}      # "v_pose" -> Pool, "v_pose_al" / "v_pose_ar" -> arm Pools
+var shoulders := {}  # "v_pose" -> [left, right]
 var list: Array = []
 var cheer_t := 0.0
 var cheer_pos := Vector3.ZERO
@@ -17,68 +19,77 @@ var cheer_pos := Vector3.ZERO
 func setup(w: Node, material: ShaderMaterial) -> void:
 	world = w
 	mat = material
-	for v in M.PEOPLE.size():
-		for sit in [false, true]:
-			var p: Pool = Pool.new()
-			p.setup(M.person(v, sit), 40, mat, false, true)
-			add_child(p)
-			bodies["%d_%s" % [v, "sit" if sit else "stand"]] = p
-		var a: Pool = Pool.new()
-		a.setup(M.arm(v), 160, mat, false, false)
-		add_child(a)
-		arms[v] = a
+	for v in M.CHARS.size():
+		for pose in POSES:
+			var key := "%d_%s" % [v, pose]
+			var cap := 10 if pose == "stand" else 6
+			for part in ["", "al", "ar"]:
+				var p: Pool = Pool.new()
+				p.setup(M.kperson(v, pose, part), cap, mat, false, part == "")
+				p.name = "person_" + key + part
+				add_child(p)
+				pools[key if part == "" else key + "_" + part] = p
+			shoulders[key] = M.kshoulders(v, pose)
 
 func clear() -> void:
-	for p in bodies.values():
+	for p in pools.values():
 		p.clear_all()
-	for a in arms.values():
-		a.clear_all()
 	list.clear()
 
-## pose: "stand", "sit" or "lie" (sunbathing on a towel)
+## pose: "stand", "sit" (pos.y = the seat's height) or "lie" (sunbathing on a towel)
 func spawn(v: int, pose: String, pos: Vector3, yaw: float, s: int) -> Dictionary:
-	v = v % M.PEOPLE.size()
-	var key := "%d_%s" % [v, "sit" if pose == "sit" else "stand"]
-	var bp: Pool = bodies[key]
-	var slot := bp.alloc()
-	if slot < 0:
-		return {}
-	var al: int = arms[v].alloc()
-	var ar: int = arms[v].alloc()
-	var pr := {"v": v, "pose": pose, "key": key, "slot": slot, "al": al, "ar": ar, "pos": pos, "home": pos, "yaw": yaw,
-		"face": yaw, "y": 0.0, "vy": 0.0, "wave": 0.0, "hop": Vector3.ZERO, "s": s, "phase": randf() * TAU, "gone": false}
-	list.append(pr)
-	_place(pr, 0.0)
-	return pr
+	var mp := "sit" if pose == "sit" else "stand"
+	var n: int = M.CHARS.size()
+	# that one's busy? someone else comes along
+	for k in n:
+		var vv := (v + k) % n
+		var key := "%d_%s" % [vv, mp]
+		var slot: int = pools[key].alloc()
+		if slot < 0:
+			continue
+		# (callers give yaws for figures that face +Z; these face -Z)
+		yaw += PI
+		if pose == "sit":
+			pos.y += SIT_LIFT
+		var pr := {"v": vv, "pose": pose, "key": key, "slot": slot, "al": pools[key + "_al"].alloc(), "ar": pools[key + "_ar"].alloc(),
+			"pos": pos, "home": pos, "yaw": yaw, "face": yaw, "y": 0.0, "vy": 0.0, "wave": 0.0, "hop": Vector3.ZERO, "s": s,
+			"phase": randf() * TAU, "gone": false}
+		list.append(pr)
+		_place(pr, 0.0)
+		return pr
+	return {}
 
 func cheer(at: Vector3) -> void:
 	cheer_t = 1.2
 	cheer_pos = at
 
 func _place(pr: Dictionary, t: float) -> void:
-	var b := Basis(Vector3.UP, pr["face"])
+	var key: String = pr["key"]
+	var sh: Array = shoulders[key]
 	var base: Vector3 = pr["pos"] + Vector3(0, pr["y"], 0)
-	var shoulder_y := 0.7 if pr["pose"] != "sit" else 0.48
 	if pr["pose"] == "lie":
-		var lb := Basis(Vector3.UP, pr["yaw"]) * Basis(Vector3.RIGHT, -PI * 0.5)
-		bodies[pr["key"]].put(pr["slot"], Transform3D(lb, base + Vector3(0, 0.2, 0) + lb * Vector3(0, -0.5, 0)))
-		for side in [-1.0, 1.0]:
-			var sl: int = pr["al"] if side < 0 else pr["ar"]
-			var ab := lb * Basis(Vector3.BACK, side * 0.15)
-			arms[pr["v"]].put(sl, Transform3D(ab, base + Vector3(0, 0.2, 0) + lb * Vector3(side * 0.2, 0.2, 0)))
+		var lb := Basis(Vector3.UP, pr["yaw"]) * Basis(Vector3.RIGHT, PI * 0.5)
+		var lo := base + Vector3(0, 0.16, 0) + lb * Vector3(0, -0.5, 0)
+		pools[key].put(pr["slot"], Transform3D(lb, lo))
+		for i in 2:
+			var sg := signf((sh[i] as Vector3).x)
+			pools[key + ("_al" if i == 0 else "_ar")].put(pr["al"] if i == 0 else pr["ar"],
+				Transform3D(lb * Basis(Vector3.BACK, sg * 0.25), lo + lb * (sh[i] as Vector3)))
 		return
-	var bob := sin(t * 2.0 + pr["phase"]) * 0.01
-	bodies[pr["key"]].put(pr["slot"], Transform3D(b, base + Vector3(0, bob, 0)))
+	var b := Basis(Vector3.UP, pr["face"])
+	var bob := Vector3(0, sin(t * 2.0 + pr["phase"]) * 0.008, 0)
+	# a little sway while waving
 	var w: float = pr["wave"]
-	for side in [-1.0, 1.0]:
-		var sl: int = pr["al"] if side < 0 else pr["ar"]
+	var bb := b * Basis(Vector3.BACK, sin(t * 6.0 + pr["phase"]) * 0.06 * w)
+	pools[key].put(pr["slot"], Transform3D(bb, base + bob))
+	for i in 2:
+		var sg := signf((sh[i] as Vector3).x)
 		# arms hang at rest; the right arm waves (both when cheering)
-		var lift := 0.12
-		var waving: bool = side > 0 or (cheer_t > 0.0 and pr.get("cheering", false))
-		if waving:
-			lift = lerpf(0.12, 2.6 + sin(t * 12.0 + pr["phase"]) * 0.35, w)
-		var ab := b * Basis(Vector3.BACK, side * lift)
-		arms[pr["v"]].put(sl, Transform3D(ab, base + Vector3(0, shoulder_y + bob, 0) + b * Vector3(side * 0.19, 0, 0)))
+		var lift: float = pr.get("arms", 0.0)
+		if sg > 0.0 or (cheer_t > 0.0 and pr.get("cheering", false)):
+			lift = lerpf(lift, 2.5 + sin(t * 12.0 + pr["phase"] + i) * 0.4, w)
+		pools[key + ("_al" if i == 0 else "_ar")].put(pr["al"] if i == 0 else pr["ar"],
+			Transform3D(bb * Basis(Vector3.BACK, sg * lift), base + bob + bb * (sh[i] as Vector3)))
 
 ## Returns true when someone near the road starts waving (the car can honk back).
 func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
@@ -86,6 +97,10 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 	var honk := false
 	for pr in list:
 		if pr["gone"]:
+			continue
+		if pr.has("ride"):
+			# moved along by its place (the skater)
+			_place(pr, t)
 			continue
 		var d: Vector3 = car_pos - pr["pos"]
 		d.y = 0
@@ -95,7 +110,7 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 		if pr["pose"] != "lie":
 			# watch the car go by
 			if dist < 12.0:
-				pr["face"] = lerp_angle(pr["face"], atan2(-d.x, -d.z) + PI, 1.0 - exp(-dt * 4.0))
+				pr["face"] = lerp_angle(pr["face"], atan2(-d.x, -d.z), 1.0 - exp(-dt * 4.0))
 			var want_wave := 1.0 if dist < 8.0 else 0.0
 			if cheer_t > 0.0 and cheer_pos.distance_to(pr["pos"]) < 14.0:
 				want_wave = 1.0
@@ -133,13 +148,12 @@ func vanish(pr: Dictionary, fx: Node) -> void:
 	pr["gone"] = true
 	if fx:
 		fx.puff(pr["pos"] + Vector3(0, 0.5, 0), Color(1, 1, 1), 0.6, Vector3(0, 1, 0), 0.6, 1.0)
-	bodies[pr["key"]].release(pr["slot"])
-	arms[pr["v"]].release(pr["al"])
-	arms[pr["v"]].release(pr["ar"])
+	var key: String = pr["key"]
+	pools[key].release(pr["slot"])
+	pools[key + "_al"].release(pr["al"])
+	pools[key + "_ar"].release(pr["ar"])
 	list.erase(pr)
 
 func tick_visibility() -> void:
-	for p in bodies.values():
+	for p in pools.values():
 		p.visible = p.used() > 0
-	for a in arms.values():
-		a.visible = a.used() > 0
