@@ -430,7 +430,7 @@ func show_hud() -> void:
 func hud_update(d: Dictionary) -> void:
 	_hud_data = d
 	speed_lbl.text = str(int(round(d["kmh"])))
-	gear_lbl.text = "R" if game.car.speed < -0.5 else str(int(d["gear"]))
+	gear_lbl.text = "R" if game.car.speed < -0.5 and game.car.grounded > 0 else str(int(d["gear"]))
 	rpm_bar.value = d["rpm"]
 	var dmg := int(d.get("damage", 0.0))
 	var bits := []

@@ -576,7 +576,8 @@ func _stunt_test() -> void:
 func _drive(dt: float) -> void:
 	var p := car.global_position
 	var v := car.linear_velocity
-	var kmh := absf(car.speed) * 3.6
+	# (flipping in the air, the speed along the nose means nothing: show how fast it's flying)
+	var kmh := (car.linear_velocity.length() if car.grounded == 0 else absf(car.speed)) * 3.6
 	# distance and records
 	var step := Vector2(p.x - last_pos.x, p.z - last_pos.z).length()
 	if step < 5.0:
@@ -584,7 +585,8 @@ func _drive(dt: float) -> void:
 		if atmos.is_night():
 			save.add_stat("night", step)
 	last_pos = p
-	save.max_stat("max_kmh", kmh)
+	if car.grounded > 0:
+		save.max_stat("max_kmh", kmh)   # (on the road: a long fall doesn't count)
 	if car.air_t > 0.0:
 		save.max_stat("max_air", car.air_t)
 	_drift(dt)
