@@ -60,6 +60,7 @@ var places: Array = []             # named areas {name, pos, r}
 ## The stunt yard: boost pads {pos, dir, hs}, hoops {pos, n, r}, loops {pos, dir}, reset spots
 ## [Transform3D] and its rect (x, z).
 var stunt := {"pads": [], "hoops": [], "loops": [], "resets": [], "rect": Rect2()}
+var stations: Array = []          # gas stations {name, pos (by the pumps), yaw}
 var spawn := Transform3D()
 var sea_y := 0.0
 var time := 0.0
@@ -491,7 +492,7 @@ func _ground_slot(idx: int, x: float, z: float, slope: float) -> int:
 		S_SAND:
 			return P.SAND
 		S_FIELD:
-			return P.CROP if int(floor((x + z * 0.15) / 3.2)) % 2 == 0 else P.SOIL
+			return P.SOIL     # (the rows and crops are built on top: districts._crops)
 		S_DIRT:
 			return P.DIRT
 		S_FOREST:
@@ -627,7 +628,23 @@ func _road_meshes() -> void:
 			var pb := Vector3(b.x, yb, b.y)
 			var la := Vector3(na.x, 0, na.y)
 			var lb := Vector3(nb.x, 0, nb.y)
-			mb.quad(pa - la * hw, pb - lb * hw, pb + lb * hw, pa + la * hw, up, col)
+			if kind == "dirt":
+				# a dirt track stops at the edge of a paved road (and sits a hair under it): drawn in
+				# quarters so its end follows the kerb
+				var lo := Vector3(0, -ROAD_LIFT * 0.4, 0)
+				for u in 4:
+					var t0 := u / 4.0
+					var t1 := (u + 1) / 4.0
+					var mid2 := a.lerp(b, (t0 + t1) * 0.5)
+					if on_carriageway(mid2, ri, 0.3):
+						continue
+					var c0 := pa.lerp(pb, t0) + lo
+					var c1 := pa.lerp(pb, t1) + lo
+					var l0 := la.lerp(lb, t0).normalized()
+					var l1 := la.lerp(lb, t1).normalized()
+					mb.quad(c0 - l0 * hw, c1 - l1 * hw, c1 + l1 * hw, c0 + l0 * hw, up, col)
+			else:
+				mb.quad(pa - la * hw, pb - lb * hw, pb + lb * hw, pa + la * hw, up, col)
 			# which junctions this bit of road is in (or near)
 			var near_m := []
 			var in_j := false
@@ -1400,6 +1417,36 @@ func _map_mesh(mb: MB, nm: String) -> MeshInstance3D:
 	return mi
 
 ## A marker on the minimap (a flat coloured disc).
+## The GPS route drawn on the map (both the minimap and the big one): a bright line with a dark edge.
+var _route_mi: MeshInstance3D
+
+func route_line(pts: PackedVector3Array, col: Color) -> void:
+	if _route_mi == null:
+		_route_mi = _map_mesh(MB.new(), "Route")
+		_route_mi.position.y = 300.4
+	if pts.size() < 2:
+		_route_mi.mesh = null
+		return
+	var mb := MB.new()
+	for layer in [[4.6, MB.rgb(col.darkened(0.55)), 0.0], [3.0, MB.rgb(col), 0.05]]:
+		var hw: float = layer[0]
+		var c: Color = layer[1]
+		var y: float = layer[2]
+		for i in pts.size() - 1:
+			var a := Vector3(pts[i].x, y, pts[i].z)
+			var b := Vector3(pts[i + 1].x, y, pts[i + 1].z)
+			var d := b - a
+			if d.length() < 0.01:
+				continue
+			var n := Vector3(-d.z, 0, d.x).normalized() * hw
+			mb.quad(a + n, b + n, b - n, a - n, Vector3.UP, c)
+			# a round joint, so bends don't show gaps
+			for k in 8:
+				var a0 := TAU * k / 8.0
+				var a1 := TAU * (k + 1) / 8.0
+				mb.tri(b, b + Vector3(cos(a1), 0, sin(a1)) * hw, b + Vector3(cos(a0), 0, sin(a0)) * hw, Vector3.UP, Vector3.UP, Vector3.UP, c)
+	_route_mi.mesh = mb.commit()
+
 func map_marker(pos: Vector3, col: Color, r := 9.0) -> MeshInstance3D:
 	var mb := MB.new()
 	var segs := 16

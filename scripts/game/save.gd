@@ -34,6 +34,8 @@ static func defaults() -> Dictionary:
 		"places": [],
 		"ach": {},
 		"pos": [],            # where you parked last time [x, y, z, yaw]
+		"paint": {},          # car id -> paint job it's wearing (0: factory)
+		"paints": {},         # car id -> [paint jobs bought]
 		"seen_help": false,
 	}
 

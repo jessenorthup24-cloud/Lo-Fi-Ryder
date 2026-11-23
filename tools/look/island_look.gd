@@ -39,6 +39,14 @@ const VIEWS := {
 	"stuntplat": [Vector3(-186, 9, 246), Vector3(-205, 3, 224), 62.0],
 	"stuntpipe": [Vector3(-216, 7, 296), Vector3(-234, 1.5, 262), 60.0],
 	"stuntair": [Vector3(-120, 7, 300), Vector3(-160, 6, 284), 60.0],
+	"farmtrack": [Vector3(318, 6, 262), Vector3(298, 1, 236), 60.0],
+	"fields": [Vector3(372, 10, 236), Vector3(320, 1, 190), 60.0],
+	"fields2": [Vector3(220, 12, 130), Vector3(260, 1, 92), 60.0],
+	"fieldnear": [Vector3(300, 4, 160), Vector3(320, 1, 185), 62.0],
+	"wheat": [Vector3(232, 4, 60), Vector3(250, 1, 85), 62.0],
+	"cabbage": [Vector3(312, 4, 60), Vector3(330, 1, 85), 62.0],
+	"corn": [Vector3(240, 5, 150), Vector3(266, 1, 180), 62.0],
+	"potato": [Vector3(366, 5, -78), Vector3(340, 1, -55), 62.0],
 }
 
 var frames := 0

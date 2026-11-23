@@ -17,10 +17,13 @@ const K := preload("res://scripts/ui/kit.gd")
 const Ach := preload("res://scripts/game/achievements.gd")
 const Pool := preload("res://scripts/game/pool.gd")
 const Traffic := preload("res://scripts/game/traffic.gd")
+const Route := preload("res://scripts/game/route.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
 
 const MEDAL_PAY := [0, 150, 350, 700]
+const FUEL_PRICE := 1.0        # coins per percent of a tank
+const REPAIR_PRICE := 2.0      # coins per percent of damage
 const COIN_PICKUP := 25
 
 var save: SaveData
@@ -46,7 +49,13 @@ var keys := {}
 # camera
 var cam_yaw := 0.0
 var cam_pos := Vector3.ZERO
-var cam_mode := 0
+var cam_mode := 0           # 0 near, 1 far, 2 close and low
+# looking round: drag a finger anywhere off the buttons to swing the camera round the car, pinch to zoom
+var look_yaw := 0.0
+var look_pitch := 0.0
+var look_t := 9.0           # since the last look drag
+var cam_zoom := 1.0
+var look_touches := {}      # touch index -> position
 var shake := 0.0
 var title_t := 0.0
 # drifting
@@ -101,6 +110,15 @@ var loop_last := 0
 var loop_flip := false      # been over the top of it yet
 var loop_cam := 0.0         # how far the camera has moved out to watch the loop from the side
 var last_sp := Vector3.INF  # where the car was last frame (for flying through hoops)
+# fuel, gas stations and the GPS
+var fuel := 100.0
+var fuel_told := 0          # 1: told it's low, 2: told it's empty
+var at_station := {}        # the station you're stopped at
+var router: Route
+var route := {}             # where the GPS is taking you: {pos, name, kind}
+var route_pick := {}        # a place you picked on the map
+var route_pts := PackedVector3Array()
+var route_t := 0.0
 
 func _ready() -> void:
 	_parse_args()
@@ -170,6 +188,12 @@ func _build_world() -> void:
 	car.shifted.connect(func(_g): sound.rev(0.82); sound.shift())
 	car.rammed.connect(func(b, v, j, at): traffic.knock(b, v, j, at))
 	car_changed()
+	fuel = clampf(float(save.data.get("fuel", 100.0)), 0.0, 100.0)
+	car.damage = clampf(float(save.data.get("damage", 0.0)), 0.0, 100.0)
+	router = Route.new()
+	router.build(island)
+	for st in island.stations:
+		island.map_marker(st["pos"], Color("4fb3a5"), 7.0)
 	_build_markers()
 	_build_coins()
 	var sp := island.spawn
@@ -185,6 +209,15 @@ func _build_world() -> void:
 		var qz := float(q[1])
 		sp = Transform3D(Basis(Vector3.UP, deg_to_rad(float(q[2]) if q.size() > 2 else 0.0)), Vector3(qx, island.height_at(qx, qz) + 0.9, qz))
 	car.place(sp)
+	if args.has("route"):
+		var rq := String(args["route"]).split(",")
+		route_pick = {"pos": Vector3(float(rq[0]), 0, float(rq[1])), "name": rq[2] if rq.size() > 2 else "Test", "kind": "pick"}
+	if args.has("fuel"):
+		fuel = float(args["fuel"])
+	if args.has("damage"):
+		car.damage = float(args["damage"])
+	if args.has("cam"):
+		cam_mode = int(args["cam"])
 	last_pos = sp.origin
 	cam_yaw = sp.basis.get_euler().y
 	_snap_cam()
@@ -224,8 +257,9 @@ func _build_world() -> void:
 				ui.show_help()
 	elif args.has("garage"):
 		open_garage()
-		if String(args["garage"]) == "up":
-			ui.g_tab = "up"
+		if String(args["garage"]) in ["up", "paint"]:
+			ui.g_tab = String(args["garage"])
+			ui.g_paint = int(args.get("paintprev", "-1"))
 			ui._garage_refresh()
 	elif args.has("auto") or args.has("drive"):
 		autopilot = args.has("auto")
@@ -318,8 +352,6 @@ func resume() -> void:
 
 func open_garage() -> void:
 	_save_now()
-	car.repair()
-	damage_told = false
 	var from := state
 	state = GARAGE
 	car.freeze = true
@@ -340,7 +372,9 @@ func close_garage(back_to: int) -> void:
 func car_changed() -> void:
 	var d := CARS.by_id(String(save.data["car"]))
 	var xf := car.global_transform if car.is_inside_tree() and car.wheels.size() > 0 else Transform3D()
-	car.setup(d, toon, island)
+	var dmg := car.damage
+	car.setup(d, toon, island, int(save.data["paint"].get(String(d["id"]), 0)))
+	car.damage = dmg          # (a different car doesn't mean a repaired one)
 	car.tune(d, save.data["up"])
 	car.assist = 1.0 if bool(save.setting("assist")) else 0.35
 	if xf != Transform3D():
@@ -401,7 +435,8 @@ func _apply_settings() -> void:
 	var st = save.data["settings"]
 	sound.set_volumes(float(st["music"]), float(st["sfx"]))
 	atmos.sun.shadow_enabled = bool(st["shadows"])
-	cam_mode = int(st.get("cam", 0))
+	cam_mode = clampi(int(st.get("cam", 0)), 0, 2)
+	cam_zoom = clampf(float(st.get("zoom", 1.0)), 0.55, 1.7)
 	if car:
 		car.assist = 1.0 if bool(st.get("assist", true)) else 0.35
 
@@ -409,6 +444,8 @@ func _save_now() -> void:
 	if car and car.is_inside_tree():
 		var p := car.global_position
 		save.data["pos"] = [snappedf(p.x, 0.1), snappedf(p.y, 0.1), snappedf(p.z, 0.1), snappedf(car.global_rotation.y, 0.01)]
+		save.data["fuel"] = snappedf(fuel, 0.1)
+		save.data["damage"] = snappedf(car.damage, 0.1)
 	save.save()
 
 # ------------------------------------------------------------------ feedback
@@ -482,6 +519,27 @@ func _process(dt: float) -> void:
 			if float(c["v"]) > 1.0:
 				moving += 1
 		print("traffic near=%d moving=%d first=%s" % [near, moving, str((traffic.cars[0]["body"] as Node3D).global_position)])
+	if args.has("buytest") and state == DRIVE and frames == 150:
+		# a test: what a fill-up and a repair cost and do
+		save.data["coins"] = int(args["buytest"])
+		print("BUY before: fuel %.0f damage %.0f coins %d at %s" % [fuel, car.damage, int(save.data["coins"]), str(at_station.get("name", "-"))])
+		buy_fuel()
+		buy_repair()
+		print("BUY after: fuel %.0f damage %.0f coins %d" % [fuel, car.damage, int(save.data["coins"])])
+	if args.has("looktest") and state == DRIVE:
+		# a test: a finger dragged across the empty middle of the screen (and, with =pinch, a second one)
+		var f0 := int(args.get("shot_at", "200")) - 40
+		if frames == f0:
+			var ev := InputEventScreenTouch.new()
+			ev.index = 7
+			ev.position = Vector2(640, 300)
+			ev.pressed = true
+			Input.parse_input_event(ev)
+		elif frames > f0 and frames < f0 + 30:
+			var ev2 := InputEventScreenDrag.new()
+			ev2.index = 7
+			ev2.position = Vector2(640 + (frames - f0) * 14, 300 + (frames - f0) * 3)
+			Input.parse_input_event(ev2)
 	if args.has("shot") and frames == int(args.get("shot_at", "200")):
 		get_viewport().get_texture().get_image().save_png(String(args["shot"]))
 	if args.has("quit_after") and (time > float(args["quit_after"]) or (args.has("shot") and frames > int(args.get("shot_at", "200")) + 2)):
@@ -590,6 +648,9 @@ func _drive(dt: float) -> void:
 	if car.air_t > 0.0:
 		save.max_stat("max_air", car.air_t)
 	_drift(dt)
+	_fuel(dt)
+	_stations_tick()
+	_route_tick(dt)
 	_stunts(dt)
 	_effects(dt)
 	_impacts(dt)
@@ -611,7 +672,7 @@ func _drive(dt: float) -> void:
 		"drifting": drift_on, "coins": int(save.data["coins"]), "place": place_now, "clock": atmos.clock_text(),
 		"zone": zone, "zone_t": zone_t, "zone_pts": zone_pts, "trial": trial, "trial_t": trial_t, "trial_gate": trial_gate,
 		"trial_pts": trial_pts, "car_pos": p, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip)),
-		"close": drift_on and close < 1.6 and car.drift > 0.2, "damage": car.damage})
+		"close": drift_on and close < 1.6 and car.drift > 0.2, "damage": car.damage, "fuel": fuel})
 
 # ------------------------------------------------------------------ drifting
 
@@ -750,7 +811,7 @@ func _on_bump(strength: float) -> void:
 			sfx("hubcap", -8.0)
 		if was < 50.0 and car.damage >= 50.0 and not damage_told:
 			damage_told = true
-			ui.toast("Battered! The gas station on Castle Road fixes you up", "gear", K.PAPER, K.INK, 3.0)
+			ui.toast("Battered! Any gas station fixes you up: follow the arrow", "gear", K.PAPER, K.INK, 3.0)
 		save.add_stat("crashes", 1)
 	# a big hit lands with a moment of slow motion
 	if strength > 15.0 and not autopilot and kind != "ground":
@@ -776,18 +837,12 @@ func _impacts(_dt: float) -> void:
 	if hb and not hb_was and absf(car.speed) > 8.0:
 		sfx("chirp", -12.0)
 	hb_was = hb
-	# a battered car smokes from under the bonnet
-	if car.damage > 40.0 and randf() < (car.damage - 30.0) / 200.0:
-		var front := car.to_global(Vector3(0, float(car.info["height"]) * 0.7, -float(car.info["length"]) * 0.3))
+	# a battered car smokes a little from under the bonnet (thin and pale, rising: never a cloud in your face)
+	if car.damage > 40.0 and randf() < (car.damage - 30.0) / 500.0:
+		var front := car.to_global(Vector3(0, float(car.info["height"]) * 0.75, -float(car.info["length"]) * 0.35))
 		var dk := clampf((car.damage - 40.0) / 60.0, 0.0, 1.0)
-		fx.puff(front, Color(0.75, 0.75, 0.76).lerp(Color(0.3, 0.3, 0.32), dk), randf_range(0.5, 0.9) + dk * 0.5,
-			Vector3(0, 1.2, 0) - car.linear_velocity * 0.2, 1.6, 1.0)
-	# the gas station fixes you up for free
-	if car.damage > 4.0 and Vector2(car.global_position.x + 46.0, car.global_position.z + 132.0).length() < 14.0:
-		car.repair()
-		damage_told = false
-		sfx("upgrade", -2.0)
-		ui.toast("All fixed up!", "gear", K.PAPER, K.INK, 2.0)
+		fx.puff(front, Color(0.86, 0.86, 0.87).lerp(Color(0.6, 0.6, 0.62), dk), randf_range(0.3, 0.5) + dk * 0.2,
+			Vector3(randf_range(-0.3, 0.3), 1.8, randf_range(-0.3, 0.3)) + car.linear_velocity * 0.6, 0.8, 0.6)
 
 # ------------------------------------------------------------------ smoke, marks, knock-overs
 
@@ -1177,6 +1232,165 @@ func _coins_tick(_dt: float) -> void:
 			ui.found_coin(save.data["coins_taken"].size(), coins_live.size(), COIN_PICKUP)
 			ach_check()
 
+# ------------------------------------------------------------------ fuel and gas stations
+
+func _fuel(dt: float) -> void:
+	var burn := 0.004 + car.throttle * 0.075 * (0.45 + car.rpm)
+	if car.linear_velocity.length() < 0.5 and car.throttle < 0.05:
+		burn = 0.002
+	fuel = maxf(0.0, fuel - burn * dt)
+	# running on fumes: a quarter of the power, enough to limp to a station
+	car.power_k = 1.0 if fuel > 0.0 else 0.25
+	if fuel <= 0.0 and car.throttle > 0.5 and randf() < dt * 1.2:
+		sfx("backfire", -10.0, 0.8)
+	if fuel < 15.0 and fuel_told < 1:
+		fuel_told = 1
+		ui.toast("Low on fuel! The arrow points to the nearest gas station", "fuel", K.PAPER, K.INK, 3.0)
+	elif fuel <= 0.0 and fuel_told < 2:
+		fuel_told = 2
+		ui.toast("Out of fuel! Limping on fumes to the nearest station", "fuel", K.CORAL, Color.WHITE, 3.0)
+
+func fuel_cost() -> int:
+	return int(ceil((100.0 - fuel) * FUEL_PRICE))
+
+func repair_cost() -> int:
+	return int(ceil(car.damage * REPAIR_PRICE))
+
+func _stations_tick() -> void:
+	var p := car.global_position
+	var here := {}
+	if car.linear_velocity.length() < 1.6 and car.grounded >= 3:
+		for st in island.stations:
+			if (st["pos"] as Vector3).distance_to(p) < 6.5:
+				here = st
+	if here.get("name", "") != at_station.get("name", ""):
+		at_station = here
+		if here.is_empty():
+			ui.station_close()
+		else:
+			ui.station_open(String(here["name"]))
+	if not at_station.is_empty():
+		ui.station_update(fuel, car.damage, fuel_cost(), repair_cost(), int(save.data["coins"]))
+
+## Fill the tank (as far as your coins go; an empty tank and an empty wallet gets a free splash).
+func buy_fuel() -> void:
+	var need := 100.0 - fuel
+	if need < 0.5:
+		return
+	var coins := int(save.data["coins"])
+	var buy := minf(need, float(coins) / FUEL_PRICE)
+	if buy < 1.0:
+		if fuel < 15.0:
+			fuel = 15.0
+			ui.toast("On the house: enough to get you home", "fuel", K.PAPER, K.INK, 2.2)
+			sfx("fuel", -2.0)
+		return
+	fuel += buy
+	save.data["coins"] = coins - int(ceil(buy * FUEL_PRICE))
+	save.add_stat("fuel_bought", buy)
+	fuel_told = 0
+	sfx("fuel", -2.0)
+	sfx("coin", -8.0, 0.9)
+	_save_now()
+
+## Mend the car (all of it if you can pay; otherwise as much as you can).
+func buy_repair() -> void:
+	if car.damage < 0.5:
+		return
+	var coins := int(save.data["coins"])
+	var fix := minf(car.damage, float(coins) / REPAIR_PRICE)
+	if fix < 1.0:
+		ui.toast("Not enough coins for repairs", "coin", K.PAPER, K.INK, 1.8)
+		return
+	save.data["coins"] = coins - int(ceil(fix * REPAIR_PRICE))
+	if fix >= car.damage - 0.5:
+		car.repair()
+		damage_told = false
+		ui.toast("All fixed up!", "gear", K.PAPER, K.INK, 2.0)
+	else:
+		car.damage -= fix
+		ui.toast("Patched up a bit", "gear", K.PAPER, K.INK, 2.0)
+	sfx("upgrade", -2.0)
+	_save_now()
+
+# ------------------------------------------------------------------ the GPS
+
+## Set (or clear) a place to go, from the map.
+func set_route_pick(pos: Vector3, name: String) -> void:
+	route_pick = {} if name == "" else {"pos": pos, "name": name, "kind": "pick"}
+	route_t = 0.0
+	route = {}
+
+func nearest_station() -> Dictionary:
+	var best := {}
+	var bd := INF
+	for st in island.stations:
+		var d := (st["pos"] as Vector3).distance_to(car.global_position)
+		if d < bd:
+			bd = d
+			best = st
+	return best
+
+## Where the GPS should take you right now: the next gate, back into the zone, a station when you're low
+## on fuel or battered, or the place you picked.
+func _route_target() -> Dictionary:
+	var p := car.global_position
+	if not trial.is_empty():
+		var gates: Array = trial["gates"]
+		if trial_gate < gates.size():
+			return {"pos": (gates[trial_gate] as Transform3D).origin, "name": "Gate %d" % trial_gate, "kind": "trial"}
+	if not zone.is_empty():
+		return {} if _in_zone() else {"pos": zone["pos"], "name": zone["name"], "kind": "zone"}
+	if (fuel < 15.0 or car.damage >= 50.0) and at_station.is_empty():
+		var st := nearest_station()
+		if not st.is_empty():
+			return {"pos": st["pos"], "name": "Gas station", "kind": "station"}
+	if not route_pick.is_empty():
+		if (route_pick["pos"] as Vector3).distance_to(p) < 18.0:
+			ui.toast("You've arrived: %s" % route_pick["name"], "flag", K.PAPER, K.INK, 2.0)
+			route_pick = {}
+			return {}
+		return route_pick
+	return {}
+
+func _route_tick(dt: float) -> void:
+	var want := _route_target()
+	route_t -= dt
+	var changed: bool = want.get("name", "") != route.get("name", "") or (want.get("pos", Vector3.ZERO) as Vector3).distance_to(route.get("pos", Vector3.ZERO)) > 1.0
+	if changed or (not want.is_empty() and route_t <= 0.0):
+		route = want
+		route_t = 1.5
+		route_pts = PackedVector3Array() if want.is_empty() else router.find(car.global_position, want["pos"])
+		island.route_line(route_pts, Color("ffd34d") if want.get("kind", "") == "trial" else Color("4aa8ff"))
+	if route.is_empty() or route_pts.is_empty():
+		ui.route_arrow(false)
+		return
+	# the arrow points at the road some way ahead along the route (so it shows the turn coming up)
+	var p := car.global_position
+	var bi := 0
+	var bd := INF
+	for i in route_pts.size():
+		var d := Vector2(route_pts[i].x - p.x, route_pts[i].z - p.z).length_squared()
+		if d < bd:
+			bd = d
+			bi = i
+	var aim := route_pts[route_pts.size() - 1]
+	var acc := 0.0
+	for i in range(bi + 1, route_pts.size()):
+		acc += route_pts[i].distance_to(route_pts[i - 1])
+		if acc > 30.0:
+			aim = route_pts[i]
+			break
+	var left := 0.0
+	for i in range(bi + 1, route_pts.size()):
+		left += route_pts[i].distance_to(route_pts[i - 1])
+	left += sqrt(bd)
+	var cb := cam.global_transform.basis
+	var fwd := Vector3(-cb.z.x, 0, -cb.z.z).normalized()
+	var rgt := Vector3(cb.x.x, 0, cb.x.z).normalized()
+	var to := Vector3(aim.x - p.x, 0, aim.z - p.z)
+	ui.route_arrow(true, atan2(to.dot(rgt), to.dot(fwd)), left, String(route["name"]))
+
 # ------------------------------------------------------------------ stunts
 
 func _stunts(dt: float) -> void:
@@ -1363,23 +1577,34 @@ func _cam(dt: float, snap := false) -> void:
 	else:
 		# round the loop: hold the heading you came in on (it comes out the same way)
 		dirv = Vector3(-sin(cam_yaw), 0, -cos(cam_yaw))
-	var far := cam_mode == 1
-	var dist := (11.0 if far else 7.6) + clampf(v.length() * 0.05, 0.0, 2.0)
-	var height := (4.4 if far else 2.7)
-	var target := xf.origin + Vector3(0, 1.3, 0)
-	var back := Vector3(sin(cam_yaw), 0, cos(cam_yaw))
-	var desired := target + back * dist + Vector3(0, height, 0)
+	var dist: float = [7.6, 11.0, 5.0][cam_mode] + clampf(v.length() * 0.05, 0.0, 2.0) * (0.5 if cam_mode == 2 else 1.0)
+	var height: float = [2.7, 4.4, 1.3][cam_mode]
+	var target := xf.origin + Vector3(0, 0.95 if cam_mode == 2 else 1.3, 0)
+	# looking round: after a moment without a finger on it, the view swings back behind the car
+	look_t += dt
+	if look_touches.is_empty() and look_t > 1.2:
+		look_yaw = lerp_angle(look_yaw, 0.0, 1.0 - exp(-dt * 2.5))
+		look_pitch = lerpf(look_pitch, 0.0, 1.0 - exp(-dt * 2.5))
+	dist *= cam_zoom
+	var looking := absf(look_yaw) > 0.05 or absf(look_pitch) > 0.05
+	var yaw_v := cam_yaw + look_yaw
+	var back := Vector3(sin(yaw_v), 0, cos(yaw_v))
+	var lift := height + dist * sin(look_pitch) * 1.2
+	var desired := target + back * dist * cos(look_pitch * 0.6) + Vector3(0, lift, 0)
 	# don't sink into the hillside or walk through walls
-	var gy := island.height_at(desired.x, desired.z) + 1.2
+	var gy := island.height_at(desired.x, desired.z) + (0.8 if cam_mode == 2 else 1.2)
 	desired.y = maxf(desired.y, gy)
 	var q := PhysicsRayQueryParameters3D.create(target, desired, 1)   # (the world only, not cars)
 	q.exclude = [car.get_rid()]
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
 	if not hit.is_empty():
 		desired = (hit["position"] as Vector3) + (target - (hit["position"] as Vector3)).normalized() * 0.6
-	cam_pos = desired if snap else cam_pos.lerp(desired, 1.0 - exp(-dt * 9.0))
+	cam_pos = desired if snap else cam_pos.lerp(desired, 1.0 - exp(-dt * (14.0 if looking else 9.0)))
 	cam.position = cam_pos
-	var look := target + dirv * 3.0 + Vector3(0, -0.2, 0)
+	var look := target + dirv * (5.0 if cam_mode == 2 else 3.0) + Vector3(0, -0.2, 0)
+	if looking:
+		# swung round: keep the car in the middle of the picture
+		look = look.lerp(target, clampf(maxf(absf(look_yaw) * 1.5, absf(look_pitch) * 2.0), 0.0, 1.0))
 	# going round a loop, the camera stands off to the side to watch
 	loop_cam = 0.0 if snap else move_toward(loop_cam, 1.0 if loop_on >= 0 else 0.0, dt * (4.0 if loop_on >= 0 else 2.2))
 	if loop_cam > 0.0:
@@ -1407,8 +1632,9 @@ func _title_cam(dt: float) -> void:
 	cam_pos = cam.position
 
 func toggle_cam() -> void:
-	cam_mode = 1 - cam_mode
+	cam_mode = (cam_mode + 1) % 3
 	save.data["settings"]["cam"] = cam_mode
+	ui.popup_text(["Near camera", "Far camera", "Low camera"][cam_mode])
 
 # ------------------------------------------------------------------ sound
 
@@ -1458,8 +1684,14 @@ func _unhandled_input(e: InputEvent) -> void:
 			var c := ui.control_at(e.position)
 			if c != "":
 				touches[e.index] = c
+			elif state == DRIVE:
+				look_touches[e.index] = e.position
 		else:
 			touches.erase(e.index)
+			if look_touches.has(e.index):
+				look_touches.erase(e.index)
+				if look_touches.is_empty():
+					save.data["settings"]["zoom"] = cam_zoom
 		_touch_held()
 	elif e is InputEventScreenDrag:
 		# slide a thumb from one button to its neighbour
@@ -1468,6 +1700,27 @@ func _unhandled_input(e: InputEvent) -> void:
 			if c2 != "":
 				touches[e.index] = c2
 			_touch_held()
+		elif look_touches.has(e.index):
+			_look_drag(e.index, e.position)
+
+## A finger dragging off the buttons: one swings the camera round the car, two pinch to zoom.
+func _look_drag(idx: int, pos: Vector2) -> void:
+	var old: Vector2 = look_touches[idx]
+	if look_touches.size() >= 2:
+		var other := Vector2.ZERO
+		for k in look_touches:
+			if k != idx:
+				other = look_touches[k]
+		var d0 := old.distance_to(other)
+		var d1 := pos.distance_to(other)
+		if d0 > 20.0:
+			cam_zoom = clampf(cam_zoom * d0 / maxf(d1, 1.0), 0.55, 1.7)
+	else:
+		var dlt := pos - old
+		look_yaw = wrapf(look_yaw - dlt.x * 0.005, -PI, PI)
+		look_pitch = clampf(look_pitch + dlt.y * 0.004, -0.25, 1.0)
+	look_touches[idx] = pos
+	look_t = 0.0
 
 func _touch_held() -> void:
 	for k in ["left", "right", "gas", "brake", "hand"]:

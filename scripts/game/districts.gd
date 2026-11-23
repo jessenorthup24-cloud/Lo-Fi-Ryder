@@ -29,6 +29,14 @@ const LAKE := Vector2(285, -255)
 # the stunt yard, on the meadow between South Street and the beach
 const STUNT := Vector2(-170, 254)
 const STUNT_HS := Vector2(70, 42)
+# gas stations: where the pumps' pad is (the model's origin), which way the shop sits (model +X), and the
+# concrete forecourt [centre offset along the shop axis, half size (along, across)]
+const STATIONS := [
+	{"name": "Castle Road", "pad": Vector2(-43.8, -128.44), "yaw": PI * 0.5, "lot": false},
+	{"name": "Coast Road", "pad": Vector2(-306, -20), "yaw": 0.0, "lot": true},
+	{"name": "Beach Road", "pad": Vector2(-61, 240), "yaw": 0.0, "lot": true},
+	{"name": "Main Street East", "pad": Vector2(345, 50), "yaw": 0.0, "lot": true},
+]
 const HOUSES := ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u"]
 const SHOPS := ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n"]
 const TOWNHOUSES := ["house-a", "house-b", "house-c", "tower-a", "tower-b", "tower-c", "tower-d"]
@@ -105,6 +113,11 @@ static func plan(I) -> void:
 	I.add_lot(Vector2(-46, -132), Vector2(13, 12), I.S_CONCRETE)          # gas station
 	I.add_lot(Vector2(246, -246), Vector2(14, 10), I.S_DIRT)              # campsite
 	I.add_lot(STUNT, STUNT_HS, I.S_CONCRETE)                              # the stunt yard
+	for st in STATIONS:
+		if st["lot"]:
+			var sp: Vector2 = st["pad"]
+			var ax := Vector2(cos(float(st["yaw"])), -sin(float(st["yaw"])))
+			I.add_lot(sp + ax * 3.0, Vector2(16, 10) if absf(ax.x) > 0.5 else Vector2(10, 16), I.S_CONCRETE)
 	# ---- named places (found as you drive)
 	I.places = [
 		{"name": "Downtown", "pos": Vector3(-150, 0, -20), "r": 60.0},
@@ -122,14 +135,14 @@ static func plan(I) -> void:
 		{"name": "Stunt Yard", "pos": Vector3(STUNT.x, 0, STUNT.y), "r": 62.0},
 	]
 
-## Crop fields (painted in rows on the ground).
+## Crop fields: ploughed soil with rows of something growing (districts._crops).
 static func fields(_I) -> Array:
 	return [
-		{"c": Vector2(252, 92), "hs": Vector2(28, 26)},
-		{"c": Vector2(336, 92), "hs": Vector2(34, 26)},
-		{"c": Vector2(266, 192), "hs": Vector2(16, 34)},
-		{"c": Vector2(338, 192), "hs": Vector2(32, 34)},
-		{"c": Vector2(336, -50), "hs": Vector2(26, 22)},
+		{"c": Vector2(252, 92), "hs": Vector2(28, 26), "crop": "wheat"},
+		{"c": Vector2(336, 92), "hs": Vector2(34, 26), "crop": "cabbage"},
+		{"c": Vector2(266, 192), "hs": Vector2(16, 34), "crop": "corn"},
+		{"c": Vector2(338, 192), "hs": Vector2(32, 34), "crop": "sunflower"},
+		{"c": Vector2(336, -50), "hs": Vector2(26, 22), "crop": "potato"},
 	]
 
 ## Drift zones, runs, time trials and coins (after the roads exist).
@@ -409,10 +422,31 @@ static func _town(I, rr: RandomNumberGenerator) -> void:
 			if path.size() >= 3 and _in_city(Vector2(path[0].x, path[0].z)):
 				I.people.spawn_walker(rr.randi_range(0, 99), path, rr.randf_range(1.1, 1.6))
 			k += len + rr.randi_range(4, 14)
-	# the gas station on Castle Road
-	I.put("station", -44, -132, PI * 0.5, 4.0, "box")
-	I.put_breakable("k_retro_detail-barrier-type-a", -36, -122, 0.0, 1.0, 0.6)
-	_person(I, -50, -124)
+	_stations(I, rr)
+
+## Gas stations: pull onto the pad by the pumps and stop to buy fuel and repairs (main.gd).
+static func _stations(I, rr: RandomNumberGenerator) -> void:
+	var sc := 4.0
+	var ab: AABB = M.get_mesh("station").get_aabb()
+	for st in STATIONS:
+		var pad: Vector2 = st["pad"]
+		var yaw: float = st["yaw"]
+		var bs := Basis(Vector3.UP, yaw)
+		# (put centres the model's footprint on x, z: aim it so its origin lands on the pad)
+		var cen: Vector3 = bs * Vector3(ab.get_center().x, 0, ab.get_center().z) * sc
+		var y: float = I.height_at(pad.x, pad.y)
+		var xf: Transform3D = I.put("station", pad.x + cen.x, pad.y + cen.z, yaw, sc, "", y)
+		# solid where it's solid: the shop, the two pumps, the canopy post and the sign post
+		for b in [[Vector3(3.6, 0.8, 0.3), Vector3(2.0, 1.6, 2.4)], [Vector3(2.3, 0.45, -1.4), Vector3(0.38, 0.9, 0.3)],
+				[Vector3(2.3, 0.45, -0.5), Vector3(0.38, 0.9, 0.3)]]:
+			var c3: Vector3 = xf.origin + bs * ((b[0] as Vector3) * sc)
+			I.add_box_collider(Transform3D(bs, c3), (b[1] as Vector3) * sc)
+		for post in [Vector3(2.3, 0, -1.9), Vector3(-2.7, 0, 1.6)]:
+			I.add_cyl_collider(xf.origin + bs * (post * sc), 0.3, 8.0)
+		# where you stop to fill up: on the pad, beside the pumps
+		var spot: Vector3 = xf.origin + bs * Vector3(0.9 * sc, 0, -0.9 * sc)
+		I.stations.append({"name": st["name"], "pos": spot, "yaw": yaw})
+		_person(I, xf.origin.x + (bs * Vector3(3.0 * sc, 0, 1.6 * sc)).x, xf.origin.z + (bs * Vector3(3.0 * sc, 0, 1.6 * sc)).z, "stand", yaw + PI * 0.5)
 
 static func _city_roads() -> Array:
 	var out := ["Main Street"]
@@ -722,10 +756,202 @@ static func _farm(I, rr: RandomNumberGenerator) -> void:
 				I.put("sunflower", sp.x, sp.y, 0.0, 2.4, "")
 		if rr.randf() < 0.6:
 			_pet(I, ["cow", "pig", "hog"][rr.randi_range(0, 2)], c.x + hs.x * 0.5, c.y)
+	_crops(I, rr)
 	# fences along Field Lane
 	for s in _along(I, "Field Lane", 6.0, 4.4, 6.0):
 		if not I.is_blocked(s["p"].x, s["p"].y):
 			I.put("k_surv_fence", s["p"].x, s["p"].y, _yaw_to(s["n"]), 2.2, "")
+
+## The fields' rows: a ploughed ridge of soil each, with the crop growing along it. Rows run the long way
+## across each field. Built as one mesh per field (no colliders: you drive straight through), only drawn
+## near by, and coloured from the season palette (green shoots in spring, gold in autumn, snow in winter).
+static func _crops(I, rr: RandomNumberGenerator) -> void:
+	var gap := 2.4
+	var keep_out := [Vector2(330, -50)]     # the windmill
+	for f in fields(I):
+		keep_out.append(f["c"])             # the scarecrow
+	for f in fields(I):
+		var c: Vector2 = f["c"]
+		var hs: Vector2 = f["hs"]
+		var crop: String = f["crop"]
+		var along_x: bool = hs.x >= hs.y
+		var ext: float = hs.x if along_x else hs.y        # half-length of a row
+		var wide: float = hs.y if along_x else hs.x       # half-width of the field across the rows
+		var dir := Vector2(1, 0) if along_x else Vector2(0, 1)
+		var side := Vector2(0, 1) if along_x else Vector2(1, 0)
+		var ridges := MB.new()
+		var plants := MB.new()
+		var n_rows := int((wide * 2.0 - 1.6) / gap) + 1
+		var off0 := -(n_rows - 1) * gap * 0.5
+		for ri in n_rows:
+			var o := off0 + ri * gap
+			# the ridge: a low trapezoid of turned soil, following the ground
+			var step := 2.0
+			var t := -ext + 0.8
+			while t < ext - 0.8:
+				var t2 := minf(t + step, ext - 0.8)
+				var a0: Vector2 = c + dir * t + side * o
+				var a1: Vector2 = c + dir * t2 + side * o
+				_ridge(I, ridges, a0, a1, side)
+				t = t2
+			# the crop along it
+			t = -ext + 1.2
+			var spacing: float = {"wheat": 0.5, "potato": 0.5, "cabbage": 1.0, "corn": 0.9, "sunflower": 1.5}[crop]
+			while t < ext - 1.2:
+				var strip: bool = crop in ["wheat", "potato"]
+				var p: Vector2 = c + dir * t + side * (o + (0.0 if strip else rr.randf_range(-0.12, 0.12)))
+				var clear := true
+				for k in keep_out:
+					if p.distance_to(k) < (7.0 if k == keep_out[0] else 2.0):
+						clear = false
+				if clear and not I.is_blocked(p.x, p.y):
+					var y: float = I.height_at(p.x, p.y) + 0.2
+					_plant(plants, crop, Vector3(p.x, y, p.y), Vector3(dir.x, 0, dir.y), spacing, rr)
+				t += spacing * rr.randf_range(0.9, 1.1) if crop in ["cabbage", "corn", "sunflower"] else spacing
+		for pair in [[ridges, 420.0], [plants, 260.0]]:
+			var mb: MB = pair[0]
+			if mb.is_empty():
+				continue
+			var mi := MeshInstance3D.new()
+			mi.mesh = mb.commit()
+			mi.material_override = I.mat
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if crop in ["corn", "sunflower"] and mb == plants else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.visibility_range_end = pair[1]
+			mi.visibility_range_end_margin = 30.0
+			mi.name = "Field_%s_%s" % [crop, "rows" if mb == ridges else "crop"]
+			I.add_child(mi)
+
+## One length of ridge from a to b (side: across the row).
+static func _ridge(I, mb: MB, a: Vector2, b: Vector2, side: Vector2) -> void:
+	var soil := MB.pal(P.FURROW)
+	var prof := [[-0.78, 0.0], [-0.32, 0.22], [0.32, 0.22], [0.78, 0.0]]
+	var pa := []
+	var pb := []
+	for q in prof:
+		var wa: Vector2 = a + side * float(q[0])
+		var wb: Vector2 = b + side * float(q[0])
+		pa.append(Vector3(wa.x, I.height_at(wa.x, wa.y) + float(q[1]) + 0.02, wa.y))
+		pb.append(Vector3(wb.x, I.height_at(wb.x, wb.y) + float(q[1]) + 0.02, wb.y))
+	for k in 3:
+		var nm := ((pb[k] as Vector3) - (pa[k] as Vector3)).cross((pa[k + 1] as Vector3) - (pa[k] as Vector3)).normalized()
+		if nm.y < 0.0:
+			nm = -nm
+		mb.quad(pa[k], pa[k + 1], pb[k + 1], pb[k], nm, soil)
+
+## One plant (or, for wheat and potatoes, one short length of a continuous row) at p, the row along dir.
+static func _plant(mb: MB, crop: String, p: Vector3, dir: Vector3, spacing: float, rr: RandomNumberGenerator) -> void:
+	var across := Vector3(-dir.z, 0, dir.x)
+	match crop:
+		"wheat", "potato":
+			# a continuous band of stems along the row, its top rising and falling gently
+			var tall := 0.72 if crop == "wheat" else 0.34
+			var w := 0.34 if crop == "wheat" else 0.36
+			var col := MB.pal(P.WHEAT if crop == "wheat" else P.LEAFY)
+			var a := p - dir * spacing * 0.5
+			var b := p + dir * spacing * 0.5
+			var wave := func(q: Vector3) -> float:
+				var u := q.x * 0.9 + q.z * 1.3
+				return tall * (0.9 + 0.08 * sin(u * 2.3) + 0.05 * sin(u * 7.1 + q.x))
+			var h0: float = wave.call(a)
+			var h1: float = wave.call(b)
+			var aL := a - across * w; var aR := a + across * w
+			var bL := b - across * w; var bR := b + across * w
+			var top_a := a + Vector3(0, h0, 0)
+			var top_b := b + Vector3(0, h1, 0)
+			var nl := (across * -1.0 + Vector3(0, 0.8, 0)).normalized()
+			var nr := (across + Vector3(0, 0.8, 0)).normalized()
+			mb.quad(aL, bL, top_b, top_a, nl, col)
+			mb.quad(top_a, top_b, bR, aR, nr, col)
+			if crop == "wheat":
+				# ears poking up out of the top, so it isn't one smooth band
+				var ear := MB.pal(P.HAY)
+				for k in 3:
+					var f := (k + rr.randf_range(0.1, 0.9)) / 3.0
+					var base := a.lerp(b, f) + Vector3(0, lerpf(h0, h1, f) - 0.05, 0) + across * rr.randf_range(-w, w) * 0.5
+					var tip := base + Vector3(rr.randf_range(-0.05, 0.05), rr.randf_range(0.16, 0.26), rr.randf_range(-0.05, 0.05))
+					var wv := across * 0.045
+					mb.tri(base - wv, base + wv, tip, dir, dir, dir, ear)
+					mb.tri(base + wv, base - wv, tip, -dir, -dir, -dir, ear)
+		"cabbage":
+			# a pale round head sitting in a ring of darker outer leaves
+			var r := rr.randf_range(0.24, 0.3)
+			var leaf := MB.pal(P.LEAFY)
+			var head := MB.pal(P.CABBAGE)
+			var yaw := rr.randf() * TAU
+			for k in 5:
+				var an := yaw + TAU * k / 5.0
+				var out := Vector3(cos(an), 0, sin(an))
+				var o2 := out.cross(Vector3.UP).normalized()
+				var lb := p + out * r * 0.5 + Vector3(0, 0.03, 0)
+				var lt := p + out * r * 2.3 + Vector3(0, 0.2, 0)
+				var nm := (o2.cross(lt - lb)).normalized()
+				if nm.y < 0.0:
+					nm = -nm
+				mb.tri(lb - o2 * r * 0.7, lb + o2 * r * 0.7, lt, nm, nm, nm, leaf)
+			var ring0 := []
+			var ring1 := []
+			for k in 6:
+				var an := yaw + TAU * k / 6.0
+				ring0.append(p + Vector3(cos(an) * r, 0.05, sin(an) * r))
+				ring1.append(p + Vector3(cos(an + 0.5) * r * 0.75, r * 1.05, sin(an + 0.5) * r * 0.75))
+			var top := p + Vector3(0, r * 1.45, 0)
+			for k in 6:
+				var a0: Vector3 = ring0[k]
+				var a1: Vector3 = ring0[(k + 1) % 6]
+				var b0: Vector3 = ring1[k]
+				var b1: Vector3 = ring1[(k + 1) % 6]
+				var n0 := ((a0 + a1) * 0.5 - p).normalized()
+				mb.tri(a0, a1, b0, n0, n0, (n0 + Vector3.UP).normalized(), head)
+				mb.tri(a1, b1, b0, n0, (n0 + Vector3.UP).normalized(), (n0 + Vector3.UP).normalized(), head)
+				var n1 := ((b0 + b1) * 0.5 - p + Vector3(0, r, 0)).normalized()
+				mb.tri(b0, b1, top, n1, n1, Vector3.UP, head)
+		"corn", "sunflower":
+			var h := rr.randf_range(1.5, 1.85) if crop == "corn" else rr.randf_range(1.6, 2.0)
+			var stalk := MB.pal(P.CORN)
+			var sw := 0.05
+			# a thin square stalk
+			for k in 4:
+				var a0 := Vector3(cos(PI * 0.5 * k), 0, sin(PI * 0.5 * k)) * sw
+				var a1 := Vector3(cos(PI * 0.5 * (k + 1)), 0, sin(PI * 0.5 * (k + 1))) * sw
+				var nm := (a0 + a1).normalized()
+				mb.quad(p + a0, p + a1, p + a1 + Vector3(0, h, 0), p + a0 + Vector3(0, h, 0), nm, stalk)
+			# leaves arching out (both faces)
+			for k in 3:
+				var an := rr.randf() * TAU
+				var out := Vector3(cos(an), 0, sin(an))
+				var base := p + Vector3(0, h * (0.3 + 0.2 * k), 0)
+				var tip := base + out * 0.55 + Vector3(0, 0.18, 0)
+				var wv := out.cross(Vector3.UP).normalized() * 0.09
+				var nm := (wv.cross(tip - base)).normalized()
+				mb.tri(base - wv, base + wv, tip, nm, nm, nm, stalk)
+				mb.tri(base + wv, base - wv, tip, -nm, -nm, -nm, stalk)
+			if crop == "corn":
+				# a tassel and a cob
+				var tp := p + Vector3(0, h, 0)
+				mb.tri(tp + across * 0.1, tp - across * 0.1, tp + Vector3(0, 0.3, 0), dir, dir, dir, MB.pal(P.HAY))
+				mb.tri(tp - across * 0.1, tp + across * 0.1, tp + Vector3(0, 0.3, 0), -dir, -dir, -dir, MB.pal(P.HAY))
+				mb.cbox(p + Vector3(0.07, h * 0.55, 0), Vector3(0.09, 0.26, 0.09), 0.0, MB.pal(P.HAY))
+			else:
+				# a flower head turned to the morning sun, yellow petals round a brown middle
+				var face := Vector3(0.55, 0.25, 0.8).normalized()
+				var hc := p + Vector3(0, h, 0) + face * 0.06
+				var u := face.cross(Vector3.UP).normalized()
+				var v := u.cross(face).normalized()
+				var petal := MB.pal(P.FLOWER_B)
+				var mid := MB.pal(P.TRUNK)
+				var ring := []
+				for k in 7:
+					var an := TAU * k / 7.0
+					ring.append(hc + (u * cos(an) + v * sin(an)) * 0.34)
+				for k in 7:
+					var r0: Vector3 = ring[k]
+					var r1: Vector3 = ring[(k + 1) % 7]
+					var m0 := hc.lerp(r0, 0.5)
+					var m1 := hc.lerp(r1, 0.5)
+					mb.tri(hc + face * 0.02, m0 + face * 0.02, m1 + face * 0.02, face, face, face, mid)
+					mb.tri(m0, r0, r1, face, face, face, petal)
+					mb.tri(m0, r1, m1, face, face, face, petal)
+					mb.tri(r0, hc - face * 0.04, r1, -face, -face, -face, stalk)
 
 static func _bowl(I, rr: RandomNumberGenerator) -> void:
 	var c := Vector2(175, 205)

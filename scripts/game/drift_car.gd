@@ -59,7 +59,8 @@ var vis_steer := 0.0
 var wall_t := 0.0            # just touched a wall (counts down)
 var wall_pos := Vector3.ZERO  # where it last touched one
 var hit := {}                # the last knock: {"t", "pos", "n" (into the car), "kind": wall/car}
-var damage := 0.0            # 0..100, from knocks; the garage and the gas station fix it
+var damage := 0.0            # 0..100, from knocks; gas stations fix it (for coins)
+var power_k := 1.0           # 1 normally; low when the tank's empty
 var dent_data := {}
 var _vh: Array = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]   # the last few velocities, for knocks
 var _ram_cd := 0.0
@@ -81,7 +82,7 @@ const GEARS := [0.0, 8.5, 15.0, 22.0, 29.5, 37.0, 46.0, 60.0]
 const TRAVEL := 0.28
 const REST := 0.32           # ray starts this far above the wheel centre
 
-func setup(def: Dictionary, mat: Material, isl: Node) -> void:
+func setup(def: Dictionary, mat: Material, isl: Node, paint := 0) -> void:
 	island = isl
 	info = M.car(def)
 	for c in get_children():
@@ -89,7 +90,7 @@ func setup(def: Dictionary, mat: Material, isl: Node) -> void:
 	wheels.clear()
 	wheel_nodes.clear()
 	body_node = MeshInstance3D.new()
-	dent_data = Dents.own(info["body"])
+	dent_data = Dents.own(M.painted_body(def, paint))
 	body_node.mesh = dent_data["mesh"]
 	damage = 0.0
 	body_node.material_override = mat
@@ -290,6 +291,7 @@ func _physics_process(dt: float) -> void:
 	if throttle > 0.0:
 		drive = throttle * minf(engine_force, engine_force * power_speed / maxf(gv, 1.0))
 		drive *= 1.0 - damage * 0.0012     # a battered car pulls a little less
+		drive *= power_k                   # (and with an empty tank, hardly at all)
 		# sideways, most of the power goes into wheelspin and smoke
 		drive *= lerpf(1.0, 0.5, drift * clampf((vs - DRIFT_PACE + 6.0) / 6.0, 0.0, 1.0))
 		if _gear_cd > 0.2:

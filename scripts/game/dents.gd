@@ -28,6 +28,8 @@ static func dent(d: Dictionary, p: Vector3, n: Vector3, radius: float, depth: fl
 		var arr: Array = d["surfs"][si]
 		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
 		var orig: PackedVector3Array = d["orig"][si]
+		var cols = arr[Mesh.ARRAY_COLOR]
+		var has_cols: bool = cols is PackedColorArray and (cols as PackedColorArray).size() == vs.size()
 		var moved := false
 		var touched := PackedByteArray()
 		touched.resize(vs.size())
@@ -45,7 +47,19 @@ static func dent(d: Dictionary, p: Vector3, n: Vector3, radius: float, depth: fl
 			vs[i] = nv
 			touched[i] = 1
 			moved = true
+			if has_cols:
+				# scraped paint round the dent; a lamp hit hard goes dark
+				var c: Color = cols[i]
+				var scuff := clampf(f * depth * 4.0, 0.0, 0.55)
+				var nc := Color(c.r, c.g, c.b).lerp(Color(0.36, 0.34, 0.32), scuff)
+				var a := c.a
+				if a < 0.75 and f > 0.45 and depth > 0.08:
+					a = 1.0
+					nc = nc.darkened(0.5)
+				cols[i] = Color(nc.r, nc.g, nc.b, a)
 		arr[Mesh.ARRAY_VERTEX] = vs
+		if has_cols:
+			arr[Mesh.ARRAY_COLOR] = cols
 		if moved:
 			_normals(arr, touched)
 		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)

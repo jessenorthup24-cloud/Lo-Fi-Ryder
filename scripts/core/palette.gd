@@ -10,7 +10,8 @@ enum {
 	ICE, ROOF_BLUE, STONE_SIDE, SAND_SIDE, TUFT, CORAL, PUMPKIN, METAL,
 	CROP, SOIL, ROOF_GREEN, WALL_PINK, WALL_BLUE, COBBLE, ROCK, SNOWCAP,
 	LILY, REED, WOOD_DARK, FRUIT, CANVAS, MOSS, BLOSSOM, PEBBLE,
-	RUST, CONCRETE, IVY, ASPHALT_DK, RED_SAND, RED_ROCK,
+	RUST, CONCRETE, IVY, ASPHALT_DK, RED_SAND, RED_ROCK, WHEAT, LEAFY,
+	CORN, FURROW, CABBAGE,
 }
 
 const SEASON_NAMES := ["Spring", "Summer", "Autumn", "Winter"]
@@ -71,6 +72,11 @@ const COLORS := {
 	ASPHALT_DK: ["5f5c59", "625e5a", "5b5752", "a9adb3"],
 	RED_SAND: ["e49c62", "e7995c", "dc8f56", "ead9cf"],
 	RED_ROCK: ["c4653c", "c86239", "ba5b36", "d6beb3"],
+	WHEAT: ["a6d466", "dcbb62", "cda86a", "eef2f5"],
+	LEAFY: ["86cc62", "6abb57", "93a24e", "e6edf1"],
+	CORN: ["7cc15c", "62ad4f", "cdb062", "e8eef2"],
+	FURROW: ["9a6d4e", "a07250", "8b6246", "e2e6eb"],
+	CABBAGE: ["c8ea9c", "bce392", "b8cc7c", "eef2f5"],
 }
 
 static func make_texture() -> ImageTexture:

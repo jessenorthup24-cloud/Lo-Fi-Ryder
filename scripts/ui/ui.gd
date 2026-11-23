@@ -48,6 +48,19 @@ var mini_wrap: Control
 var reset_hint: Button
 var _drift_show := 0.0
 var _bank_t := 0.0
+var _pop_n := 0
+var fuel_g: Control          # the fuel and condition gauges by the speedo
+var cond_g: Control
+var route_box: Control       # the GPS arrow, top middle
+var route_lbl: Label
+var _route_ang := 0.0
+var _route_on := false
+var station_card: PanelContainer
+var station_lbl: Label
+var st_fuel_lbl: Label
+var st_cond_lbl: Label
+var st_fuel_btn: Button
+var st_cond_btn: Button
 var _last_coins := -1
 var _hint_t := 0.0
 var _hud_data := {}
@@ -65,6 +78,8 @@ var g_from := 1
 var g_panel: VBoxContainer
 var g_coins: PanelContainer
 var g_tab := "cars"
+var g_paint := -1            # the paint job being tried on in the showroom (-1: the one it wears)
+const PAINT_PRICE := 250
 var g_spin := 0.0
 var g_drag := 0.0
 
@@ -290,46 +305,62 @@ func _build_hud() -> void:
 	_tap(camb, func(): game.toggle_cam())
 	hud.add_child(camb)
 	# the challenge card, top middle
-	chal_card = K.card(K.PAPER, 30)
+	chal_card = K.card(K.PAPER, 22)
 	chal_card.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	chal_card.custom_minimum_size = Vector2(380, 0)
-	chal_card.position = Vector2(-190, 18)
+	chal_card.custom_minimum_size = Vector2(300, 0)
+	chal_card.position = Vector2(-150, 14)
+	var csb: StyleBoxFlat = (chal_card.get_theme_stylebox("panel") as StyleBoxFlat).duplicate()
+	csb.content_margin_top = 6
+	csb.content_margin_bottom = 8
+	csb.content_margin_left = 18
+	csb.content_margin_right = 18
+	chal_card.add_theme_stylebox_override("panel", csb)
 	chal_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(chal_card)
 	var cvb := VBoxContainer.new()
 	cvb.add_theme_constant_override("separation", -2)
 	chal_card.add_child(cvb)
-	chal_name = K.label("", 24, K.INK_SOFT, 650)
+	chal_name = K.label("", 18, K.INK_SOFT, 650)
 	cvb.add_child(chal_name)
-	chal_main = K.label("", 44, K.INK, 700)
+	chal_main = K.label("", 32, K.INK, 700)
 	cvb.add_child(chal_main)
-	chal_sub = K.label("", 22, K.INK_SOFT, 600)
+	chal_sub = K.label("", 16, K.INK_SOFT, 600)
 	cvb.add_child(chal_sub)
 	chal_card.visible = false
-	# the drift meter, below it
+	# the drift meter: a slim readout up in the top left, under the place name, out of the way of the road
 	drift_card = PanelContainer.new()
-	drift_card.add_theme_stylebox_override("panel", K.box(Color(0.12, 0.12, 0.12, 0.5), 30, 0, Color.TRANSPARENT, 16))
-	drift_card.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	drift_card.custom_minimum_size = Vector2(340, 0)
-	drift_card.position = Vector2(-170, 150)
+	var dsb := StyleBoxFlat.new()
+	dsb.bg_color = Color(0.08, 0.08, 0.09, 0.34)
+	dsb.set_corner_radius_all(10)
+	dsb.border_color = Color("e8dcc4")
+	dsb.border_width_left = 4
+	dsb.content_margin_left = 12
+	dsb.content_margin_right = 12
+	dsb.content_margin_top = 2
+	dsb.content_margin_bottom = 6
+	drift_card.add_theme_stylebox_override("panel", dsb)
+	drift_card.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	drift_card.custom_minimum_size = Vector2(196, 0)
+	drift_card.position = Vector2(28, 108)
 	drift_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(drift_card)
 	var dvb := VBoxContainer.new()
-	dvb.add_theme_constant_override("separation", 0)
+	dvb.add_theme_constant_override("separation", -2)
 	drift_card.add_child(dvb)
 	var dh := HBoxContainer.new()
-	dh.alignment = BoxContainer.ALIGNMENT_CENTER
-	dh.add_theme_constant_override("separation", 12)
+	dh.add_theme_constant_override("separation", 8)
 	dvb.add_child(dh)
-	drift_lbl = K.outlined(K.label("0", 54, Color.WHITE, 700), K.INK, 12)
+	drift_lbl = K.outlined(K.label("0", 32, Color.WHITE, 700, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 7)
 	dh.add_child(drift_lbl)
-	combo_lbl = K.outlined(K.label("x1", 40, Color("e8dcc4"), 700), K.INK, 10)
+	combo_lbl = K.outlined(K.label("x1", 22, Color("e8dcc4"), 700, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 6)
+	combo_lbl.size_flags_vertical = Control.SIZE_SHRINK_END
 	dh.add_child(combo_lbl)
-	angle_lbl = K.label("DRIFT", 22, Color(1, 1, 1, 0.85), 650)
+	angle_lbl = K.label("DRIFT", 15, Color(1, 1, 1, 0.85), 650, HORIZONTAL_ALIGNMENT_LEFT)
 	dvb.add_child(angle_lbl)
-	combo_bar = K.bar(300, 10, Color("e8dcc4"), Color(1, 1, 1, 0.25))
+	combo_bar = K.bar(172, 4, Color("e8dcc4"), Color(1, 1, 1, 0.22))
 	dvb.add_child(combo_bar)
 	drift_card.modulate.a = 0.0
+	_build_route_and_station()
 	# speedo, bottom middle
 	var sp := VBoxContainer.new()
 	sp.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
@@ -351,6 +382,9 @@ func _build_hud() -> void:
 	rpm_bar = K.bar(200, 10, K.PAPER, Color(0, 0, 0, 0.25))
 	rpm_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	sp.add_child(rpm_bar)
+	# fuel (left of the speedo) and condition (right): slim upright bars
+	fuel_g = _gauge("fuel", Vector2(-176, -146))
+	cond_g = _gauge("gear", Vector2(142, -146))
 	# steering, bottom left
 	ctl["left"] = _pad("left", Vector2(40, -210), Vector2(170, 170), true, K.PAPER)
 	ctl["right"] = _pad("right", Vector2(230, -210), Vector2(170, 170), true, K.PAPER)
@@ -422,6 +456,123 @@ func pressed_controls(held: Dictionary) -> void:
 		c.scale = c.scale.lerp(Vector2.ONE * (0.93 if on else 1.0), 0.5)
 		c.modulate = Color(1.15, 1.15, 1.15, 1.0) if on else Color(1, 1, 1, 0.9)
 
+func _gauge(icon: String, at: Vector2) -> Control:
+	var g := Control.new()
+	g.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	g.position = at
+	g.size = Vector2(34, 120)
+	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	g.set_meta("v", 1.0)
+	g.draw.connect(func():
+		var v: float = g.get_meta("v")
+		var bar := Rect2(Vector2(11, 0), Vector2(12, 84))
+		g.draw_rect(bar.grow(3), Color(0.08, 0.08, 0.09, 0.42))
+		var col := K.PAPER if v > 0.35 else (Color("f2b84b") if v > 0.15 else Color("ef6a55"))
+		var h := bar.size.y * clampf(v, 0.0, 1.0)
+		g.draw_rect(Rect2(bar.position + Vector2(0, bar.size.y - h), Vector2(bar.size.x, h)), col)
+		for k in range(1, 4):
+			var y := bar.position.y + bar.size.y * k / 4.0
+			g.draw_line(Vector2(bar.position.x, y), Vector2(bar.end.x, y), Color(0, 0, 0, 0.25), 1.0))
+	var ic := Icon.new(icon, K.PAPER, 30)
+	ic.position = Vector2(2, 88)
+	g.add_child(ic)
+	hud.add_child(g)
+	return g
+
+## Show (or hide) the GPS arrow: angle from straight ahead (radians, + to the right), metres to go.
+func route_arrow(on: bool, angle := 0.0, dist := 0.0, name := "") -> void:
+	_route_on = on
+	route_box.visible = on
+	if not on:
+		return
+	_route_ang = lerp_angle(_route_ang, angle, 0.25)
+	route_box.queue_redraw()
+	var dtxt := ("%d m" % int(round(dist / 10.0) * 10.0)) if dist < 1000.0 else ("%.1f km" % (dist / 1000.0))
+	route_lbl.text = "%s · %s" % [dtxt, name]
+	route_box.position.y = 112.0 if chal_card.visible else 10.0
+
+func station_open(name: String) -> void:
+	station_lbl.text = "%s gas station" % name
+	station_card.visible = true
+	station_card.modulate.a = 0.0
+	create_tween().tween_property(station_card, "modulate:a", 1.0, 0.2)
+
+func station_close() -> void:
+	station_card.visible = false
+
+func station_update(fuel: float, damage: float, fuel_cost: int, repair_cost: int, coins: int) -> void:
+	st_fuel_lbl.text = "Fuel %d%%" % int(round(fuel))
+	st_cond_lbl.text = "Condition %d%%" % int(round(100.0 - damage))
+	var full := fuel > 99.5
+	st_fuel_btn.text = "Full" if full else ("Fill up · %s coins" % K.fmt(fuel_cost))
+	st_fuel_btn.disabled = full
+	var fixed := damage < 0.5
+	st_cond_btn.text = "Like new" if fixed else ("Repair · %s coins" % K.fmt(repair_cost))
+	st_cond_btn.disabled = fixed
+	st_fuel_btn.modulate.a = 0.55 if full else 1.0
+	st_cond_btn.modulate.a = 0.55 if fixed else 1.0
+
+func _build_route_and_station() -> void:
+	# the GPS arrow
+	route_box = Control.new()
+	route_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	route_box.size = Vector2(300, 84)
+	route_box.position = Vector2(-150, 10)
+	route_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	route_box.visible = false
+	route_box.draw.connect(func():
+		var c := Vector2(150, 28)
+		var f := Vector2(sin(_route_ang), -cos(_route_ang))
+		var r := Vector2(-f.y, f.x)
+		var pts := PackedVector2Array([c + f * 22.0, c - f * 14.0 + r * 18.0, c - f * 6.0, c - f * 14.0 - r * 18.0])
+		route_box.draw_colored_polygon(pts, Color("4aa8ff"))
+		route_box.draw_polyline(pts + PackedVector2Array([pts[0]]), K.INK, 4.0, true)
+		route_box.draw_polyline(pts + PackedVector2Array([pts[0]]), Color.WHITE, 1.6, true))
+	hud.add_child(route_box)
+	route_lbl = K.outlined(K.label("", 18, Color.WHITE, 700), K.INK, 6)
+	route_lbl.position = Vector2(0, 56)
+	route_lbl.size = Vector2(300, 26)
+	route_box.add_child(route_lbl)
+	# the station card: what you can buy here
+	station_card = K.card(K.PAPER, 22)
+	var ssb: StyleBoxFlat = (station_card.get_theme_stylebox("panel") as StyleBoxFlat).duplicate()
+	ssb.content_margin_top = 10
+	ssb.content_margin_bottom = 12
+	ssb.content_margin_left = 18
+	ssb.content_margin_right = 18
+	station_card.add_theme_stylebox_override("panel", ssb)
+	station_card.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	station_card.position = Vector2(-230, -250)
+	station_card.custom_minimum_size = Vector2(460, 0)
+	station_card.visible = false
+	hud.add_child(station_card)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	station_card.add_child(vb)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 10)
+	head.add_child(Icon.new("fuel", K.INK, 30))
+	station_lbl = K.label("", 24, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT)
+	head.add_child(station_lbl)
+	vb.add_child(head)
+	for row in 2:
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 12)
+		var l := K.label("", 20, K.INK_SOFT, 650, HORIZONTAL_ALIGNMENT_LEFT)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		hb.add_child(l)
+		var b := K.button("", K.TEAL if row == 0 else K.SUN, K.TEAL_DK if row == 0 else K.SUN_DK, 20, 210, 52)
+		hb.add_child(b)
+		vb.add_child(hb)
+		if row == 0:
+			st_fuel_lbl = l
+			st_fuel_btn = b
+			_tap(b, func(): game.buy_fuel())
+		else:
+			st_cond_lbl = l
+			st_cond_btn = b
+			_tap(b, func(): game.buy_repair())
+
 func show_hud() -> void:
 	title.visible = false
 	garage.visible = false
@@ -432,13 +583,15 @@ func hud_update(d: Dictionary) -> void:
 	speed_lbl.text = str(int(round(d["kmh"])))
 	gear_lbl.text = "R" if game.car.speed < -0.5 and game.car.grounded > 0 else str(int(d["gear"]))
 	rpm_bar.value = d["rpm"]
-	var dmg := int(d.get("damage", 0.0))
-	var bits := []
-	if bool(game.save.setting("clock")):
-		bits.append(d["clock"])
-	if dmg >= 5:
-		bits.append("damage %d%%" % dmg)
-	clock_lbl.text = "  ·  ".join(bits)
+	clock_lbl.text = d["clock"] if bool(game.save.setting("clock")) else ""
+	var fv := float(d.get("fuel", 100.0)) / 100.0
+	var cv := 1.0 - float(d.get("damage", 0.0)) / 100.0
+	if absf(float(fuel_g.get_meta("v")) - fv) > 0.002:
+		fuel_g.set_meta("v", fv)
+		fuel_g.queue_redraw()
+	if absf(float(cond_g.get_meta("v")) - cv) > 0.002:
+		cond_g.set_meta("v", cv)
+		cond_g.queue_redraw()
 	place_lbl.text = d["place"]
 	if int(d["coins"]) != _last_coins:
 		_last_coins = int(d["coins"])
@@ -492,9 +645,9 @@ func banked(total: int, coins: int) -> void:
 	_drift_show = 1.0
 	drift_lbl.text = "+" + K.fmt(total)
 	angle_lbl.text = ("+%d coins" % coins) if coins > 0 else "nice!"
-	drift_card.pivot_offset = drift_card.size * 0.5
-	drift_card.scale = Vector2(1.15, 1.15)
-	create_tween().tween_property(drift_card, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	drift_card.pivot_offset = Vector2(0, drift_card.size.y * 0.5)
+	drift_card.scale = Vector2(1.08, 1.08)
+	create_tween().tween_property(drift_card, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func drift_lost() -> void:
 	_bank_t = 0.9
@@ -502,18 +655,19 @@ func drift_lost() -> void:
 	angle_lbl.text = "drift lost"
 	_drift_show = 1.0
 
+## A short call-out ("Close!", a stunt's name), small, beside the drift meter; a few stack up.
 func popup_text(text: String, col := Color.WHITE) -> void:
-	var l := K.outlined(K.label(text, 40, col, 700), K.INK, 12)
-	l.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	var l := K.outlined(K.label(text, 24, col, 700, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 7)
 	popups.add_child(l)
-	l.size = Vector2(600, 60)
-	l.position = _vs() * 0.5 - Vector2(300, 150)
-	l.pivot_offset = Vector2(300, 30)
-	l.scale = Vector2(0.5, 0.5)
+	var slot := _pop_n % 3
+	_pop_n += 1
+	l.position = Vector2(30, 186 + slot * 30)
+	l.pivot_offset = Vector2(0, 14)
+	l.scale = Vector2(0.6, 0.6)
 	var t := create_tween()
-	t.tween_property(l, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.parallel().tween_property(l, "position:y", l.position.y - 50, 1.0)
-	t.parallel().tween_property(l, "modulate:a", 0.0, 0.3).set_delay(0.7)
+	t.tween_property(l, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(l, "position:x", l.position.x + 10, 1.1)
+	t.parallel().tween_property(l, "modulate:a", 0.0, 0.3).set_delay(0.9)
 	t.tween_callback(l.queue_free)
 
 func toast(text: String, icon := "", col := K.PAPER, icol := K.INK, hold := 2.2) -> void:
@@ -877,13 +1031,13 @@ func _ach_row(a: Dictionary, got: bool, prog: float) -> Control:
 func show_help() -> void:
 	var vb: VBoxContainer = await _sheet("How to drive", "car", K.TEAL, 1040.0)
 	for line in [
-		["left", "Steer with the arrows on the left."],
+		["left", "Steer with the arrows on the left. Drag anywhere else on the screen to look around the car, pinch to zoom."],
 		["play", "GAS and BRAKE on the right. Hold BRAKE when stopped to reverse."],
 		["tire", "Tap DRIFT (the handbrake) while steering to swing the tail out. Keep the gas down and hold the steering into the turn to hold the slide."],
 		["right", "Steer the other way with the gas down to swing into a drift the other way. Let go of steering, or ease off the gas, to straighten up."],
 		["star", "Drifts score points and coins. Chain them for a bigger multiplier, and skim walls and cars for a close bonus. Don't crash mid-drift!"],
 		["wind", "In the air, GAS tips the nose down and BRAKE lifts it (hold to flip), steering spins you round, and DRIFT + steering barrel-rolls. Land on your wheels! The Stunt Yard is just south of town."],
-		["flag", "Drive into an orange ring for a drift zone, a blue ring for a time trial, a purple ring for a drift run. Hidden coins are dotted all over the island."],
+		["flag", "Orange rings are drift zones, blue time trials, purple drift runs. Open the map to set a route to any of them (or a gas station: fuel runs down, and they fix dents too)."],
 	]:
 		var hb := HBoxContainer.new()
 		hb.add_theme_constant_override("separation", 14)
@@ -958,10 +1112,16 @@ func open_map() -> void:
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	list.add_theme_constant_override("separation", 8)
 	sc.add_child(list)
+	if not game.route_pick.is_empty():
+		var clr := K.button("Clear route to %s" % game.route_pick["name"], K.PAPER, K.LINE, 20, 0, 50)
+		_tap(clr, func():
+			game.set_route_pick(Vector3.ZERO, "")
+			open_map())
+		list.add_child(clr)
 	for z in island.zones:
 		var best := int(game.save.data["zones"].get(z["id"], 0))
 		list.add_child(_chal_row(z["name"], "Drift zone · best %s" % K.fmt(best) if best > 0 else "Drift zone", int(game.save.data["medals"].get(z["id"], 0)), Color("ff8a5c"),
-			game._road_spot(z["start"], 0.0)))
+			game._road_spot(z["start"], 0.0), z["start"]))
 	for t in island.trials:
 		var best2: float = float(game.save.data["trials"].get(t["id"], 0.0))
 		var info := "Time trial" if t["kind"] == "time" else "Drift run"
@@ -969,7 +1129,12 @@ func open_map() -> void:
 			info += (" · best %.2f s" % best2) if t["kind"] == "time" else (" · best %s" % K.fmt(int(best2)))
 		var g0: Transform3D = t["gates"][0]
 		list.add_child(_chal_row(t["name"], info, int(game.save.data["medals"].get(t["id"], 0)), Color("5cc8ff") if t["kind"] == "time" else Color("c38bff"),
-			Transform3D(g0.basis, g0.origin + Vector3(0, 1.0, 0)).translated_local(Vector3(0, 0, 16))))
+			Transform3D(g0.basis, g0.origin + Vector3(0, 1.0, 0)).translated_local(Vector3(0, 0, 16)), g0.origin))
+	for st in island.stations:
+		var sp: Vector3 = st["pos"]
+		var d := int(round(sp.distance_to(game.car.global_position) / 10.0) * 10.0)
+		list.add_child(_chal_row("%s gas station" % st["name"], "Fuel and repairs · %d m away" % d, -1, Color("4fb3a5"),
+			game._road_spot(sp, 0.0), sp))
 	var back := K.button("Back", K.PAPER, K.LINE, 28, 0, 68)
 	_tap(back, func():
 		if game.state == game.PAUSED:
@@ -978,7 +1143,7 @@ func open_map() -> void:
 			close_sheet())
 	vb.add_child(back)
 
-func _chal_row(name: String, info: String, medal: int, col: Color, xf: Transform3D) -> Control:
+func _chal_row(name: String, info: String, medal: int, col: Color, xf: Transform3D, where := Vector3.INF) -> Control:
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", K.box(K.CREAM, 20, 0, Color.TRANSPARENT, 10))
 	var hb := HBoxContainer.new()
@@ -995,8 +1160,20 @@ func _chal_row(name: String, info: String, medal: int, col: Color, xf: Transform
 	hb.add_child(vb)
 	vb.add_child(K.label(name, 24, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT))
 	vb.add_child(K.label(info, 18, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
-	var mcol: Color = [K.LINE, Color("b98b62"), Color("b3b8bd"), Color("d4b25c")][medal]
-	hb.add_child(Icon.new("trophy", mcol, 34))
+	if medal >= 0:
+		var mcol: Color = [K.LINE, Color("b98b62"), Color("b3b8bd"), Color("d4b25c")][medal]
+		hb.add_child(Icon.new("trophy", mcol, 34))
+	else:
+		hb.add_child(Icon.new("fuel", K.INK_SOFT, 34))
+	if where != Vector3.INF:
+		# set the GPS: a line on the map and the arrow up top
+		var rt := K.button("Route", K.SKY, K.SKY_DK, 20, 92, 54)
+		_tap(rt, func():
+			game.set_route_pick(where, name)
+			close_sheet()
+			if game.state == game.PAUSED:
+				game.resume())
+		hb.add_child(rt)
 	var go := K.button("Go", K.TEAL, K.TEAL_DK, 22, 76, 54)
 	_tap(go, func():
 		close_sheet()
@@ -1098,6 +1275,7 @@ func show_garage(from: int) -> void:
 	garage.visible = true
 	g_index = CARS.index_of(String(game.save.data["car"]))
 	g_tab = "cars"
+	g_paint = -1
 	_garage_refresh()
 
 func hide_garage() -> void:
@@ -1111,29 +1289,125 @@ func _garage_refresh() -> void:
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 10)
 	g_panel.add_child(tabs)
-	for tdef in [["cars", "Cars", "car"], ["up", "Upgrades", "gear"]]:
+	for tdef in [["cars", "Cars", "car"], ["paint", "Paint", "star"], ["up", "Upgrades", "gear"]]:
 		var on: bool = g_tab == tdef[0]
-		var b := K.button(tdef[1], K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 28, 0, 66, tdef[2])
+		var b := K.button(tdef[1], K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 24, 0, 62, tdef[2])
 		if not on:
 			b.add_theme_color_override("font_color", K.INK)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var id: String = tdef[0]
 		_tap(b, func():
 			g_tab = id
+			g_paint = -1
 			_garage_refresh())
 		tabs.add_child(b)
 	_show_car(CARS.LIST[g_index])
 	if g_tab == "cars":
 		_cars_tab()
+	elif g_tab == "paint":
+		_paint_tab()
 	else:
 		_upgrades_tab()
+
+## The paint job a car wears (0: factory).
+func _worn_paint(id: String) -> int:
+	return int(game.save.data["paint"].get(id, 0))
+
+func _owns_paint(id: String, idx: int) -> bool:
+	return idx == 0 or (game.save.data["paints"].get(id, []) as Array).has(idx)
+
+func _paint_tab() -> void:
+	var s = game.save.data
+	var d: Dictionary = CARS.LIST[g_index]
+	var id: String = d["id"]
+	var nav := HBoxContainer.new()
+	nav.add_theme_constant_override("separation", 10)
+	g_panel.add_child(nav)
+	var prev := K.round_button("left", K.PAPER, K.LINE, 64)
+	_tap(prev, func(): _garage_step(-1))
+	nav.add_child(prev)
+	var nm := K.label(d["name"], 32, K.INK, 700)
+	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nav.add_child(nm)
+	var nxt := K.round_button("right", K.PAPER, K.LINE, 64)
+	_tap(nxt, func(): _garage_step(1))
+	nav.add_child(nxt)
+	var list := M.paints(d)
+	if list.size() < 2:
+		g_panel.add_child(K.label("No other paint jobs for this one.", 22, K.INK_SOFT, 600))
+		return
+	g_panel.add_child(K.label("Tap a colour to try it on. %s coins each." % K.fmt(PAINT_PRICE), 20, K.INK_SOFT, 600))
+	var shown := _worn_paint(id) if g_paint < 0 else g_paint
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 12)
+	row.add_theme_constant_override("v_separation", 12)
+	g_panel.add_child(row)
+	for i in list.size():
+		var sw := Button.new()
+		sw.custom_minimum_size = Vector2(78, 78)
+		var col := Color(String(list[i]["swatch"]))
+		var sb := K.box(col, 39, 0, Color.TRANSPARENT, 0)
+		sb.set_border_width_all(6 if i == shown else 3)
+		sb.border_color = K.INK if i == shown else Color(1, 1, 1, 0.8)
+		for st in ["normal", "hover", "pressed", "focus"]:
+			sw.add_theme_stylebox_override(st, sb)
+		if not _owns_paint(id, i):
+			sw.add_child(Icon.new("lock", Color(1, 1, 1, 0.85), 30))
+			(sw.get_child(0) as Control).position = Vector2(24, 24)
+		elif i == _worn_paint(id):
+			sw.add_child(Icon.new("check", Color.WHITE, 30))
+			(sw.get_child(0) as Control).position = Vector2(24, 24)
+		var ii := i
+		_tap(sw, func():
+			g_paint = ii
+			game.sfx("select", -8.0)
+			_garage_refresh())
+		row.add_child(sw)
+	g_panel.add_child(K.label("Factory paint" if shown == 0 else "Paint job %d" % shown, 22, K.INK, 650))
+	var act: Button
+	if not game.save.owns(id):
+		act = K.button("Buy the car first", Color("c9c3bb"), Color("aba59d"), 28, 0, 80, "lock")
+		act.disabled = true
+	elif shown == _worn_paint(id):
+		act = K.button("Wearing this paint", Color("c9c3bb"), Color("aba59d"), 28, 0, 80, "check")
+		act.disabled = true
+	elif _owns_paint(id, shown):
+		act = K.button("Use this paint", K.TEAL, K.TEAL_DK, 30, 0, 80, "play")
+	elif int(s["coins"]) >= PAINT_PRICE:
+		act = K.button("Buy paint · %s" % K.fmt(PAINT_PRICE), K.CORAL, K.CORAL_DK, 30, 0, 80, "coin")
+	else:
+		act = K.button("%s coins" % K.fmt(PAINT_PRICE), Color("c9c3bb"), Color("aba59d"), 28, 0, 80, "lock")
+		act.disabled = true
+	var pick := shown
+	_tap(act, func(): _paint_action(id, pick))
+	g_panel.add_child(act)
+
+func _paint_action(id: String, idx: int) -> void:
+	var s = game.save.data
+	if not _owns_paint(id, idx):
+		if int(s["coins"]) < PAINT_PRICE:
+			return
+		s["coins"] = int(s["coins"]) - PAINT_PRICE
+		var got: Array = s["paints"].get(id, [])
+		got.append(idx)
+		s["paints"][id] = got
+		game.sfx("purchase")
+		game.buzz(60, 0.9)
+	else:
+		game.sfx("select")
+	s["paint"][id] = idx
+	game.save.save()
+	if String(s["car"]) == id:
+		game.car_changed()
+	g_paint = -1
+	_garage_refresh()
 
 func _show_car(d: Dictionary) -> void:
 	for c in g_car.get_children():
 		c.queue_free()
 	var c := M.car(d)
 	var body := MeshInstance3D.new()
-	body.mesh = c["body"]
+	body.mesh = M.painted_body(d, (_worn_paint(d["id"]) if g_paint < 0 else g_paint) if g_tab == "paint" else _worn_paint(d["id"]))
 	body.material_override = g_mat
 	g_car.add_child(body)
 	for i in 4:
@@ -1194,6 +1468,7 @@ func _cars_tab() -> void:
 
 func _garage_step(dlt: int) -> void:
 	g_index = posmod(g_index + dlt, CARS.LIST.size())
+	g_paint = -1
 	_garage_refresh()
 	g_car.scale = Vector3(0.75, 0.75, 0.75)
 	create_tween().tween_property(g_car, "scale", Vector3.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)

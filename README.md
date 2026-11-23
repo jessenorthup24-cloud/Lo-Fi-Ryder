@@ -14,7 +14,9 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 
 ## How to play
 
-- Landscape, third-person chase camera (tap the camera button for near or far).
+- Landscape, third-person chase camera. The camera button cycles near, far and a close, low view. Drag a
+  finger anywhere off the buttons to swing the view round the car (it settles back behind after a moment)
+  and pinch to zoom (the zoom is kept).
 - Controls: steer left and right on the left; brake, gas and the handbrake (DRIFT) on the right.
   Hold brake when stopped to reverse.
 - Drifting: at speed, tap the handbrake (DRIFT) while steering to kick the rear out, then hold the gas
@@ -46,7 +48,19 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - The garage: 18 cars (each with its own power, top speed, grip and drift), plus four upgrades that
   work on every car you own (engine, turbo, tyres, steering angle).
 - 35 trophies, each paying coins once.
+- The drift meter is a slim readout in the top left, with call-outs ("Close!", stunts) stacked beside it,
+  so the middle of the screen stays clear.
 - If you flip, land in the water or get stuck, the car is put back on the road.
+- Fuel and condition: two gauges by the speedo. Fuel burns with the throttle (a tank lasts about 20 minutes
+  of driving); below 15% the GPS takes you to the nearest gas station, and an empty tank leaves a quarter
+  of the power to limp there. Four gas stations (Castle Road, Coast Road, Beach Road, Main Street East):
+  stop on the pad by the pumps and buy fuel (1 coin a percent) and repairs (2 coins a percent; dents and
+  scuffs go, and the lamps light again). Run out with no coins and they give you enough to get going.
+- The GPS: during a trial it points to the next gate, out of a zone back into it, and when you're low on
+  fuel or battered to a station. On the map, every challenge and gas station has a Route button. The route
+  shows on the minimap and an arrow at the top of the screen points along it, with the distance.
+- Paint jobs: every car comes in the pack's other liveries too (Garage, Paint tab; 250 coins each, kept
+  per car).
 - Crashes: hit a traffic car and it gets shoved and spun by the knock (you share it by weight), then the
   driver straightens up and carries on, dents and all. Your own car dents where it hits, smokes once
   it's battered and pulls a little less. The gas station on Castle Road (and the garage) fix it up.
@@ -68,6 +82,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   sit on benches, watch you drift and wave.
 - Seasons: autumn colours from September, snow and decorations in winter, blossom in spring. Windows
   and lamps light up after dusk.
+- Farm fields are ploughed in ridges with crops growing along them (wheat, cabbages, corn, sunflowers,
+  potatoes), coloured with the seasons. Dirt tracks stop at the edge of the paved roads they join.
 
 ## Project layout
 
@@ -90,7 +106,9 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `tools/look/` | Look-dev: `island_look.gd` photographs parts of the island, `kgrid.gd` makes a model contact sheet, `piece_look.gd` photographs one model from four sides on a 1 m grid |
 | `tools/test/` | `handling.gd` (handling report), `road_audit.gd` (nothing in roads or pavements), `road_surface.gd` (roads meet the ground and each other), `road_net.gd` (junctions and loose ends), `traffic_soak.gd` (overlaps, jams, cars off the road), `collide_test.gd`, `probe.gd` |
 | `tools/audio/`, `tools/music/` | Sound synthesis scripts (the fallback sounds); the CC0 music list the build fetches |
-| `scripts/game/dents.gd` | Crash damage: bends a mesh in around an impact |
+| `scripts/game/dents.gd` | Crash damage: bends a mesh in around an impact and scuffs the paint |
+| `scripts/game/route.gd` | GPS: the road network as a graph and the shortest way along it |
+| `tools/cars/export_paints.gd` | Bakes each car's other liveries as per-vertex colour rows (`assets/cars/*_paints.res`) |
 
 There are no autoloads and no `class_name`s, so an update pack can replace any script before it loads.
 

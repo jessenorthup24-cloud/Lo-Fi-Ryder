@@ -826,6 +826,42 @@ static func _pack_car(def: Dictionary) -> Dictionary:
 		"top": (float(ab[1]) + float(ab[4])) * sc, "front": float(ab[2]) * sc, "back": (float(ab[2]) + float(ab[5])) * sc,
 		"width": float(ab[3]) * sc, "length": float(ab[5]) * sc, "height": float(ab[4]) * sc}
 
+# ---------------------------------------------------------------- paint jobs
+static var _paint_meta := {}
+
+## The paint jobs a car can wear: [{v (the pack livery), swatch (hex)}], the factory paint first.
+static func paints(def: Dictionary) -> Array:
+	if _paint_meta.is_empty() and FileAccess.file_exists("res://assets/cars/paints_meta.json"):
+		_paint_meta = JSON.parse_string(FileAccess.get_file_as_string("res://assets/cars/paints_meta.json"))
+	return _paint_meta.get(String(def.get("model", "")), [])
+
+## The car's body in paint job idx (0: as it came from the factory). Each paint is a row of per-vertex
+## colours baked for this body (tools/cars/export_paints.gd); the lamps keep glowing.
+static func painted_body(def: Dictionary, idx: int) -> Mesh:
+	var info := car(def)
+	if idx <= 0 or not def.has("model"):
+		return info["body"]
+	var key := "paint_%s_%d" % [def["id"], idx]
+	if _cache.has(key):
+		return _cache[key]
+	var path := "res://assets/cars/%s_paints.res" % def["model"]
+	if not ResourceLoader.exists(path):
+		return info["body"]
+	var img: Image = load(path)
+	var src: Mesh = info["body"]
+	var a := src.surface_get_arrays(0)
+	var cols: PackedColorArray = a[Mesh.ARRAY_COLOR]
+	if img == null or idx - 1 >= img.get_height() or img.get_width() != cols.size():
+		return info["body"]
+	for i in cols.size():
+		var c := img.get_pixel(i, idx - 1)
+		cols[i] = Color(c.r, c.g, c.b, cols[i].a)
+	a[Mesh.ARRAY_COLOR] = cols
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a)
+	_cache[key] = m
+	return m
+
 ## A copy of a mesh grown by s (every surface).
 static func scaled(src: Mesh, s: float) -> ArrayMesh:
 	var m := ArrayMesh.new()
