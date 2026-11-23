@@ -7,6 +7,7 @@ extends Node3D
 
 const M := preload("res://scripts/core/models.gd")
 const MB := preload("res://scripts/core/mesh_builder.gd")
+const Dents := preload("res://scripts/game/dents.gd")
 
 const MODELS := ["k_car_sedan", "k_car_sedan-sports", "k_car_hatchback-sports", "k_car_suv", "k_car_suv-luxury", "k_car_taxi",
 	"k_car_van", "k_car_police", "k_car_delivery", "k_car_truck", "k_car_sedan", "k_car_hatchback-sports", "k_car_taxi",
@@ -17,7 +18,7 @@ const TURN_V := 5.5         # m/s round a corner
 const GREEN := 9.0          # traffic lights: seconds of green each way...
 const CLEAR := 2.5          # ...then all red while the junction empties
 const BRAKE := 4.5          # m/s² a car slows at for a stop line
-enum { ROAD, TURN }
+enum { ROAD, TURN, KNOCKED, RECOVER }
 
 var island: Node
 var mat: Material
@@ -25,6 +26,8 @@ var cars: Array = []
 var rng := RandomNumberGenerator.new()
 var shapes := {}
 var honk := Vector3.INF     # where a car honked this frame (main plays it)
+var honk_kind := "horn_lo"
+var last_knock := -1
 var mouths := {}            # "road:dir" -> [[sample, node, arm]]: where a car on that road, going that way, reaches a junction
 var busy := {}              # node -> [[car id, in arm, out arm]] cars that have the go-ahead to cross
 var paths := {}             # "node:in:out" -> [PackedVector2Array points, PackedFloat32Array lengths]
@@ -57,6 +60,9 @@ func setup(isl: Node, material: Material) -> void:
 		body.sync_to_physics = false
 		body.collision_layer = 2
 		body.collision_mask = 0
+		body.set_meta("traffic_id", i)
+		var heavy := nm.contains("truck") or nm.contains("garbage") or nm.contains("ambulance")
+		body.set_meta("mass", 2400.0 if heavy else (1600.0 if nm.contains("van") or nm.contains("delivery") else 1150.0))
 		var cs := CollisionShape3D.new()
 		var ab: AABB = mi.mesh.get_aabb()
 		if not shapes.has(nm):
@@ -69,7 +75,7 @@ func setup(isl: Node, material: Material) -> void:
 		body.add_child(mi)
 		add_child(body)
 		var c := {"id": i, "body": body, "mode": ROAD, "r": 0, "s": 0.0, "dir": 1, "v": 0.0, "len": ab.size.z, "w": ab.size.x,
-			"wait": 0.0, "hit": 0.0, "honked": false, "plan": {}, "turn": {}}
+			"wait": 0.0, "hit": 0.0, "honked": false, "plan": {}, "turn": {}, "model": nm, "mi": mi, "shape": cs, "anim": body}
 		cars.append(c)
 		_place_random(c, Vector3(-80, 0, 60), 0.0, 260.0, Vector3.ZERO)
 
@@ -315,6 +321,7 @@ func _release(c: Dictionary) -> void:
 
 func _place_random(c: Dictionary, near: Vector3, rmin: float, rmax: float, view: Vector3) -> void:
 	_release(c)
+	_unwreck(c, true)
 	var roads: Array = island.roads
 	for tries in 60:
 		var ri := rng.randi_range(0, roads.size() - 1)
@@ -391,6 +398,157 @@ func _put(c: Dictionary) -> void:
 
 # ------------------------------------------------------------------ every frame
 
+func _horn(c: Dictionary) -> String:
+	var nm: String = c["model"]
+	if nm.contains("truck") or nm.contains("garbage"):
+		return "horn_truck"
+	return "horn_hi" if nm.contains("hatchback") or nm.contains("sports") else "horn_lo"
+
+# ------------------------------------------------------------------ crashes
+
+func _car_of(body: Node) -> Dictionary:
+	for c in cars:
+		if c["body"] == body or c["anim"] == body:
+			return c
+	return {}
+
+## You rammed a traffic car: it turns into a real tumbling body for a bit, with the knock you gave it.
+func knock(body: Node, its_velocity: Vector3, impulse: Vector3, at: Vector3) -> void:
+	var c := _car_of(body)
+	if c.is_empty():
+		return
+	if int(c["mode"]) >= KNOCKED:
+		return
+	_release(c)
+	last_knock = int(c["id"])
+	var anim: AnimatableBody3D = c["anim"]
+	var w := RigidBody3D.new()
+	w.set_meta("wreck", true)
+	w.mass = float(anim.get_meta("mass", 1150.0))
+	w.collision_layer = 2
+	w.collision_mask = 1 | 2 | 4
+	w.linear_damp = 0.35
+	w.angular_damp = 1.4
+	var pm := PhysicsMaterial.new()
+	pm.friction = 0.9
+	pm.bounce = 0.12
+	w.physics_material_override = pm
+	var ab: AABB = (c["mi"] as MeshInstance3D).mesh.get_aabb()
+	w.center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
+	w.center_of_mass = Vector3(ab.get_center().x, ab.size.y * 0.28, ab.get_center().z)
+	var cs := CollisionShape3D.new()
+	cs.shape = (c["shape"] as CollisionShape3D).shape
+	cs.position = (c["shape"] as CollisionShape3D).position
+	w.add_child(cs)
+	add_child(w)
+	w.global_transform = anim.global_transform
+	# the bodywork goes with it (dented where you hit)
+	if not c.has("dents"):
+		c["dents"] = Dents.own(M.get_mesh(c["model"]))
+		(c["mi"] as MeshInstance3D).mesh = c["dents"]["mesh"]
+	var mi: MeshInstance3D = c["mi"]
+	anim.remove_child(mi)
+	w.add_child(mi)
+	mi.transform = Transform3D()
+	_dent(c, at, impulse.normalized(), impulse.length() / w.mass)
+	anim.collision_layer = 0
+	anim.visible = false
+	c["body"] = w
+	c["mode"] = KNOCKED
+	c["knock_t"] = 0.0
+	c["still"] = 0.0
+	c["v"] = 0.0
+	w.linear_velocity = its_velocity
+	w.apply_impulse(impulse + Vector3(0, impulse.length() * 0.06, 0), at - w.global_position)
+
+func _dent(c: Dictionary, at: Vector3, into: Vector3, dv: float) -> void:
+	if not c.has("dents"):
+		return
+	var mi: MeshInstance3D = c["mi"]
+	var inv := mi.global_transform.affine_inverse()
+	var lp := inv * at
+	var out := -(inv.basis * into).normalized()
+	Dents.dent(c["dents"], lp + out * 0.1, out, clampf(0.6 + dv * 0.08, 0.6, 1.4), clampf(dv * 0.05, 0.05, 0.3), 0.35)
+
+## A knocked car tumbles to a stop; then the driver straightens up and carries on (dents and all), or if it
+## ended up on its roof or off the road it waits there until you've gone.
+func _wreck_tick(c: Dictionary, dt: float, player: Vector3, view: Vector3) -> void:
+	var w: Node3D = c["body"]
+	c["knock_t"] = float(c["knock_t"]) + dt
+	if c["mode"] == KNOCKED:
+		var rb := w as RigidBody3D
+		if rb.linear_velocity.length() < 0.7 and rb.angular_velocity.length() < 0.6:
+			c["still"] = float(c["still"]) + dt
+		else:
+			c["still"] = 0.0
+		if float(c["still"]) < 1.3 and float(c["knock_t"]) < 10.0:
+			return
+		var p2 := Vector2(w.global_position.x, w.global_position.z)
+		var best := []
+		for ri in island.roads.size():
+			if not SPEED.has(island.roads[ri]["kind"]):
+				continue
+			var rn: Array = island.road_nearest(ri, p2)
+			if best.is_empty() or float(rn[0]) < float(best[0]):
+				best = [rn[0], ri, rn[1]]
+		var upright: bool = w.global_transform.basis.y.y > 0.6
+		if upright and not best.is_empty() and float(best[0]) < float(island.roads[best[1]]["w"]) * 0.5 + 3.5:
+			# back to the lane that points the way it's facing
+			var ri2: int = best[1]
+			var sv: float = best[2]
+			var f3 := -w.global_transform.basis.z
+			var t: Vector2 = _lane(ri2, sv, 1)[1]
+			var dirn := 1 if t.dot(Vector2(f3.x, f3.z)) >= 0.0 else -1
+			c["r"] = ri2
+			c["s"] = sv
+			c["dir"] = dirn
+			c["mode"] = RECOVER
+			c["rec_t"] = 0.0
+			c["rec_from"] = w.global_transform
+			rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+			rb.freeze = true
+		elif w.global_position.distance_to(player) > 60.0 or float(c["knock_t"]) > 30.0:
+			_place_random(c, player, 90.0, 220.0, view)
+		return
+	# RECOVER: ease back onto the lane, then drive on
+	c["rec_t"] = float(c["rec_t"]) + dt
+	var l := _lane(c["r"], c["s"], c["dir"])
+	var lp: Vector2 = l[0]
+	var lt: Vector2 = l[1]
+	var to := Transform3D(Basis.looking_at(Vector3(lt.x, 0, lt.y), Vector3.UP), Vector3(lp.x, _y(lp), lp.y))
+	var k := smoothstep(0.0, 1.2, float(c["rec_t"]))
+	var from: Transform3D = c["rec_from"]
+	w.global_transform = from.interpolate_with(to, k)
+	if k >= 1.0:
+		_unwreck(c, false)
+		c["mode"] = ROAD
+		c["v"] = 0.0
+		c["plan"] = {}
+		c["turn"] = {}
+		c["wait"] = 0.0
+		c["hit"] = 1.0
+		_put(c)
+
+## Back from a tumbling body to a traffic car (fresh=true: and the dents beaten out).
+func _unwreck(c: Dictionary, fresh: bool) -> void:
+	var anim: AnimatableBody3D = c["anim"]
+	var mi: MeshInstance3D = c["mi"]
+	if c["body"] != anim:
+		var w: Node3D = c["body"]
+		w.remove_child(mi)
+		anim.add_child(mi)
+		mi.transform = Transform3D()
+		anim.global_transform = w.global_transform
+		w.queue_free()
+		c["body"] = anim
+	anim.collision_layer = 2
+	anim.visible = true
+	if fresh and c.has("dents"):
+		c.erase("dents")
+		mi.mesh = M.get_mesh(c["model"])
+	if fresh and int(c["mode"]) >= KNOCKED:
+		c["mode"] = ROAD
+
 ## You ran into someone: they stop for a few seconds (and let you know about it).
 func hit(p: Vector3) -> bool:
 	for c in cars:
@@ -398,6 +556,7 @@ func hit(p: Vector3) -> bool:
 		if bn.global_position.distance_to(p) < float(c["len"]) * 0.5 + 3.6:
 			if float(c["hit"]) <= 0.0:
 				honk = bn.global_position
+				honk_kind = _horn(c)
 			c["hit"] = 3.5
 			c["v"] = 0.0
 			return true
@@ -417,6 +576,9 @@ func tick(dt: float, player: Vector3, _player_vel: Vector3, view := Vector3.ZERO
 		var fwd: Vector3 = heads2[i][1]
 		if pos.distance_to(player) > 280.0:
 			_place_random(c, player, 90.0, 220.0, view)
+			continue
+		if int(c["mode"]) >= KNOCKED:
+			_wreck_tick(c, dt, player, view)
 			continue
 		var r := _road(c["r"])
 		var want: float = SPEED.get(r["kind"], 10.0) if c["mode"] == ROAD else TURN_V
@@ -446,7 +608,7 @@ func tick(dt: float, player: Vector3, _player_vel: Vector3, view := Vector3.ZERO
 					continue
 				if not _on_path(fut, o2, 2.15, p2):
 					continue
-				if j > i and _on_path(_future(cars[j], 5.0 + float(cars[j]["len"]) * 0.5 + float(cars[j]["v"]) * 0.9 + 2.0), p2, 2.15, o2):
+				if j > i and int(cars[j]["mode"]) < KNOCKED and _on_path(_future(cars[j], 5.0 + float(cars[j]["len"]) * 0.5 + float(cars[j]["v"]) * 0.9 + 2.0), p2, 2.15, o2):
 					continue
 				blocked = true
 				c["why"] = "car %d" % j
@@ -461,6 +623,7 @@ func tick(dt: float, player: Vector3, _player_vel: Vector3, view := Vector3.ZERO
 			if by_you and float(c["wait"]) > 2.5 and not c["honked"] and tp.length() < 30.0:
 				c["honked"] = true
 				honk = pos
+				honk_kind = _horn(c)
 		elif float(c["v"]) > 1.0:
 			c["wait"] = 0.0
 			c["honked"] = false

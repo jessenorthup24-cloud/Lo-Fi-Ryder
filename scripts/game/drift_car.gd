@@ -6,9 +6,12 @@ extends RigidBody3D
 ## let go (counter-steer), and a light hand keeps a drift from becoming a spin.
 
 const M := preload("res://scripts/core/models.gd")
+const Dents := preload("res://scripts/game/dents.gd")
 
 signal shifted(gear: int)
 signal bumped(strength: float)
+## You hit a traffic car: the push it gets (an impulse, N·s) and where.
+signal rammed(body: Node3D, its_velocity: Vector3, impulse: Vector3, at: Vector3)
 
 # ---- inputs, set every frame by main
 var throttle := 0.0
@@ -55,6 +58,12 @@ var _rev_t := 0.0            # how long the brake has been held at a standstill
 var vis_steer := 0.0
 var wall_t := 0.0            # just touched a wall (counts down)
 var wall_pos := Vector3.ZERO  # where it last touched one
+var hit := {}                # the last knock: {"t", "pos", "n" (into the car), "kind": wall/car}
+var damage := 0.0            # 0..100, from knocks; the garage and the gas station fix it
+var dent_data := {}
+var _vh: Array = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]   # the last few velocities, for knocks
+var _ram_cd := 0.0
+var _clock := 0.0
 var _swing_dir := 0.0        # the side the last drift went (+1 right), for swinging into the next one
 var _swing_t := 0.0         # what the front wheels show (they point into the slide when drifting)
 const DRIFT_PACE := 19.0     # m/s (about 68 km/h): a held drift settles around here
@@ -70,7 +79,9 @@ func setup(def: Dictionary, mat: Material, isl: Node) -> void:
 	wheels.clear()
 	wheel_nodes.clear()
 	body_node = MeshInstance3D.new()
-	body_node.mesh = info["body"]
+	dent_data = Dents.own(info["body"])
+	body_node.mesh = dent_data["mesh"]
+	damage = 0.0
 	body_node.material_override = mat
 	body_node.name = "Body"
 	add_child(body_node)
@@ -128,14 +139,37 @@ func tune(def: Dictionary, up: Dictionary) -> void:
 	rear_grip = 0.97 - (def.get("drift", 1.0) - 1.0) * 0.25
 	steer_lock = deg_to_rad(34.0 + 2.5 * int(up.get("steering", 0)))
 
-## Walls and cars push you about, but never roll you over or send you spinning like a top.
+## Walls and cars push you about, but never roll you over or send you spinning like a top. Traffic cars
+## don't stop you dead like a wall would: the two of you share the knock by weight.
 func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 	var wall := false
+	var com := st.transform * st.center_of_mass_local
 	for i in st.get_contact_count():
-		if absf(st.get_contact_local_normal(i).y) < 0.6:
-			wall = true
-			wall_pos = st.get_contact_local_position(i)
-			break
+		var n := st.get_contact_local_normal(i)
+		if absf(n.y) >= 0.6:
+			continue
+		wall = true
+		var cp := st.get_contact_local_position(i)
+		wall_pos = cp
+		if (com - cp).dot(n) < 0.0:
+			n = -n                       # into the car
+		var col := st.get_contact_collider_object(i)
+		var kind := "car" if col is Node and ((col as Node).has_meta("traffic_id") or (col as Node).has_meta("wreck")) else "wall"
+		if hit.is_empty() or _clock - float(hit["t"]) > 0.25:
+			hit = {"t": _clock, "pos": cp, "n": n, "kind": kind}
+		if kind == "car" and col is AnimatableBody3D and _ram_cd <= 0.0:
+			var vt := st.get_contact_collider_velocity_at_position(i)
+			var vb: Vector3 = _vh[0]
+			for q in _vh:
+				if ((q as Vector3) - vt).dot(n) < (vb - vt).dot(n):
+					vb = q
+			var closing: float = (vb - vt).dot(n)
+			if closing < -2.5:
+				var mt: float = float((col as Node).get_meta("mass", 1150.0))
+				var j: float = -(1.0 + 0.25) * closing / (1.0 / mass + 1.0 / mt)
+				st.linear_velocity = vb + n * j / mass
+				_ram_cd = 0.4
+				rammed.emit(col, vt, -n * j, cp)
 	if wall:
 		wall_t = 0.3
 		# scraping along costs a little speed
@@ -225,6 +259,7 @@ func _physics_process(dt: float) -> void:
 	var drive := 0.0
 	if throttle > 0.0:
 		drive = throttle * minf(engine_force, engine_force * power_speed / maxf(gv, 1.0))
+		drive *= 1.0 - damage * 0.0012     # a battered car pulls a little less
 		# sideways, most of the power goes into wheelspin and smoke
 		drive *= lerpf(1.0, 0.5, drift * clampf((vs - DRIFT_PACE + 6.0) / 6.0, 0.0, 1.0))
 		if _gear_cd > 0.2:
@@ -394,6 +429,10 @@ func _physics_process(dt: float) -> void:
 	if vs < 0.4 and throttle < 0.05 and not reverse and grounded >= 3:
 		linear_velocity = linear_velocity.lerp(Vector3.ZERO, 0.2)
 		angular_velocity = angular_velocity.lerp(Vector3.ZERO, 0.2)
+	_clock += dt
+	_ram_cd = maxf(0.0, _ram_cd - dt)
+	_vh.push_front(linear_velocity)
+	_vh.resize(3)
 	# bumps: sudden changes in velocity
 	var dv := (linear_velocity - _last_v).length()
 	if dv > 4.5:
@@ -422,6 +461,24 @@ func _process(dt: float) -> void:
 			b = Basis(Vector3.UP, -vis_steer)
 		b = b * Basis(Vector3.RIGHT, -float(wd["spin"]))
 		wn.transform = Transform3D(b, home - Vector3(0, drop, 0))
+
+## A dent where you hit (global point and the direction into the car), sized by how hard.
+func dent(at: Vector3, into: Vector3, strength: float) -> void:
+	if dent_data.is_empty():
+		return
+	var inv := body_node.global_transform.affine_inverse()
+	var lp := inv * at
+	var out := -(inv.basis * into).normalized()
+	# the box we collide with sits a little inside the bodywork: reach out to it
+	lp += out * 0.15
+	var rad := clampf(0.55 + strength * 0.045, 0.55, 1.35)
+	var depth := clampf(strength * 0.02, 0.04, 0.32)
+	Dents.dent(dent_data, lp, out, rad, depth, 0.38)
+
+func repair() -> void:
+	if not dent_data.is_empty():
+		Dents.repair(dent_data)
+	damage = 0.0
 
 func is_upside_down() -> bool:
 	return global_transform.basis.y.y < 0.25

@@ -432,7 +432,13 @@ func hud_update(d: Dictionary) -> void:
 	speed_lbl.text = str(int(round(d["kmh"])))
 	gear_lbl.text = "R" if game.car.speed < -0.5 else str(int(d["gear"]))
 	rpm_bar.value = d["rpm"]
-	clock_lbl.text = d["clock"] if bool(game.save.setting("clock")) else ""
+	var dmg := int(d.get("damage", 0.0))
+	var bits := []
+	if bool(game.save.setting("clock")):
+		bits.append(d["clock"])
+	if dmg >= 5:
+		bits.append("damage %d%%" % dmg)
+	clock_lbl.text = "  ·  ".join(bits)
 	place_lbl.text = d["place"]
 	if int(d["coins"]) != _last_coins:
 		_last_coins = int(d["coins"])
@@ -591,8 +597,12 @@ func challenge_result(name: String, score: String, medal: int, pay: int, record:
 	t.tween_interval(3.2)
 	t.tween_property(p, "modulate:a", 0.0, 0.4)
 	t.tween_callback(p.queue_free)
+	game.sfx("finish", -3.0)
+	if record:
+		game.sfx("record", -2.0)
+	elif medal > 0:
+		game.sfx("medal", -2.0)
 	if medal > 0:
-		game.sfx("record")
 		game.buzz(80, 0.8)
 
 func tick(dt: float) -> void:

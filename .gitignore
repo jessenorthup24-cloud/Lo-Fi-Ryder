@@ -8,3 +8,7 @@ export_credentials.cfg
 
 # music arrives from the `music` branch at build time (tools/music/)
 assets/audio/music/*
+
+# the vehicle sound pack: its licence doesn't allow sharing the sound files, so the repo holds it encrypted
+# (assets/audio/pack.tar.enc) and the build unlocks it with the SFX_KEY secret
+assets/audio/pack/

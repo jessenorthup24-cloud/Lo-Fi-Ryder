@@ -36,6 +36,9 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   work on every car you own (engine, turbo, tyres, steering angle).
 - 29 trophies, each paying coins once.
 - If you flip, land in the water or get stuck, the car is put back on the road.
+- Crashes: hit a traffic car and it gets shoved and spun by the knock (you share it by weight), then the
+  driver straightens up and carries on, dents and all. Your own car dents where it hits, smokes once
+  it's battered and pulls a little less. The gas station on Castle Road (and the garage) fix it up.
 
 ## The world
 
@@ -74,7 +77,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `tools/kenney/bake_kenney.gd` | Bakes the chosen Kenney kit models into `assets/kenney/` (people posed, arms loose) |
 | `tools/look/` | Look-dev: `island_look.gd` photographs parts of the island, `kgrid.gd` makes a model contact sheet |
 | `tools/test/` | `handling.gd` (handling report), `road_audit.gd` (nothing in roads or pavements), `road_surface.gd` (roads meet the ground and each other), `road_net.gd` (junctions and loose ends), `traffic_soak.gd` (overlaps, jams, cars off the road), `collide_test.gd`, `probe.gd` |
-| `tools/audio/`, `tools/music/` | Sound synthesis scripts; the CC0 music list the build fetches |
+| `tools/audio/`, `tools/music/` | Sound synthesis scripts (the fallback sounds); the CC0 music list the build fetches |
+| `scripts/game/dents.gd` | Crash damage: bends a mesh in around an impact |
 
 There are no autoloads and no `class_name`s, so an update pack can replace any script before it loads.
 
@@ -100,7 +104,11 @@ godot --headless --path . -s res://tools/test/traffic_soak.gd -- 300         # f
 
 ## Credits
 
-The buildings, people, pets, vehicles, ships and props are from Kenney's CC0 kits (kenney.nl: City Kit
+The car sounds (engines, tyres, crashes, horns) are from heyheythere's Vehicle SFX pack
+(heyheythere.itch.io). Its licence lets the game use them but not share the files, so the repo keeps them
+encrypted (`assets/audio/pack.tar.enc`) and the build unlocks them with the `SFX_KEY` secret; without it
+the game falls back to its own synthesized sounds (`tools/audio/`). The buildings, people, pets, vehicles,
+ships and props are from Kenney's CC0 kits (kenney.nl: City Kit
 Suburban and Commercial, Modular Buildings, Retro Urban Kit, Car Kit, Mini Characters, Cube Pets,
 Mini Skate, Survival Kit, Mini Forest, Castle Kit, Holiday Kit, Mini Arena, Pirate Kit). The player cars
 are the Tiny Car Pack. Terrain, roads and the remaining props are made in code. Music: CC0 lo-fi hip hop

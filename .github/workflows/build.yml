@@ -107,6 +107,17 @@ jobs:
           sed -i "s/^version\/code=.*/version\/code=$N/; s/^version\/name=.*/version\/name=\"1.0.$N\"/" export_presets.cfg
           cat version.json
 
+      - name: Unlock the vehicle sound pack (only with the SFX_KEY secret; without it the built-in sounds play)
+        env:
+          SFX_KEY: ${{ secrets.SFX_KEY }}
+        run: |
+          if [ -n "$SFX_KEY" ] && [ -f assets/audio/pack.tar.enc ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in assets/audio/pack.tar.enc -pass env:SFX_KEY | tar -x -C assets/audio/
+            echo "sound pack: $(ls assets/audio/pack | wc -l) sounds"
+          else
+            echo "no SFX_KEY secret: building with the built-in sounds"
+          fi
+
       - name: Import assets
         run: ~/godot/${GODOT_BIN} --headless --path . --import
 
