@@ -23,10 +23,10 @@ const KEYS := [
 
 # the abyss below: nebula aura colours per region [aura a, aura b, aura c]
 const AURAS := {
-	"countryside": ["3df2a6", "8a5cff", "ff9a6b"],
-	"seaside": ["38d6ff", "ff5ab8", "9dffe6"],
-	"forest": ["35e672", "6b3cf0", "ffb347"],
-	"sky": ["ffcc55", "f04aa8", "b39bff"],
+	"countryside": ["9ff5c8", "c3a8ff", "ffc2a8"],
+	"seaside": ["a8eaff", "ffb3dd", "c8fff0"],
+	"forest": ["a8f0b8", "b8a3ff", "ffd49a"],
+	"sky": ["ffe3a3", "ffb3e0", "d0c4ff"],
 }
 
 var world: Node
@@ -472,9 +472,10 @@ func apply(target: Vector3, dt: float) -> void:
 	var ak := clampf(dt * 0.5, 0.0, 1.0) if dt > 0.0 else 1.0
 	for i in 3:
 		aura[i] = (aura[i] as Color).lerp(Color(want_aura[i]), ak)
-	var deep := Color("1d1246").lerp(Color("0a0618"), night).lerp(Color("2a2a3a"), wet * 0.4)
-	var aura_amt := lerpf(0.9, 1.25, night) * (1.0 - wet * 0.45)
-	var star_amt := lerpf(0.45, 1.1, night) * (1.0 - wet * 0.7)
+	# a soft pastel galaxy: dusky lilac by day, deep blueberry at night
+	var deep := Color("6a5aa8").lerp(Color("231c4d"), night).lerp(Color("7a7f99"), wet * 0.4)
+	var aura_amt := lerpf(0.85, 1.1, night) * (1.0 - wet * 0.45)
+	var star_amt := lerpf(0.55, 1.0, night) * (1.0 - wet * 0.7)
 	for m2 in [sky_mat, ground_mat]:
 		m2.set_shader_parameter("deep_color", deep)
 		m2.set_shader_parameter("aura_a", aura[0])
@@ -485,16 +486,16 @@ func apply(target: Vector3, dt: float) -> void:
 	sky_mat.set_shader_parameter("scroll", Vector2(0, -prog * 0.004))
 	sky_mat.set_shader_parameter("sun_glow", sun_col)
 	sky_mat.set_shader_parameter("sun_amount", (1.0 - night) * (1.0 - wet * 0.8))
-	var abyss := deep.lerp(aura[1], 0.18)
+	var abyss := deep.lerp(aura[1], 0.3)
 	# a touch of the aura in the shadows
-	amb = amb.lerp((aura[1] as Color).lerp(aura[0], 0.3), 0.22)
+	amb = amb.lerp((aura[1] as Color).lerp(aura[0], 0.3), 0.15)
 	env.ambient_light_color = amb
 	env.ambient_light_energy = amb_e
 	env.background_color = deep
 	var fog_col := Color("b9b0d8").lerp(Color("3a3560"), night).lerp(abyss.lightened(0.3), 0.3)
 	var rim_col := (aura[0] as Color).lerp(aura[1], 0.4)
 	var ve := deep.lerp(aura[1], 0.35)
-	vig_mat.set_shader_parameter("edge", Color(ve.r, ve.g, ve.b, lerpf(0.38, 0.6, night)))
+	vig_mat.set_shader_parameter("edge", Color(ve.r, ve.g, ve.b, lerpf(0.2, 0.45, night)))
 	wind_vec = world.S * gust_dir * windy * (0.35 + gust * 0.65) * 6.5
 	for m in mats:
 		m.set_shader_parameter("season", season)
@@ -506,7 +507,6 @@ func apply(target: Vector3, dt: float) -> void:
 		m.set_shader_parameter("fog_len", lerpf(22.0, 12.0, fog))
 		m.set_shader_parameter("wind", Vector2(wind_vec.x, wind_vec.z) * 0.06)
 		m.set_shader_parameter("abyss_color", abyss)
-		m.set_shader_parameter("moss_color", P.color(P.MOSS, season).darkened(0.08))
 		m.set_shader_parameter("rim_color", rim_col)
 	far_mat.set_shader_parameter("season", season)
 	far_mat.set_shader_parameter("night", night)

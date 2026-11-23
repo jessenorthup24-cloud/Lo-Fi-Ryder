@@ -108,7 +108,7 @@ func _ready() -> void:
 	toon = ShaderMaterial.new()
 	toon.shader = load("res://shaders/toon.gdshader")
 	toon.set_shader_parameter("palette", PAL.make_texture())
-	toon.set_shader_parameter("decay", 0.85)
+	toon.set_shader_parameter("decay", 0.0)
 	cam = Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
 	cam.keep_aspect = Camera3D.KEEP_WIDTH
@@ -1271,9 +1271,13 @@ func _auto_steer() -> float:
 	var d := tgt - car.position
 	var desired := atan2(-d.x, -d.z)
 	var err := angle_difference(car.yaw, desired)
-	var s := clampf(-err * 2.4, -1.0, 1.0)
+	var s := clampf(-err * 2.0 + car.yaw_rate * 0.3, -0.85, 0.85)
 	if args.has("wiggle"):
 		s = clampf(s + sin(run_t * 1.3) * 0.7, -1.0, 1.0)
+	if args.has("drifttest") and run_t > 3.0 and run_t < 5.0:
+		s = 1.0
+		if frames % 8 == 0:
+			print("DT t=%.2f drift=%.0f spd=%.2f yr=%.2f gr=%s" % [run_t, rad_to_deg(car.drift), car.speed(), car.yaw_rate, car.grounded])
 	return s
 
 ## Testing: jump the car (and the crumble) ahead along the road.

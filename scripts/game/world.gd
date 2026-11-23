@@ -31,43 +31,26 @@ const MOUND_TOP := {"countryside": P.GRASS, "seaside": P.SAND, "forest": P.MOSS,
 
 # name: [weight, radius, knock kind, sway]   kind "flat" = no collision, "solid" = can't knock over
 const DECOR := {
-	"countryside": {"tree_round": [3.0, 0.45, "wood", 0.5], "tree_blossom": [2.5, 0.45, "wood", 0.5], "bush": [3.0, 0.4, "soft", 0.6],
-		"flowers": [5.0, 0.0, "flat", 1.0], "tuft": [4.0, 0.0, "flat", 1.0], "bud_glow": [2.5, 0.0, "flat", 1.0],
-		"sunflower": [1.4, 0.3, "soft", 0.8], "fence": [1.0, 0.5, "wood", 0.0], "rock": [1.0, 0.36, "rock", 0.0],
-		"rubble": [1.4, 0.36, "rock", 0.0], "wreck_car": [0.35, 0.62, "solid", 0.0], "wall_ruin": [0.5, 0.62, "solid", 0.0],
-		"sign_rust": [0.5, 0.2, "metal", 0.0], "barrel_rust": [0.6, 0.28, "metal", 0.0], "pole_down": [0.4, 0.0, "flat", 0.0],
-		"house_ruin_c": [0.22, 1.3, "solid", 0.0], "windmill": [0.15, 0.85, "solid", 0.0]},
+	"countryside": {"tree_round": [3.0, 0.45, "wood", 0.5], "tree_blossom": [2.0, 0.45, "wood", 0.5], "bush": [3.0, 0.4, "soft", 0.6],
+		"flowers": [4.0, 0.0, "flat", 1.0], "tuft": [4.0, 0.0, "flat", 1.0], "hay": [1.4, 0.42, "soft", 0.0],
+		"sunflower": [1.4, 0.3, "soft", 0.8], "fence": [1.6, 0.5, "wood", 0.0], "rock": [1.0, 0.36, "rock", 0.0],
+		"barn": [0.22, 1.5, "solid", 0.0], "windmill": [0.2, 0.85, "solid", 0.0]},
 	"forest": {"pine": [4.0, 0.42, "wood", 0.3], "pine_tall": [3.0, 0.45, "wood", 0.25], "tree_round": [1.5, 0.45, "wood", 0.5],
 		"fern": [3.0, 0.0, "flat", 1.0], "mushroom": [2.0, 0.3, "soft", 0.0], "stump": [1.4, 0.3, "wood", 0.0],
-		"log": [1.0, 0.55, "wood", 0.0], "rock": [1.6, 0.36, "rock", 0.0], "house_ruin": [0.2, 1.3, "solid", 0.0],
-		"bud_glow": [3.0, 0.0, "flat", 1.0], "wreck_car": [0.3, 0.62, "solid", 0.0], "sign_rust": [0.3, 0.2, "metal", 0.0],
-		"barrel_rust": [0.4, 0.28, "metal", 0.0]},
-	"seaside": {"dune_grass": [4.0, 0.0, "flat", 1.0], "beach_rock": [2.0, 0.38, "rock", 0.0], "barrel_rust": [1.0, 0.28, "metal", 0.0],
-		"rubble": [1.2, 0.36, "rock", 0.0], "wreck_car": [0.4, 0.62, "solid", 0.0], "wall_ruin": [0.4, 0.62, "solid", 0.0],
-		"bud_glow": [2.0, 0.0, "flat", 1.0], "sign_rust": [0.4, 0.2, "metal", 0.0], "flowers": [2.0, 0.0, "flat", 1.0],
-		"house_ruin_b": [0.3, 1.3, "solid", 0.0], "lighthouse": [0.15, 0.9, "solid", 0.0]},
+		"log": [1.0, 0.55, "wood", 0.0], "rock": [1.6, 0.36, "rock", 0.0], "cabin": [0.2, 1.3, "solid", 0.0]},
+	"seaside": {"umbrella": [2.0, 0.35, "soft", 0.2], "deck_chair": [1.4, 0.35, "wood", 0.0], "dune_grass": [4.0, 0.0, "flat", 1.0],
+		"beach_rock": [2.0, 0.38, "rock", 0.0], "sandcastle": [1.5, 0.42, "sand", 0.0], "buoy": [1.0, 0.26, "soft", 0.0],
+		"crate": [1.0, 0.36, "wood", 0.0], "hut": [0.3, 0.95, "solid", 0.0], "lighthouse": [0.15, 0.9, "solid", 0.0]},
 	"sky": {"cloud_puff": [3.0, 0.45, "cloud", 0.0], "tree_puff": [2.5, 0.42, "wood", 0.5], "crystal": [2.0, 0.3, "crystal", 0.0],
-		"pillar": [1.0, 0.32, "rock", 0.0], "tuft": [2.0, 0.0, "flat", 1.0], "flowers": [2.5, 0.0, "flat", 1.0],
-		"bud_glow": [3.0, 0.0, "flat", 1.0], "rubble": [1.0, 0.36, "rock", 0.0], "wall_ruin": [0.5, 0.62, "solid", 0.0]},
+		"pillar": [1.0, 0.32, "rock", 0.0], "tuft": [2.0, 0.0, "flat", 1.0], "flowers": [2.0, 0.0, "flat", 1.0]},
 }
 const OBSTACLES := {
-	"countryside": {"rubble": 2.0, "rock": 2.0, "fence": 1.0, "bush": 2.0, "barrel_rust": 1.5},
-	"forest": {"log": 2.0, "stump": 2.0, "rock": 2.0, "mushroom": 1.0, "barrel_rust": 1.0},
-	"seaside": {"rubble": 2.0, "barrel_rust": 2.0, "beach_rock": 2.0},
-	"sky": {"cloud_puff": 3.0, "crystal": 2.0, "pillar": 1.0, "rubble": 1.0},
+	"countryside": {"hay": 2.0, "rock": 2.0, "fence": 1.5, "bush": 2.0},
+	"forest": {"log": 2.0, "stump": 2.0, "rock": 2.0, "mushroom": 1.0},
+	"seaside": {"sandcastle": 2.0, "crate": 2.0, "beach_rock": 2.0, "umbrella": 1.0, "buoy": 1.0},
+	"sky": {"cloud_puff": 3.0, "crystal": 2.0, "pillar": 1.0},
 }
-# After the end: what the old lively props became (an empty name means it's gone)
-const RUIN_SWAP := {
-	"cottage_a": ["house_ruin", 1.3, "solid"], "cottage_b": ["house_ruin_b", 1.3, "solid"], "cottage_c": ["house_ruin_c", 1.3, "solid"],
-	"barn": ["house_ruin_c", 1.4, "solid"], "cabin": ["house_ruin", 1.3, "solid"], "hut": ["house_ruin_b", 1.2, "solid"],
-	"umbrella": [""], "towel": [""], "beach_ball": [""], "surfboard": ["sign_rust", 0.2, "metal"], "kiosk": ["wall_ruin", 0.62, "solid"],
-	"cafe_table": ["rubble", 0.36, "rock"], "deck_chair": ["rubble", 0.36, "rock"], "lifeguard": ["pole_down", 0.0, "flat"],
-	"tent": ["rubble", 0.36, "rock"], "campfire": ["bud_glow", 0.0, "flat"], "flame": [""], "tether": [""], "rope": [""],
-	"rainbow": [""], "duck": [""], "balloon": [""], "scarecrow": ["sign_rust", 0.2, "metal"], "parked_tractor": ["wreck_car", 0.62, "solid"],
-	"mailbox": ["sign_rust", 0.2, "metal"], "bench": ["rubble", 0.36, "rock"], "flower_bed": ["bud_glow", 0.0, "flat"],
-	"apple_crate": ["barrel_rust", 0.28, "metal"], "crate": ["barrel_rust", 0.28, "metal"], "buoy": ["barrel_rust", 0.28, "metal"],
-	"boat": [""], "canoe": [""], "woodpile": ["rubble", 0.36, "rock"], "sandcastle": ["rubble", 0.36, "rock"], "deck_chair_b": [""],
-}
+const RUIN_SWAP := {}   # (the post-apocalyptic look is retired: props stay as built)
 const BIG := ["barn", "windmill", "cabin", "hut", "lighthouse", "house_ruin", "house_ruin_b", "house_ruin_c", "wreck_car", "wall_ruin"]
 
 var game: Node          # main.gd
@@ -1132,7 +1115,7 @@ func _pl_yaw(pl: Dictionary, face := 1.0) -> float:
 	return atan2(-dir.x, -dir.z)
 
 func _pl_prop(pl: Dictionary, nm: String, a: float, d: float, yaw: float, sc := 1.0, r := 0.4, kind := "wood", y := 0.0) -> Dictionary:
-	var swap = RUIN_SWAP.get(nm, RUIN_SWAP["parked_tractor"] if nm.begins_with("parked_") else null)
+	var swap = RUIN_SWAP.get(nm, null)
 	if swap != null:
 		if String(swap[0]) == "":
 			return {}
@@ -1146,7 +1129,6 @@ func _pl_prop(pl: Dictionary, nm: String, a: float, d: float, yaw: float, sc := 
 	return _add_item_prop(nm, _pl_pos(pl, a, d) + Vector3(0, y, 0), yaw, sc, r, kind, _stripe_of(pl["va"] + a))
 
 func _pl_person(pl: Dictionary, a: float, d: float, pose := "stand", yaw := INF, y := 0.0) -> void:
-	return   # nobody's left out here: only the plants and the critters' tracks
 	var p := _pl_pos(pl, a, d) + Vector3(0, y, 0)
 	var pr := people.spawn(rng.randi_range(0, 99), pose, p, _pl_yaw(pl) if yaw == INF else yaw, _stripe_of(pl["va"] + a))
 	if not pr.is_empty():
@@ -1329,7 +1311,8 @@ func _place_props(pl: Dictionary) -> void:
 			_stripe_add(holder["s"], holder)
 		"cabin":
 			var cb := _pl_prop(pl, "cabin", L * 0.5, dout - 1.6, face, 1.0, 1.3, "solid")
-			pass
+			if not cb.is_empty():
+				_pl_anim("smoke", cb, {"at": cb["pos"] + Basis(Vector3.UP, face) * Vector3(0.55, 2.25, -0.3)})
 			_pl_prop(pl, "woodpile", L * 0.5 + 2.2, dout - 1.4, face, 1.0, 0.45, "wood")
 			_pl_prop(pl, "stump", L * 0.5 - 2.0, din + 2.0, 0.0, 1.0, 0.3, "wood")
 			_pl_prop(pl, "mailbox", L * 0.5 - 1.2, din + 0.8, face, 1.0, 0.2, "metal")
@@ -1573,7 +1556,7 @@ func _gen_stripe_tiles(s: int, terra_tiles: Array) -> void:
 			continue
 		var key := Vector2i(i, j)
 		var pos := Vector3(i * T, 0, j * T)
-		var jitter := (_hash(i, j, 1) - 0.5) * 0.06
+		var jitter := 0.0   # (flat ground: no per-tile steps)
 		var top: int = BIOME_TOP[biome]
 		var side: int = BIOME_SIDE[biome]
 		var surface := "ground"
@@ -1583,9 +1566,10 @@ func _gen_stripe_tiles(s: int, terra_tiles: Array) -> void:
 			surface = "water"
 		elif dist < 1.15 and seg["type"] != "start":
 			top = BIOME_PATH[biome]
-		elif biome == "seaside" and dist > 3.2 and _hash(i, j, 2) < 0.5:
+		# patches come in smooth clumps (noise), not single odd tiles
+		elif biome == "seaside" and dist > 3.2 and noise.get_noise_2d(u * 0.9 + 31.0, v * 0.9) > 0.12:
 			top = P.GRASS
-		elif biome == "forest" and _hash(i, j, 9) < 0.08:
+		elif biome == "forest" and dist > 1.6 and noise.get_noise_2d(u * 1.1 - 21.0, v * 1.1) > 0.5:
 			top = P.STONE
 		if rule == 1 and seg.get("kind", "") == "rough":
 			top = P.RED_SAND
@@ -1647,7 +1631,7 @@ func _gen_stripe_tiles(s: int, terra_tiles: Array) -> void:
 			pools[pool_name].put(tile["slot"], Transform3D(Basis().scaled(Vector3(1, height, 1)), pos))
 		else:
 			pools[pool_name].put(tile["slot"], Transform3D(Basis(), pos + Vector3(0, jitter, 0)))
-		pools[pool_name].custom(tile["slot"], Color(top / 255.0, side / 255.0, _hash(i, j, 3), 0))
+		pools[pool_name].custom(tile["slot"], Color(top / 255.0, side / 255.0, 0.5, 0))
 		if pool_name == "tile_pier":
 			# water under the pier
 			var ws: int = pools["water"].alloc()
@@ -1678,7 +1662,7 @@ func _gen_stripe_tiles(s: int, terra_tiles: Array) -> void:
 		if rule == 1 and seg["type"] != "station" and not in_place and pool_name == "tile":
 			_maybe_prop(tile, u, v, c, seg, rim)
 			# cracked old road, with grass and flowers finding the gaps
-			if dist <= 1.15 and top == P.PATH and _hash(i, j, 16) < 0.6 and surface == "ground":
+			if false:
 				var rb: int = pools["road_bits"].alloc()
 				if rb >= 0:
 					pools["road_bits"].put(rb, Transform3D(Basis(Vector3.UP, floor(_hash(i, j, 19) * 4.0) * PI * 0.5), pos + Vector3(0, height, 0)))

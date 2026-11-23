@@ -22,7 +22,8 @@ static func p(i: int) -> Color:
 
 static func _m_tile() -> ArrayMesh:
 	var b := MB.new()
-	b.cbox(Vector3(0, -0.13, 0), Vector3(T, 0.26, T), 0.05, MB.SIDE, Basis(), MB.TOP)
+	# flat, square-edged and a hair oversized so neighbouring tiles read as one continuous ground
+	b.cbox(Vector3(0, -0.13, 0), Vector3(T + 0.004, 0.26, T + 0.004), 0.0, MB.SIDE, Basis(), MB.TOP)
 	b.box(Vector3(0, -0.7, 0), Vector3(T * 0.97, 0.9, T * 0.97), MB.SIDE)
 	return b.commit()
 
@@ -798,9 +799,31 @@ const BUMPER := "c9cfd8"
 const DARK := "3a3540"
 
 ## Builds a car: returns {body, wheel_f, wheel_r, wheels: [Vector3 x4], r_f, r_r, length, width, height}
+static var _car_meta := {}
+
+## A car from the Tiny Car Pack, baked by tools/cars (assets/cars): body, left/right wheel meshes, wheel spots.
+static func _pack_car(def: Dictionary) -> Dictionary:
+	if _car_meta.is_empty():
+		var f := FileAccess.open("res://assets/cars/cars_meta.json", FileAccess.READ)
+		_car_meta = JSON.parse_string(f.get_as_text())
+	var k := String(def["model"])
+	var meta: Dictionary = _car_meta[k]
+	var wl: Mesh = load("res://assets/cars/%s_wl.res" % k)
+	var wr: Mesh = load("res://assets/cars/%s_wr.res" % k)
+	var spots := []
+	for w in meta["wheels"]:
+		spots.append(Vector3(w[0], w[1], w[2]))
+	var ab: Array = meta["aabb"]
+	return {"body": load("res://assets/cars/%s_body.res" % k), "wheel_f": wl, "wheel_r": wl, "wheel_fr": wr, "wheel_rr": wr,
+		"wheels": spots, "r_f": float(meta["r"]), "r_r": float(meta["r"]), "ride": 0.0,
+		"top": float(ab[1]) + float(ab[4]), "front": float(ab[2]), "back": float(ab[2]) + float(ab[5])}
+
 static func car(def: Dictionary) -> Dictionary:
 	var key := "car_" + String(def["id"])
 	if _cache.has(key):
+		return _cache[key]
+	if def.has("model"):
+		_cache[key] = _pack_car(def)
 		return _cache[key]
 	var b := MB.new()
 	var body := Color(def["body"])
@@ -1022,6 +1045,13 @@ static func car(def: Dictionary) -> Dictionary:
 	}
 	_cache[key] = res
 	return res
+
+## The mesh for wheel i (0 front-left, 1 front-right, 2 rear-left, 3 rear-right).
+static func wheel_mesh(c: Dictionary, i: int) -> Mesh:
+	var right := i == 1 or i == 3
+	if i < 2:
+		return c.get("wheel_fr", c["wheel_f"]) if right else c["wheel_f"]
+	return c.get("wheel_rr", c["wheel_r"]) if right else c["wheel_r"]
 
 static func _wheel(r: float, width: float, def: Dictionary) -> ArrayMesh:
 	var key := "wheel_%.2f_%.2f_%s" % [r, width, String(def.get("hub", "e9e2d6"))]
@@ -1452,7 +1482,7 @@ static func parked(def: Dictionary) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.append_from(c["body"], 0, Transform3D(Basis(), Vector3(0, c["ride"], 0)))
 	for i in 4:
-		st.append_from(c["wheel_f"] if i < 2 else c["wheel_r"], 0, Transform3D(Basis(), c["wheels"][i]))
+		st.append_from(wheel_mesh(c, i), 0, Transform3D(Basis(), c["wheels"][i]))
 	var m := st.commit()
 	_cache[key] = m
 	return m

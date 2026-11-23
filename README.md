@@ -17,9 +17,12 @@ islands that crumble away behind you, while the days, seasons and weather roll b
   drift for a little speed kick.
 - The run keeps speeding up the farther you get (about 32 km/h at the start, ~50 km/h by 900 m).
 - Bumping rocks and walls glances you along them; if you ever get wedged, the car hops back to the road.
-- The world is after the end: no people left, cracked roads and rusted wrecks, ruined houses with
-  trees growing through them, and glowing buds pushing up everywhere. The islands float over a galaxy
-  abyss whose nebula auras change with each region, with motes, spores, fireflies and wisps drifting by.
+- A cute toy world floating over a pastel galaxy whose nebula colours change with each region, with
+  motes, petals and fireflies drifting by. The cars are the Tiny Car Pack (baked into assets/cars by
+  tools/cars/export_cars.gd from the pack's FBX, which stays outside the repo).
+- Handling: the car has some weight: steering eases in and out, tyres grip up to a limit and then
+  slide (hold an arrow to step the rear out), the body rolls and squats, and it gets light over crests
+  and drops instead of sticking to the ground.
 - Challenge pieces span long drops: plank bridges on stilts, and twisty toy race tracks with candy
   kerbs and little hills. They crumble away behind you, piece by piece.
 - Offroad sections are real uneven terrain: rolling dirt tracks, and red rock canyons you crawl through

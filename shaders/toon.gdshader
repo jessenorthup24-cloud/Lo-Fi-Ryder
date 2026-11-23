@@ -94,7 +94,7 @@ void fragment() {
 		float l = dot(col, vec3(0.3, 0.55, 0.15));
 		col = mix(col, mix(vec3(l), col, 0.6) * vec3(0.86, 0.82, 0.78), grime * 0.55);
 		float up = smoothstep(0.55, 0.9, v_nrm.y);
-		float mp = smoothstep(0.58, 0.72, vnoise(v_world.xz * 1.7 + 11.0) * 0.7 + vnoise(v_world.xz * 5.3) * 0.3);
+		float mp = smoothstep(0.6, 0.78, vnoise(v_world.xz * 0.9 + 11.0) * 0.8 + vnoise(v_world.xz * 3.1) * 0.2);
 		col = mix(col, moss_color, up * mp * decay * 0.8 * (1.0 - green) * (1.0 - v_direct * 0.75));
 	}
 	ALBEDO = col;

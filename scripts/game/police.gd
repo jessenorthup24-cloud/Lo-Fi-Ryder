@@ -61,7 +61,7 @@ func setup(toon: ShaderMaterial) -> void:
 	body.add_child(bm)
 	for i in 4:
 		var w := MeshInstance3D.new()
-		w.mesh = c["wheel_f"] if i < 2 else c["wheel_r"]
+		w.mesh = M.wheel_mesh(c, i)
 		w.material_override = toon
 		w.position = c["wheels"][i]
 		body.add_child(w)
@@ -73,11 +73,12 @@ func setup(toon: ShaderMaterial) -> void:
 	bx.size = Vector3(0.26, 0.12, 0.18)
 	beacon_r = MeshInstance3D.new()
 	beacon_r.mesh = bx
-	beacon_r.position = Vector3(-0.14, 0.9 + c["ride"], 0.06)
+	var roof: float = c.get("top", 0.9) + 0.03
+	beacon_r.position = Vector3(-0.14, roof + c["ride"], 0.06)
 	body.add_child(beacon_r)
 	beacon_b = MeshInstance3D.new()
 	beacon_b.mesh = bx
-	beacon_b.position = Vector3(0.14, 0.9 + c["ride"], 0.06)
+	beacon_b.position = Vector3(0.14, roof + c["ride"], 0.06)
 	body.add_child(beacon_b)
 	light_r = _light(Color(1.0, 0.2, 0.2), Vector3(-0.3, 1.2, 0))
 	light_b = _light(Color(0.25, 0.45, 1.0), Vector3(0.3, 1.2, 0))

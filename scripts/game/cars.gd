@@ -1,25 +1,26 @@
 extends RefCounted
-## The toy car collection. grip/drift/bounce are gentle personality tweaks (1.0 = the Bug).
+## The toy car collection (models from the Tiny Car Pack, baked into assets/cars).
+## grip/drift/bounce are gentle personality tweaks (1.0 = the Bug).
 
 const LIST := [
-	{"id": "bug", "name": "Sunny Bug", "price": 0, "shape": "round", "body": "f6d36b", "accent": "fff3d9", "grip": 1.0, "drift": 1.0, "bounce": 1.15, "engine": "small", "pitch": 1.15},
-	{"id": "camper", "name": "Camper", "price": 150, "shape": "van", "body": "4fb3a9", "accent": "fff6e8", "grip": 0.95, "drift": 1.05, "bounce": 1.3, "engine": "small", "pitch": 0.92},
-	{"id": "pickup", "name": "Red Pickup", "price": 250, "shape": "pickup", "body": "e85a4f", "accent": "c9cfd8", "grip": 1.0, "drift": 1.1, "bounce": 1.1, "engine": "v8", "pitch": 1.05},
-	{"id": "mini", "name": "Mini", "price": 350, "shape": "mini", "body": "d94a4a", "accent": "ffffff", "grip": 1.08, "drift": 0.95, "bounce": 1.0, "engine": "small", "pitch": 1.22},
-	{"id": "taxi", "name": "Taxi", "price": 450, "shape": "taxi", "body": "ffcf3f", "accent": "ffcf3f", "hub": "3a3540", "grip": 1.02, "drift": 1.05, "bounce": 1.0, "engine": "small", "pitch": 1.0},
-	{"id": "jeep", "name": "Trail Jeep", "price": 550, "shape": "jeep", "body": "8aa05a", "accent": "8aa05a", "hub": "3a3540", "grip": 1.05, "drift": 0.95, "bounce": 1.4, "engine": "truck", "pitch": 1.15},
-	{"id": "wagon", "name": "Woody", "price": 700, "shape": "wagon", "body": "f2e3c6", "accent": "f2e3c6", "grip": 0.98, "drift": 1.1, "bounce": 1.1, "engine": "small", "pitch": 0.9},
-	{"id": "roadster", "name": "Roadster", "price": 850, "shape": "roadster", "body": "9fe0c8", "accent": "e8d9c4", "grip": 1.1, "drift": 1.05, "bounce": 0.9, "engine": "small", "pitch": 1.08},
-	{"id": "police", "name": "Patrol", "price": 1000, "shape": "police", "body": "3a3f4a", "accent": "ffffff", "grip": 1.08, "drift": 1.1, "bounce": 0.95, "engine": "v8", "pitch": 1.08},
-	{"id": "icecream", "name": "Ice Cream", "price": 1200, "shape": "icecream", "body": "fff6ee", "accent": "ff9fbf", "hub": "ff9fbf", "grip": 0.95, "drift": 1.1, "bounce": 1.35, "engine": "truck", "pitch": 1.12},
-	{"id": "mail", "name": "Mail Van", "price": 1400, "shape": "mail", "body": "ffffff", "accent": "4b7bd6", "hub": "4b7bd6", "grip": 1.0, "drift": 1.0, "bounce": 1.25, "engine": "truck", "pitch": 1.18},
-	{"id": "tractor", "name": "Tractor", "price": 1600, "shape": "tractor", "body": "5fae4f", "accent": "ffd166", "hub": "ffd166", "grip": 1.15, "drift": 0.85, "bounce": 1.45, "engine": "putt", "pitch": 1.0},
-	{"id": "firetruck", "name": "Fire Engine", "price": 1900, "shape": "firetruck", "body": "e8473f", "accent": "c9cfd8", "grip": 1.05, "drift": 1.0, "bounce": 1.1, "engine": "truck", "pitch": 0.88},
-	{"id": "bus", "name": "School Bus", "price": 2200, "shape": "bus", "body": "ffc531", "accent": "3a3540", "hub": "3a3540", "grip": 1.0, "drift": 1.15, "bounce": 1.2, "engine": "truck", "pitch": 0.92},
-	{"id": "dump", "name": "Dump Truck", "price": 2500, "shape": "dump", "body": "ffa23a", "accent": "ffcf6b", "hub": "3a3540", "grip": 1.1, "drift": 0.95, "bounce": 1.3, "engine": "truck", "pitch": 0.85},
-	{"id": "racer", "name": "Racer No. 7", "price": 2900, "shape": "racer", "body": "4b7bd6", "accent": "ffffff", "grip": 1.15, "drift": 1.15, "bounce": 0.85, "engine": "small", "pitch": 1.3},
-	{"id": "hotrod", "name": "Hot Rod", "price": 3400, "shape": "hotrod", "body": "2f2b38", "accent": "c9a37a", "hub": "ff6b3d", "grip": 1.05, "drift": 1.2, "bounce": 1.0, "engine": "v8", "pitch": 0.9},
-	{"id": "monster", "name": "Monster", "price": 4000, "shape": "monster", "body": "9b6fd6", "accent": "3a3540", "hub": "ffd166", "grip": 1.1, "drift": 1.0, "bounce": 1.5, "engine": "v8", "pitch": 0.8},
+	{"id": "bug", "name": "Sunny Bug", "price": 0, "model": "13_4", "grip": 1.0, "drift": 1.0, "bounce": 1.15, "engine": "small", "pitch": 1.15},
+	{"id": "camper", "name": "Roof Rack", "price": 150, "model": "12_2", "grip": 0.96, "drift": 1.05, "bounce": 1.3, "engine": "truck", "pitch": 1.05},
+	{"id": "pickup", "name": "Rally Box", "price": 250, "model": "5_1", "grip": 1.02, "drift": 1.15, "bounce": 1.15, "engine": "small", "pitch": 1.1},
+	{"id": "mini", "name": "Minnow", "price": 350, "model": "8_1", "grip": 1.08, "drift": 0.95, "bounce": 1.05, "engine": "small", "pitch": 1.25},
+	{"id": "taxi", "name": "Marmalade", "price": 450, "model": "9_4", "grip": 0.98, "drift": 1.2, "bounce": 1.0, "engine": "v8", "pitch": 1.0},
+	{"id": "jeep", "name": "Scout", "price": 550, "model": "12_4", "grip": 1.05, "drift": 0.95, "bounce": 1.4, "engine": "truck", "pitch": 1.12},
+	{"id": "wagon", "name": "Ducktail", "price": 700, "model": "4_1", "grip": 1.08, "drift": 1.1, "bounce": 1.0, "engine": "small", "pitch": 1.08},
+	{"id": "roadster", "name": "Pop-Up 86", "price": 850, "model": "10_1", "grip": 1.0, "drift": 1.25, "bounce": 1.0, "engine": "small", "pitch": 1.18},
+	{"id": "police", "name": "Patrol", "price": 1000, "model": "3_2", "grip": 1.08, "drift": 1.1, "bounce": 0.95, "engine": "v8", "pitch": 1.08},
+	{"id": "icecream", "name": "Sky Bug", "price": 1200, "model": "13_5", "grip": 1.0, "drift": 1.05, "bounce": 1.25, "engine": "small", "pitch": 1.2},
+	{"id": "mail", "name": "Grand Tourer", "price": 1400, "model": "6_1", "grip": 1.12, "drift": 1.05, "bounce": 0.95, "engine": "v8", "pitch": 1.02},
+	{"id": "tractor", "name": "Sky Dart", "price": 1600, "model": "7_1", "grip": 1.12, "drift": 1.1, "bounce": 0.9, "engine": "small", "pitch": 1.3},
+	{"id": "firetruck", "name": "Redline", "price": 1900, "model": "11_1", "grip": 1.15, "drift": 1.05, "bounce": 0.9, "engine": "small", "pitch": 1.35},
+	{"id": "bus", "name": "Yellow Jacket", "price": 2200, "model": "1_1", "grip": 1.02, "drift": 1.2, "bounce": 1.0, "engine": "v8", "pitch": 0.95},
+	{"id": "dump", "name": "Bluebolt", "price": 2500, "model": "2_1", "grip": 1.15, "drift": 1.1, "bounce": 0.9, "engine": "small", "pitch": 1.4},
+	{"id": "racer", "name": "Quicksilver", "price": 2900, "model": "11_4", "grip": 1.18, "drift": 1.1, "bounce": 0.85, "engine": "small", "pitch": 1.42},
+	{"id": "hotrod", "name": "Midnight", "price": 3400, "model": "9_3", "grip": 1.0, "drift": 1.3, "bounce": 1.0, "engine": "v8", "pitch": 0.88},
+	{"id": "monster", "name": "Nightshade", "price": 4000, "model": "3_1", "grip": 1.15, "drift": 1.15, "bounce": 0.9, "engine": "v8", "pitch": 0.92},
 ]
 
 static func by_id(id: String) -> Dictionary:

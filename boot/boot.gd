@@ -27,7 +27,7 @@ var _started := false
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var bg := ColorRect.new()
-	bg.color = Color(0.08, 0.05, 0.18)
+	bg.color = Color(0.42, 0.36, 0.68)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 	var font: Font = null
@@ -63,7 +63,7 @@ func _ready() -> void:
 	fill.bg_color = Color(0.56, 0.96, 0.85)
 	fill.set_corner_radius_all(11)
 	var back := StyleBoxFlat.new()
-	back.bg_color = Color(0.22, 0.16, 0.38)
+	back.bg_color = Color(0.55, 0.49, 0.8)
 	back.set_corner_radius_all(11)
 	_bar.add_theme_stylebox_override("fill", fill)
 	_bar.add_theme_stylebox_override("background", back)

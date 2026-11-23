@@ -185,14 +185,14 @@ func _build_title() -> void:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	title_logo.add_child(row)
 	var word := "Lo-Fi Ryder"
-	var cols := [Color("ffb36b"), Color("ffd166"), Color("fff0a0"), Color("fff0a0"), Color("8ff5c8"), Color("ffffff"),
-		Color("8ff5ff"), Color("8fc2ff"), Color("b39bff"), Color("f59fd0"), Color("ff9a8a")]
+	var cols := [Color("ff8a6b"), Color("ffb85c"), Color("ffd166"), Color("ffd166"), Color("8fd19e"), Color("ffffff"),
+		Color("6ec6ff"), Color("8f9dff"), Color("b99cff"), Color("f59fd0"), Color("ff8a6b")]
 	for i in word.length():
-		var ch := K.outlined(K.label(word[i], 104, cols[i], 700), Color("2a1f45"), 22)
+		var ch := K.outlined(K.label(word[i], 104, cols[i], 700), K.INK, 22)
 		ch.set_meta("i", i)
 		ch.pivot_offset = Vector2(30, 60)
 		row.add_child(ch)
-	var sub := K.outlined(K.label("a lo-fi drive after the end", 34, Color.WHITE, 600), Color(0.12, 0.08, 0.22, 0.85), 10)
+	var sub := K.outlined(K.label("a cozy little drive", 34, Color.WHITE, 600), Color(0.29, 0.23, 0.2, 0.85), 10)
 	title_logo.add_child(sub)
 	title_best = K.outlined(K.label("", 30, Color.WHITE, 600), Color(0.29, 0.23, 0.2, 0.85), 10)
 	title_logo.add_child(K.spacer(14))
@@ -965,29 +965,20 @@ func _build_garage() -> void:
 	g_mat.set_shader_parameter("haze", 0.0)
 	g_mat.set_shader_parameter("rim_color", Color("b39bff"))
 	var island_mat: ShaderMaterial = g_mat.duplicate()
-	island_mat.set_shader_parameter("decay", 0.8)
-	island_mat.set_shader_parameter("night", 1.0)
+	island_mat.set_shader_parameter("decay", 0.0)
 	g_turntable = Node3D.new()
 	g_world_root.add_child(g_turntable)
 	var tt := MeshInstance3D.new()
 	var mb := preload("res://scripts/core/mesh_builder.gd").new()
-	# a chunk of old road on a floating island: grass rim, hanging rock, glowing buds pushing through
+	# a little floating island: a grassy top ringed with flowers, rock hanging underneath
 	mb.cyl(Vector3(0, -0.12, 0), 1.8, 0.24, mb.pal(PAL.GRASS), 36)
-	mb.cyl(Vector3(0, 0.005, 0), 1.25, 0.02, mb.pal(PAL.PATH), 24)
-	for k in 3:
-		var a := 0.6 + k * 2.1
-		mb.box(Vector3(cos(a) * 0.7, 0.02, sin(a) * 0.7), Vector3(0.5, 0.012, 0.035), mb.pal(PAL.ASPHALT_DK), Basis(Vector3.UP, a + 0.9))
 	mb.cyl(Vector3(0, -0.5, 0), 1.65, 0.52, mb.pal(PAL.DIRT), 36, Basis(), 1.2)
 	mb.cyl(Vector3(0, -1.25, 0), 1.15, 1.0, mb.pal(PAL.DIRT_DARK), 14, Basis(), 0.25, false)
 	mb.cyl(Vector3(0.2, -2.0, 0.1), 0.3, 0.6, mb.pal(PAL.DIRT_DARK), 8, Basis(), 0.0, false)
-	var buds := ["8ff5ff", "ff8fd8", "fff07a", "a8ff9e", "c9a8ff"]
-	for i in 14:
-		var a := TAU * i / 14.0 + 0.2
-		var r := 1.5 + 0.18 * sin(i * 2.7)
-		mb.cyl(Vector3(cos(a) * r, 0.1, sin(a) * r), 0.015, 0.2, mb.pal(PAL.TUFT), 3)
-		mb.sphere(Vector3(cos(a) * r, 0.22, sin(a) * r), 0.06, mb.glow(buds[i % buds.size()]), 6, 4)
-	for c in [[1.15, 0.12, -0.95, 0.2], [-1.25, 0.1, -0.7, 0.16], [-0.9, 0.1, 1.1, 0.14]]:
-		mb.cbox(Vector3(c[0], c[1], c[2]), Vector3(c[3] * 2.0, c[3] * 1.3, c[3] * 1.7), 0.03, mb.pal(PAL.CONCRETE), Basis(Vector3.UP, c[0] * 2.0))
+	for i in 16:
+		var a := TAU * i / 16.0 + 0.2
+		var r := 1.52 + 0.14 * sin(i * 2.7)
+		mb.sphere(Vector3(cos(a) * r, 0.07, sin(a) * r), 0.11, mb.pal(PAL.FLOWER_A if i % 2 == 0 else PAL.FLOWER_B), 6, 4)
 	mb.cyl(Vector3(-1.4, 0.35, -0.75), 0.035, 0.7, mb.pal(PAL.TRUNK), 6)
 	mb.sphere(Vector3(-1.4, 0.78, -0.75), 0.26, mb.pal(PAL.LEAF_A), 8, 5)
 	mb.sphere(Vector3(-1.25, 0.7, -0.62), 0.16, mb.pal(PAL.BLOSSOM), 7, 4)
@@ -1149,7 +1140,7 @@ func _garage_refresh() -> void:
 	g_car.add_child(body)
 	for i in 4:
 		var w := MeshInstance3D.new()
-		w.mesh = c["wheel_f"] if i < 2 else c["wheel_r"]
+		w.mesh = M.wheel_mesh(c, i)
 		w.material_override = g_mat
 		w.position = c["wheels"][i]
 		g_car.add_child(w)

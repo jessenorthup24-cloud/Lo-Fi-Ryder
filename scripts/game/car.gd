@@ -46,6 +46,10 @@ var wall_dir := Vector3.ZERO  # the glancing direction off that wall
 var surface := "ground"
 var pace := 1.0            # cruise multiplier: the run speeds up the farther you get
 var air_bump := false      # this air time came from cresting a bump (steering stays gentle)
+var yaw_rate := 0.0        # rad/s: the car has rotational weight, steering eases it in and out
+var acc_lat := 0.0         # sideways and fore-aft accel the tyres are making (for body roll and squat)
+var acc_lon := 0.0
+const GRIP_ACC := 24.0     # how hard the tyres can push sideways (m/s^2) before they slide
 var grinding := false      # locked onto a grind rail
 var rail: Dictionary = {}
 var rail_s := 0.0
@@ -116,7 +120,7 @@ func set_car(d: Dictionary) -> void:
 		hold.position = c["wheels"][i]
 		pivot.add_child(hold)
 		var wm := MeshInstance3D.new()
-		wm.mesh = c["wheel_f"] if i < 2 else c["wheel_r"]
+		wm.mesh = M.wheel_mesh(c, i)
 		wm.material_override = mat
 		hold.add_child(wm)
 		wheels.append(hold)
@@ -147,6 +151,9 @@ func boost() -> void:
 
 func place(p: Vector3, heading: float) -> void:
 	boost_t = 0.0
+	yaw_rate = 0.0
+	acc_lat = 0.0
+	acc_lon = 0.0
 	grinding = false
 	rail = {}
 	wall_cd = 0.0
@@ -217,10 +224,16 @@ func step(dt: float) -> void:
 	if grounded:
 		var spd := speed()
 		var accel := 2.4 if fuel > 0.0 else 0.9
-		# steering: a tap carves, holding the arrow throws the tail out into a drift
-		var turn_scale := clampf(spd / 4.0, 0.4 if active else 0.0, 1.0)
-		var drift_amt := clampf(smoothstep(0.25, 0.85, absf(steer_smooth)) * float(def.get("drift", 1.0)), 0.0, 1.2)
-		turned = steer_smooth * TURN * (0.85 + 0.15 * pace) * turn_scale * (1.0 + drift_amt * 0.55) * dt
+		var drift_def := float(def.get("drift", 1.0))
+		# how hard the arrow is held: a tap carves, holding it lets the rear step out
+		var hold := smoothstep(0.25, 0.9, absf(steer_smooth))
+		# steering asks for a rate of turn; the car has some rotational weight, so it eases in and out,
+		# and a big slide pulls the nose back toward where you're going (catchable, no endless spins)
+		var turn_scale := clampf(spd / 3.5, 0.4 if active else 0.0, 1.0)
+		var want_rate := -steer_smooth * TURN * (0.85 + 0.15 * pace) * turn_scale * (1.0 + hold * 0.5 * drift_def)
+		want_rate -= clampf(drift, -1.2, 1.2) * 2.2 * clampf(spd / 6.0, 0.0, 1.0)
+		yaw_rate = lerpf(yaw_rate, want_rate, 1.0 - exp(-dt * 9.0))
+		turned = -yaw_rate * dt
 		# never stay pinned: crawling while trying to drive swings the nose back toward the road,
 		# overriding the thumb (the velocity turns with the car, so it can pull away)
 		if active and fuel > 0.0 and spd < 1.6:
@@ -231,16 +244,14 @@ func step(dt: float) -> void:
 		if stuck_t > 0.45:
 			var to := wall_dir if wall_t > 0.0 else _to_road()
 			turned = angle_difference(atan2(-to.x, -to.z), yaw) * (1.0 - exp(-dt * 6.0))
+			yaw_rate = -turned / dt
+			vel = vel.rotated(Vector3.UP, -turned)
 		yaw -= turned
-		# traction: how much of the velocity swings round with the nose; the rest keeps sliding
 		var icy := surface == "ice"
 		var dirt := surface == "dirt"
-		var traction := lerpf(0.92, 0.24, clampf(drift_amt, 0.0, 1.0)) * (0.55 if icy else (0.85 if dirt else 1.0))
-		if stuck_t > 0.45:
-			traction = 1.0
-		vel = vel.rotated(Vector3.UP, -turned * traction)
 		var vf := vel.dot(forward())
 		var vl := vel.dot(right())
+		var vf0 := vf
 		vf += (target - vf) * accel * dt
 		# climbing slows you, rolling down a slickrock face speeds you up
 		if world.uneven_at(position):
@@ -255,6 +266,7 @@ func step(dt: float) -> void:
 			stuck_t = 0.0
 			var to := _to_road()
 			yaw = atan2(-to.x, -to.z)
+			yaw_rate = 0.0
 			vf = 4.5
 			vl = 0.0
 			vel.y = 6.0
@@ -268,19 +280,23 @@ func step(dt: float) -> void:
 			recover -= dt
 			if spd > 1.0:
 				var vdir := atan2(-vel.x, -vel.z)
-				yaw = lerp_angle(yaw, vdir, 1.0 - exp(-dt * 7.0))
-		var grip := lerpf(8.0, 3.1, clampf(drift_amt, 0.0, 1.0)) * grip_mul * float(def.get("grip", 1.0)) * weather_grip
+				yaw = lerp_angle(yaw, vdir, 1.0 - exp(-dt * 5.0))
+		# tyres: they can only push sideways so hard (grip, surface, weather); hold the arrow and the
+		# rear lets go a little, so the car slides, and a slide carries its momentum forward
+		var mu := GRIP_ACC * grip_mul * float(def.get("grip", 1.0)) * weather_grip
 		if icy:
-			grip *= 0.32
+			mu *= 0.3
 		elif dirt:
-			grip *= 0.72
+			mu *= 0.7
 		elif surface == "slick":
-			grip *= 0.85
-		var vl0 := absf(vl)
-		vl *= exp(-grip * dt)
-		# a slide carries its momentum: some of the sideways speed scrubbed off comes back as forward speed
+			mu *= 0.85
+		mu *= 1.0 - 0.5 * clampf(hold * drift_def, 0.0, 1.0)
+		var dv := clampf(-vl, -mu * dt, mu * dt)
+		vl += dv
 		if fuel > 0.0 and active:
-			vf += (vl0 - absf(vl)) * 0.68 * clampf(drift_amt, 0.0, 1.0)
+			vf += absf(dv) * 0.35 * hold
+		acc_lat = lerpf(acc_lat, dv / dt, 1.0 - exp(-dt * 10.0))
+		acc_lon = lerpf(acc_lon, (vf - vf0) / dt, 1.0 - exp(-dt * 8.0))
 		var nf := forward()
 		var nr := right()
 		vel = nf * vf + nr * vl + Vector3(0, vel.y, 0)
@@ -289,6 +305,9 @@ func step(dt: float) -> void:
 	else:
 		vel.y -= GRAVITY * dt
 		turned = steer_smooth * (TURN * 1.1 if air_bump else AIR_TURN) * dt
+		yaw_rate = -turned / dt
+		acc_lat = lerpf(acc_lat, 0.0, 1.0 - exp(-dt * 6.0))
+		acc_lon = lerpf(acc_lon, 0.0, 1.0 - exp(-dt * 6.0))
 		yaw -= turned
 		spin_acc += absf(turned)
 		if absf(turned) > 0.0001:
@@ -355,6 +374,7 @@ func _grind(dt: float) -> void:
 	position = position.lerp(target, 1.0 - exp(-dt * 30.0)) if grind_t < 0.2 else target
 	yaw = lerp_angle(yaw, atan2(-dir.x, -dir.z), 1.0 - exp(-dt * 12.0))
 	vel = dir * grind_speed
+	yaw_rate = 0.0
 	drift = 0.0
 	air_time = 0.0
 	if rail_s >= float(rail["len"]) - 0.05:
@@ -418,11 +438,12 @@ func _move(dt: float) -> void:
 				vel.x *= -0.2
 				vel.z *= -0.2
 			else:
-				# bumpy ground: carry vertical speed over the humps and pop off the crests,
-				# the way a real car gets light over a mogul
+				# carry vertical speed over rises and dips and get light off the crests: when the ground
+				# drops away faster than you'd fall, you're airborne (crests, ledges, the end of a slope)
 				var bumpy: bool = world.uneven_at(np) or world.uneven_at(old)
-				var ballistic := old.y + vel.y * dt - GRAVITY * 1.7 * dt * dt   # (the springs keep it planted a little)
-				if bumpy and vel.y > 1.2 and speed() > 4.5 and g < ballistic - 0.004:
+				var ballistic := old.y + vel.y * dt - GRAVITY * 1.15 * dt * dt   # (springs keep it planted a touch)
+				var drops := g < old.y - 0.07
+				if speed() > 3.0 and g < ballistic - 0.006 and (vel.y > 0.6 or drops):
 					grounded = false
 					air_bump = true
 					air_time = 0.0
@@ -431,11 +452,8 @@ func _move(dt: float) -> void:
 					np.y = old.y + vel.y * dt
 				else:
 					var vy := (g - old.y) / dt
-					if bumpy:
-						susp_v -= maxf(0.0, vy - vel.y) * 0.045 * float(def.get("bounce", 1.0))
-						vel.y = clampf(vy, -7.0, 9.0)
-					else:
-						vel.y = 0.0
+					susp_v -= maxf(0.0, vy - vel.y) * (0.045 if bumpy else 0.025) * float(def.get("bounce", 1.0))
+					vel.y = clampf(vy, -7.0, 9.0)
 					np.y = g
 			coyote = 0.0
 		else:
@@ -479,9 +497,9 @@ func _land(impact: float) -> void:
 		ang = absf(angle_difference(yaw, atan2(-hv.x, -hv.z)))
 	var spins := int(floor((spin_acc + 0.7) / TAU))
 	var clean := ang < 0.5
-	if ang > 1.0 and not air_bump:
-		recover = 0.45
-		vel *= 0.65
+	if ang > 1.2 and not air_bump:
+		recover = 0.35
+		vel *= 0.82
 	susp_v -= impact * 0.11 * float(def.get("bounce", 1.0))
 	squash_v -= impact * 0.07
 	game.car_event("land", {"air": air_time, "spins": spins, "spin_deg": rad_to_deg(spin_acc), "clean": clean, "impact": impact, "pos": position, "bump": air_bump})
@@ -555,8 +573,8 @@ func render(dt: float, night: float) -> void:
 		susp_v += randf_range(-0.6, 0.6)
 	if not active:
 		susp = sin(idle_t * 24.0) * 0.006
-	var target_roll := -steer_smooth * 0.09 * clampf(spd / CRUISE, 0.0, 1.0) - drift * 0.12
-	var target_pitch := 0.0
+	var target_roll := clampf(acc_lat * 0.0065, -0.15, 0.15) - drift * 0.06
+	var target_pitch := clampf(acc_lon * 0.012, -0.08, 0.08)
 	# terrain under each wheel: the body pitches and rolls with it, each wheel reaches for the ground
 	var wb := Basis(Vector3.UP, yaw)
 	var gh := [0.0, 0.0, 0.0, 0.0]

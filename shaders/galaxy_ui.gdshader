@@ -1,10 +1,10 @@
 shader_type canvas_item;
 
 // A slow galaxy backdrop for full-screen menus (the garage): the same nebula and stars as the abyss.
-uniform vec4 deep_color : source_color = vec4(0.07, 0.04, 0.16, 1.0);
-uniform vec4 aura_a : source_color = vec4(0.24, 0.95, 0.65, 1.0);
-uniform vec4 aura_b : source_color = vec4(0.54, 0.36, 1.0, 1.0);
-uniform vec4 aura_c : source_color = vec4(1.0, 0.6, 0.42, 1.0);
+uniform vec4 deep_color : source_color = vec4(0.36, 0.3, 0.62, 1.0);
+uniform vec4 aura_a : source_color = vec4(0.62, 0.96, 0.78, 1.0);
+uniform vec4 aura_b : source_color = vec4(0.76, 0.66, 1.0, 1.0);
+uniform vec4 aura_c : source_color = vec4(1.0, 0.76, 0.66, 1.0);
 uniform vec2 aspect = vec2(1.0, 2.0);
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -40,7 +40,7 @@ void fragment() {
 	vec3 aura = mix(aura_a.rgb, aura_b.rgb, smoothstep(0.25, 0.75, r.x));
 	aura = mix(aura, aura_c.rgb, smoothstep(0.55, 0.9, q.y) * 0.8);
 	float dens = smoothstep(0.3, 0.78, neb);
-	col += aura * pow(dens, 1.4) * 1.1;
+	col += aura * pow(dens, 1.4) * 0.75;
 	col += aura_b.rgb * smoothstep(0.2, 0.6, neb) * 0.1;
 	col += stars(uv * 60.0, 0.06, 0.12) * 0.9;
 	col += stars(uv * 26.0 + 3.0, 0.05, 0.14) * 1.2;
