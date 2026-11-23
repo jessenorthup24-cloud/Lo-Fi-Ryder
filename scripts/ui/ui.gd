@@ -762,9 +762,12 @@ func open_settings(from_pause := false) -> void:
 			game.reset_progress())
 	vb.add_child(reset)
 	var credit: String = game.sound.credit_line()
-	var cl := K.label(("Music by %s (CC0) · " % credit if credit != "" else "") + "Models: Kenney (CC0), Tiny Car Pack · " + build_label(), 18, K.INK_SOFT, 500)
+	var cl := K.label(("Music by %s (CC0) · " % credit if credit != "" else "") + "Models: Kenney (CC0), Tiny Car Pack, stunt ramps by Klyo Games (CC BY 4.0) · " + build_label(), 18, K.INK_SOFT, 500)
 	cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vb.add_child(cl)
+	var kl := K.label("Stunt Yard: \"Stunt arena 3D models: ramps, hoop, barriers (GLB)\" and \"Stunt arena 3D expansion: loop, half-pipe, tunnel, obstacles\" by Klyo Games (https://games.klyo.pl/free-game-assets/), CC BY 4.0 (creativecommons.org/licenses/by/4.0), recoloured for the game.", 15, K.INK_SOFT, 500)
+	kl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(kl)
 	var done := K.button("Done", K.LILAC, K.LILAC_DK, 32, 0, 76)
 	_tap(done, func(): _back_from(from_pause))
 	vb.add_child(done)
@@ -872,21 +875,22 @@ func _ach_row(a: Dictionary, got: bool, prog: float) -> Control:
 	return p
 
 func show_help() -> void:
-	var vb: VBoxContainer = await _sheet("How to drive", "car", K.TEAL, 760.0)
+	var vb: VBoxContainer = await _sheet("How to drive", "car", K.TEAL, 1040.0)
 	for line in [
 		["left", "Steer with the arrows on the left."],
 		["play", "GAS and BRAKE on the right. Hold BRAKE when stopped to reverse."],
 		["tire", "Tap DRIFT (the handbrake) while steering to swing the tail out. Keep the gas down and hold the steering into the turn to hold the slide."],
 		["right", "Steer the other way with the gas down to swing into a drift the other way. Let go of steering, or ease off the gas, to straighten up."],
 		["star", "Drifts score points and coins. Chain them for a bigger multiplier, and skim walls and cars for a close bonus. Don't crash mid-drift!"],
+		["wind", "In the air, GAS tips the nose down and BRAKE lifts it (hold to flip), steering spins you round, and DRIFT + steering barrel-rolls. Land on your wheels! The Stunt Yard is just south of town."],
 		["flag", "Drive into an orange ring for a drift zone, a blue ring for a time trial, a purple ring for a drift run. Hidden coins are dotted all over the island."],
 	]:
 		var hb := HBoxContainer.new()
 		hb.add_theme_constant_override("separation", 14)
 		hb.add_child(Icon.new(line[0], K.INK, 38))
-		var l := K.label(line[1], 24, K.INK, 600, HORIZONTAL_ALIGNMENT_LEFT)
+		var l := K.label(line[1], 22, K.INK, 600, HORIZONTAL_ALIGNMENT_LEFT)
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		l.custom_minimum_size = Vector2(640, 0)
+		l.custom_minimum_size = Vector2(920, 0)
 		hb.add_child(l)
 		vb.add_child(hb)
 	var ok := K.button("Let's go", K.TEAL, K.TEAL_DK, 32, 0, 76, "play")

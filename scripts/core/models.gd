@@ -1593,6 +1593,163 @@ static func kshoulders(v: int, pose: String) -> Array:
 	var sc: float = K_PACK_SCALE["chars"]
 	return [Vector3(a[0], a[1], a[2]) * sc, Vector3(a[3], a[4], a[5]) * sc]
 
+# ---------------------------------------------------------------- stunt yard
+
+## A loop-the-loop you can drive: the track climbs, goes over upside down and comes back down a lane to
+## the side (a corkscrew), so the way out never runs into the way in. Like a real one it bends gently at
+## first (a clothoid) and tightest over the top, so a car's nose doesn't dig in. In the stunt kit's colours.
+## Travel is toward -Z; you drive in on the left lane (x = -LOOP_SHIFT/2) and out on the right.
+const LOOP_R := 7.0          # tightest radius, over the top
+const LOOP_EASE := 11.0      # how long the bend takes to tighten up, in and out (m)
+const LOOP_W := 6.0          # track width
+const LOOP_SHIFT := 7.2      # how far the way out sits to the side of the way in
+static var _loop_frames: Array = []
+
+## Samples along the loop: [point, along, side, up (into the track's middle)], start to finish.
+static func loop_frames() -> Array:
+	if not _loop_frames.is_empty():
+		return _loop_frames
+	var kmax := 1.0 / LOOP_R
+	var total := LOOP_EASE * 2.0 + (TAU - kmax * LOOP_EASE) / kmax
+	var n := 180
+	var sub := 10
+	var h := total / (n * sub)
+	var f := 0.0
+	var y := 0.0
+	var phi := 0.0
+	var raw := []
+	for i in n + 1:
+		var u := float(i) / n
+		var x := -LOOP_SHIFT * 0.5 + LOOP_SHIFT * (u - sin(TAU * u) / TAU)
+		raw.append([Vector3(x, y, -f), phi])
+		if i == n:
+			break
+		for k in sub:
+			var sm := (i * sub + k + 0.5) * h
+			var kap := kmax * minf(1.0, minf(sm, total - sm) / LOOP_EASE)
+			var pm := phi + kap * h * 0.5
+			f += cos(pm) * h
+			y += sin(pm) * h
+			phi += kap * h
+	for i in raw.size():
+		var p: Vector3 = raw[i][0]
+		var ph: float = raw[i][1]
+		var a: Vector3 = raw[maxi(i - 1, 0)][0]
+		var b: Vector3 = raw[mini(i + 1, raw.size() - 1)][0]
+		var tg := (b - a).normalized()
+		var side := (Vector3.RIGHT - tg * tg.x).normalized()
+		var up := side.cross(tg).normalized()
+		if up.dot(Vector3(0, cos(ph), sin(ph))) < 0.0:
+			up = -up
+		_loop_frames.append([p, tg, side, up])
+	return _loop_frames
+
+## The top of the loop (model coords).
+static func loop_top() -> Vector3:
+	var fr := loop_frames()
+	return fr[fr.size() / 2][0]
+
+static func _m_stunt_loop() -> ArrayMesh:
+	var b := MB.new()
+	var deck := MB.rgb("5c5853")
+	var stripe := MB.rgb("f2c230")
+	var red := MB.rgb("b03a2c")
+	var under := MB.rgb("7e2a21")
+	var th_k := 0.3            # deck thickness
+	var rail_h := 0.45
+	var rail_w := 0.2
+	var hw := LOOP_W * 0.5
+	var frames: Array = []
+	for fr in loop_frames():
+		frames.append([fr[0], fr[2], fr[3]])
+	var steps := frames.size() - 1
+	for i in steps:
+		var f0: Array = frames[i]
+		var f1: Array = frames[i + 1]
+		var p0: Vector3 = f0[0]; var s0: Vector3 = f0[1]; var u0: Vector3 = f0[2]
+		var p1: Vector3 = f1[0]; var s1: Vector3 = f1[1]; var u1: Vector3 = f1[2]
+		# the deck: a yellow edge stripe each side, dark in the middle
+		var cuts := [-hw, -hw + 0.3, hw - 0.3, hw]
+		for k in 3:
+			var a0 := p0 + s0 * float(cuts[k]); var a1 := p1 + s1 * float(cuts[k])
+			var b0 := p0 + s0 * float(cuts[k + 1]); var b1 := p1 + s1 * float(cuts[k + 1])
+			var col: Color = deck if k == 1 else stripe
+			b.tri(a0, b0, b1, u0, u0, u1, col)
+			b.tri(a0, b1, a1, u0, u1, u1, col)
+		# the underside
+		var l0 := p0 - s0 * (hw + rail_w) - u0 * th_k; var l1 := p1 - s1 * (hw + rail_w) - u1 * th_k
+		var r0 := p0 + s0 * (hw + rail_w) - u0 * th_k; var r1 := p1 + s1 * (hw + rail_w) - u1 * th_k
+		b.tri(l0, r1, r0, -u0, -u1, -u0, under)
+		b.tri(l0, l1, r1, -u0, -u1, -u1, under)
+		# a rail along each edge (red), standing up from the deck
+		for sd in [-1.0, 1.0]:
+			var in0: Vector3 = p0 + s0 * hw * sd; var in1: Vector3 = p1 + s1 * hw * sd
+			var out0: Vector3 = p0 + s0 * (hw + rail_w) * sd; var out1: Vector3 = p1 + s1 * (hw + rail_w) * sd
+			var n_in: Vector3 = -s0 * sd
+			# inner face
+			b.tri(in0, in1 + u1 * rail_h, in1, n_in, n_in, n_in, red)
+			b.tri(in0, in0 + u0 * rail_h, in1 + u1 * rail_h, n_in, n_in, n_in, red)
+			# top
+			b.tri(in0 + u0 * rail_h, out1 + u1 * rail_h, in1 + u1 * rail_h, u0, u1, u1, red)
+			b.tri(in0 + u0 * rail_h, out0 + u0 * rail_h, out1 + u1 * rail_h, u0, u0, u1, red)
+			# outer face, down past the deck to the underside
+			b.tri(out0 - u0 * th_k, out1 + u1 * rail_h, out0 + u0 * rail_h, -n_in, -n_in, -n_in, red)
+			b.tri(out0 - u0 * th_k, out1 - u1 * th_k, out1 + u1 * rail_h, -n_in, -n_in, -n_in, red)
+	# legs: a frame each side holding the loop up where its track stands upright
+	var fr2 := loop_frames()
+	var half := fr2.size() / 2
+	for span in [[0, half], [half, fr2.size()]]:
+		var best: int = span[0]
+		for i in range(span[0], span[1]):
+			if absf((fr2[i][1] as Vector3).y) > absf((fr2[best][1] as Vector3).y):
+				best = i
+		var p: Vector3 = fr2[best][0]
+		var outz := 1.0 if (fr2[best][3] as Vector3).z < 0.0 else -1.0
+		var zo := p.z + outz * (th_k + 0.25)
+		for sx in [-1.0, 1.0]:
+			var x: float = p.x + float(sx) * (hw - 0.6)
+			b.cbox(Vector3(x, (p.y + 0.8) * 0.5, zo), Vector3(0.36, p.y + 0.8, 0.36), 0.04, red)
+			b.cbox(Vector3(x, 0.08, zo), Vector3(0.9, 0.16, 0.9), 0.03, MB.rgb("3c3a38"))
+			# a diagonal brace out to a foot further along
+			var foot := Vector3(x, 0.0, zo + outz * 3.0)
+			var top := Vector3(x, p.y * 0.62, zo)
+			var bs := Basis.looking_at(top - foot, Vector3.RIGHT)
+			b.cbox((foot + top) * 0.5, Vector3(0.26, 0.26, (top - foot).length()), 0.03, red, bs)
+			b.cbox(foot + Vector3(0, 0.08, 0), Vector3(0.7, 0.16, 0.7), 0.03, MB.rgb("3c3a38"))
+		b.cbox(Vector3(p.x, p.y * 0.55, zo), Vector3(LOOP_W - 0.9, 0.3, 0.3), 0.03, red)
+	return b.commit()
+
+## A lead-in for the end of a half-pipe (at 1.5x, sunk 0.1 m): its top rises from the ground to meet the
+## pipe's curved floor at z = 0, so you can roll in off-centre. Outward is +Z.
+static func _m_hp_lip() -> ArrayMesh:
+	var b := MB.new()
+	var deck := MB.rgb("5c5853")
+	var red := MB.rgb("b03a2c")
+	var xs := [0.0, 0.9, 1.65, 2.55, 3.3, 4.2]
+	var hs := [0.02, 0.08, 0.25, 0.52, 0.95, 1.54]
+	var ln := 2.6
+	for sd in [-1.0, 1.0]:
+		for i in xs.size() - 1:
+			var x0: float = float(xs[i]) * sd
+			var x1: float = float(xs[i + 1]) * sd
+			var h0: float = hs[i]
+			var h1: float = hs[i + 1]
+			var a0 := Vector3(x0, h0, 0.0)
+			var a1 := Vector3(x1, h1, 0.0)
+			var e0 := Vector3(x0, 0.0, ln)
+			var e1 := Vector3(x1, 0.0, ln * (1.0 + h1 * 0.6))
+			var nm := (a1 - a0).cross(e0 - a0).normalized()
+			if nm.y < 0.0:
+				nm = -nm
+			b.tri(a0, a1, e1, nm, nm, nm, deck)
+			b.tri(a0, e1, e0, nm, nm, nm, deck)
+		# the open side at the outer end of the lip
+		var xo: float = float(xs[xs.size() - 1]) * sd
+		var ho: float = hs[hs.size() - 1]
+		var outn := Vector3(sd, 0, 0)
+		b.tri(Vector3(xo, 0, 0), Vector3(xo, ho, 0), Vector3(xo, 0, ln * (1.0 + ho * 0.6)), outn, outn, outn, red)
+	return b.commit()
+
 static func _m_rainbow() -> ArrayMesh:
 	var b := MB.new()
 	var cols := ["ff7a6b", "ffb85c", "ffe27a", "8fd19e", "6ec6ff", "a998f2"]

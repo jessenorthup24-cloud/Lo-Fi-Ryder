@@ -26,6 +26,9 @@ const BLOCKS := {
 	Vector2i(0, 3): "res", Vector2i(1, 3): "res", Vector2i(2, 3): "mixed", Vector2i(4, 3): "res", Vector2i(5, 3): "res",
 }
 const LAKE := Vector2(285, -255)
+# the stunt yard, on the meadow between South Street and the beach
+const STUNT := Vector2(-170, 254)
+const STUNT_HS := Vector2(70, 42)
 const HOUSES := ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u"]
 const SHOPS := ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n"]
 const TOWNHOUSES := ["house-a", "house-b", "house-c", "tower-a", "tower-b", "tower-c", "tower-d"]
@@ -89,6 +92,7 @@ static func plan(I) -> void:
 	I.add_road("Bowl Exit", [Vector2(175, 247), Vector2(180, 285), Vector2(190, 316)], "road")
 	I.add_road("Harbour Road", [Vector2(-316, 192), Vector2(-338, 172), Vector2(-352, 166)], "road")
 	I.add_road("Station Lane", [Vector2(-80, -132), Vector2(-58, -132)], "lane")
+	I.add_road("Stunt Lane", [Vector2(-110, 180), Vector2(-110, 196), Vector2(-110, STUNT.y - STUNT_HS.y)], "yard")
 	# ---- paved areas
 	I.add_lot(SQUARE, Vector2(21, 21), I.S_COBBLE)                       # town square
 	I.add_lot(Vector2(175, 205), Vector2(60, 42), I.S_ASPHALT)            # the Drift Bowl
@@ -100,6 +104,7 @@ static func plan(I) -> void:
 	I.add_lot(CASTLE, Vector2(23, 23), I.S_COBBLE, 0.0, false)             # castle courtyard
 	I.add_lot(Vector2(-46, -132), Vector2(13, 12), I.S_CONCRETE)          # gas station
 	I.add_lot(Vector2(246, -246), Vector2(14, 10), I.S_DIRT)              # campsite
+	I.add_lot(STUNT, STUNT_HS, I.S_CONCRETE)                              # the stunt yard
 	# ---- named places (found as you drive)
 	I.places = [
 		{"name": "Downtown", "pos": Vector3(-150, 0, -20), "r": 60.0},
@@ -114,6 +119,7 @@ static func plan(I) -> void:
 		{"name": "Old Harbour", "pos": Vector3(-392, 0, 162), "r": 55.0},
 		{"name": "Sunny Bay", "pos": Vector3(-40, 0, 385), "r": 110.0},
 		{"name": "Lighthouse Point", "pos": Vector3(-300, 0, 322), "r": 40.0},
+		{"name": "Stunt Yard", "pos": Vector3(STUNT.x, 0, STUNT.y), "r": 62.0},
 	]
 
 ## Crop fields (painted in rows on the ground).
@@ -135,6 +141,8 @@ static func challenges(I) -> void:
 		{"id": "farmyard", "name": "Farmyard Donuts", "pos": Vector3(235, 0, -14), "r": 30.0, "time": 45.0, "medals": [2500, 7000, 14000]},
 		{"id": "beach", "name": "Beach Car Park", "pos": Vector3(60, 0, 378), "r": 30.0, "time": 45.0, "medals": [2500, 7000, 14000]},
 		{"id": "skate", "name": "Skate Park Jam", "pos": Vector3(SKATE.x, 0, SKATE.y), "r": 32.0, "time": 45.0, "medals": [2000, 6000, 12000]},
+		{"id": "stunt", "name": "Stunt Yard Jam", "pos": Vector3(STUNT.x, 0, STUNT.y), "r": 66.0, "time": 75.0, "medals": [4000, 10000, 20000],
+			"rect": Rect2(STUNT - STUNT_HS, STUNT_HS * 2.0)},
 	]
 	for z in I.zones:
 		z["pos"].y = I.height_at(z["pos"].x, z["pos"].z)
@@ -150,6 +158,8 @@ static func challenges(I) -> void:
 	var rr := RandomNumberGenerator.new()
 	rr.seed = 99
 	for pl in I.places:
+		if pl["name"] == "Stunt Yard":
+			continue     # (coins at random there would land inside the ramps; it gets its own, below)
 		var c: Vector3 = pl["pos"]
 		for k in 4:
 			for tries in 20:
@@ -171,6 +181,10 @@ static func challenges(I) -> void:
 		var p: Vector3 = spots[i]
 		p.y = I.height_at(p.x, p.z) + 1.3
 		I.coin_spots.append({"id": "c%d" % i, "pos": p})
+	# a few up in the stunt yard's air (after the rest, so the older coins keep their ids)
+	var air: Array = I.stunt.get("coins", [])
+	for i in air.size():
+		I.coin_spots.append({"id": "c%d" % (spots.size() + i), "pos": air[i]})
 	# where you start: Main Street, west end of town, facing east
 	var sp := Vector3(-262, 0, 61)
 	sp.y = I.height_at(sp.x, sp.z) + 0.8
@@ -320,6 +334,7 @@ static func populate(I) -> void:
 	_bowl(I, rr)
 	_harbour(I, rr)
 	_beach(I, rr)
+	_stunt_yard(I, rr)
 	_roadside(I, rr)
 	challenges(I)
 
@@ -928,6 +943,107 @@ static func _side_north(I, r: Dictionary, k: int) -> float:
 	return Vector2(-t.y, t.x).y
 
 ## Lamps along the ring road and a few road signs.
+# ---------------------------------------------------------------- the stunt yard
+# Ramps and platforms from Klyo Games' stunt arena kits (CC BY 4.0), and a loop built to match.
+# A lap runs clockwise: in under the gate and down the east side through the loop, west along the south
+# side over Big Air (boost, kicker, gold hoop), up the half-pipe on the west side, and east along the
+# north side over the platform run and through the tunnel.
+
+## A stunt piece facing dir (its front, -Z, that way), standing at height y, solid to drive on.
+static func _piece(I, name: String, c: Vector2, dir: Vector2, sc: float, y: float, col := "stunt", landmark := false) -> void:
+	I.put(name, c.x, c.y, _yaw_to(dir), sc, col, y, landmark)
+
+## A boost pad, sunk so only its top shows: you drive straight over it.
+static func _pad(I, c: Vector2, dir: Vector2, y: float) -> void:
+	var sc := 1.4
+	I.put("k_klyo_boost_pad", c.x, c.y, _yaw_to(dir), sc, "", y - 0.15 * sc)
+	I.stunt["pads"].append({"pos": Vector3(c.x, y, c.y), "dir": Vector3(dir.x, 0, dir.y), "hs": Vector2(1.8, 2.75) * sc})
+
+static func _stunt_yard(I, rr: RandomNumberGenerator) -> void:
+	var st: Dictionary = I.stunt
+	var y0: float = I.height_at(STUNT.x, STUNT.y) + 0.02
+	st["rect"] = Rect2(STUNT - STUNT_HS, STUNT_HS * 2.0)
+	var E := Vector2(1, 0)
+	var W := Vector2(-1, 0)
+	var S := Vector2(0, 1)
+	var NN := Vector2(0, -1)
+	var coins := []
+	# ---- the lap, painted in dark asphalt on the concrete
+	# (in 5 m tiles, so it follows the ground the way the concrete does)
+	for r in [Rect2(-238, 217, 136, 14), Rect2(-124, 217, 22, 77), Rect2(-238, 277, 136, 16), Rect2(-241, 217, 16, 76)]:
+		var nx := ceili(r.size.x / 5.0)
+		var nz := ceili(r.size.y / 5.0)
+		var ts := Vector2(r.size.x / nx, r.size.y / nz)
+		for i in nx:
+			for j in nz:
+				I.decal(r.position + ts * Vector2(i + 0.5, j + 0.5), ts * 0.5, 0.0, P.ASPHALT_DK, 2.2)
+	# ---- in under a gate, straight down to the loop with a boost pad on the way
+	_piece(I, "k_klyo_checkpoint_gate", Vector2(-110, 216.0), S, 1.4, y0, "mesh")
+	_pad(I, Vector2(-110, 236), S, y0)
+	# (in on the lane at x = -110 from z = 250, out 7 m to the west of it)
+	var lb := Basis(Vector3.UP, _yaw_to(S))
+	var lo := Vector3(-110.0 - M.LOOP_SHIFT * 0.5, y0, 250.0)          # where the track starts
+	var lcen: Vector3 = lb * M.get_mesh("stunt_loop").get_aabb().get_center()
+	I.put("stunt_loop", lo.x + lcen.x, lo.z + lcen.z, _yaw_to(S), 1.0, "stunt", y0, true)
+	var ltop: Vector3 = lo + lb * M.loop_top()
+	st["loops"].append({"pos": Vector3(ltop.x, y0, ltop.z), "dir": Vector3(0, 0, 1), "side": Vector3(-1, 0, 0)})
+	coins.append(ltop - Vector3(0, 1.4, 0))
+	# ---- Big Air: boost, kicker, and a gold hoop to fly through, with the whole south side to land on
+	_pad(I, Vector2(-132, 284), W, y0)
+	_piece(I, "k_klyo_ramp_kicker", Vector2(-152, 284), W, 1.4, y0)
+	var hx := -152.0 - 4.0 * 1.4 - 6.5
+	var hsc := 2.2
+	_piece(I, "k_klyo_gold_hoop", Vector2(hx, 284), W, hsc, y0, "mesh")
+	var hy := y0 + 3.06 * hsc
+	st["hoops"].append({"pos": Vector3(hx, hy, 284), "n": Vector3(-1, 0, 0), "r": 4.6})
+	coins.append(Vector3(hx, hy, 284))
+	# ---- two half-pipes end to end up the west side (sunk a touch, so the floor meets the yard flush)
+	for k in 2:
+		_piece(I, "k_klyo_half_pipe", Vector2(-233.3, 270.0 - k * 12.75), NN, 1.5, y0 - 0.1)
+	var hp_half := 8.498 * 1.5 * 0.5
+	var lip_c: float = M.get_mesh("hp_lip").get_aabb().get_center().z
+	I.put("hp_lip", -233.3, 270.0 + hp_half + lip_c, 0.0, 1.0, "stunt", y0)
+	I.put("hp_lip", -233.3, 257.25 - hp_half - lip_c, PI, 1.0, "stunt", y0)
+	coins.append(Vector3(-233.3 + 4.3, y0 + 3.0, 263.6))
+	# ---- the platform run: up a ramp onto a deck, over the gap, down again
+	var x := -222.0
+	var zr := 224.0
+	var deck := 2.03 * 1.5
+	_piece(I, "k_klyo_ramp_low", Vector2(x + 6.08, zr), E, 1.9, y0)
+	for k in 2:
+		_piece(I, "k_klyo_platform", Vector2(x + 12.16 + 3.075 + k * 6.15, zr), E, 1.5, y0)
+	var gx := x + 12.16 + 12.3 + 2.55
+	_piece(I, "k_klyo_gap_jump_pair", Vector2(gx, zr), E, 1.5, y0 + deck)
+	for k in 2:
+		_piece(I, "k_klyo_platform", Vector2(gx + 2.55 + 3.075 + k * 6.15, zr), E, 1.5, y0)
+	_piece(I, "k_klyo_ramp_low", Vector2(gx + 2.55 + 12.3 + 6.08, zr), W, 1.9, y0)
+	coins.append(Vector3(gx, y0 + deck + 4.5, zr))
+	_piece(I, "k_klyo_industrial_tunnel", Vector2(-150, 224), E, 1.5, y0, "mesh")
+	# ---- in the middle: a container to jump, cones to drift round, oil drums
+	_piece(I, "k_klyo_ramp_low", Vector2(-202, 262), E, 1.4, y0)
+	_piece(I, "k_klyo_container", Vector2(-185, 262), S, 1.0, y0, "box")
+	for k in 8:
+		var cx := -205.0 + k * 9.0
+		I.put_breakable("k_car_cone", cx, 244.0 + (2.2 if k % 2 == 0 else -2.2), 0.0, 1.0, 0.3, y0)
+	for d in [Vector2(-146, 268), Vector2(-145, 269.2), Vector2(-146.3, 269.5), Vector2(-212, 274), Vector2(-211, 275)]:
+		I.put("k_klyo_steel_drum", d.x, d.y, rr.randf() * TAU, 1.2, "cyl", y0)
+	# ---- edges: barriers where a run ends, floodlights at the corners, a crowd outside
+	for k in 12:
+		_piece(I, "k_klyo_jersey_barrier", Vector2(-103.0 - k * 3.4, 294.5), W, 1.4, y0, "box")
+	for k in 7:
+		_piece(I, "k_klyo_jersey_barrier", Vector2(-101.5, 268.0 + k * 3.4), S, 1.4, y0, "box")
+	for c in [Vector2(-237, 215), Vector2(-237, 293), Vector2(-103, 248), Vector2(-160, 215), Vector2(-185, 293)]:
+		I.put("k_klyo_floodlight", c.x, c.y, _yaw_to(STUNT - c), 1.0, "cyl", y0, true)
+	for k in 6:
+		var px := -228.0 + k * 17.0 + rr.randf_range(-2.0, 2.0)
+		_person(I, px, 208.5, "stand", _yaw_to(S))
+		_person(I, px + rr.randf_range(-12.0, 12.0) + 4.0, 300.5, "stand", _yaw_to(NN))
+	# ---- after a crash, back to the start of the nearest run
+	for rs in [[Vector2(-110, 222), S], [Vector2(-122, 289), W], [Vector2(-233, 289), NN], [Vector2(-232, 230), E], [Vector2(-212, 262), E]]:
+		var c2: Vector2 = rs[0]
+		st["resets"].append(Transform3D(Basis(Vector3.UP, _yaw_to(rs[1])), Vector3(c2.x, y0 + 0.9, c2.y)))
+	st["coins"] = coins
+
 static func _roadside(I, rr: RandomNumberGenerator) -> void:
 	for s in _along(I, "Ring Road", 7.6, 44.0, 10.0):
 		var p: Vector2 = s["p"]

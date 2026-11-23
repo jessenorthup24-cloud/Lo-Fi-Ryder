@@ -93,6 +93,14 @@ var was_air := 0.0
 var was_flipped := false
 var hb_was := false
 var auto_back := 0.0
+# stunts
+var jump := {}              # the jump in the air right now: {t, from, pitch, yaw, roll, hoops}
+var boost_cd := 0.0
+var loop_on := -1           # the loop you're going round (island.stunt.loops), -1: none
+var loop_last := 0
+var loop_flip := false      # been over the top of it yet
+var loop_cam := 0.0         # how far the camera has moved out to watch the loop from the side
+var last_sp := Vector3.INF  # where the car was last frame (for flying through hoops)
 
 func _ready() -> void:
 	_parse_args()
@@ -170,6 +178,12 @@ func _build_world() -> void:
 		sp = Transform3D(Basis(Vector3.UP, float(p[3])), Vector3(p[0], p[1] + 1.0, p[2]))
 	if args.has("at"):
 		sp = _at_spot(String(args["at"]))
+	if args.has("put"):
+		# a test: exactly here (x,z,yaw degrees), off the road
+		var q := String(args["put"]).split(",")
+		var qx := float(q[0])
+		var qz := float(q[1])
+		sp = Transform3D(Basis(Vector3.UP, deg_to_rad(float(q[2]) if q.size() > 2 else 0.0)), Vector3(qx, island.height_at(qx, qz) + 0.9, qz))
 	car.place(sp)
 	last_pos = sp.origin
 	cam_yaw = sp.basis.get_euler().y
@@ -199,7 +213,16 @@ func _build_world() -> void:
 		var off := Vector3(np.x - sp.origin.x, 0, np.z - sp.origin.z)
 		var side := Vector3(-f3.z, 0, f3.x)
 		car.place(Transform3D(sp.basis, sp.origin + side * off.dot(side) + Vector3(0, 0.3, 0)))
-	if args.has("garage"):
+	if args.has("sheet"):
+		# a test: open a screen for a screenshot (settings, help)
+		save.data["seen_help"] = true
+		start_drive()
+		match String(args["sheet"]):
+			"settings":
+				ui.open_settings()
+			"help":
+				ui.show_help()
+	elif args.has("garage"):
 		open_garage()
 		if String(args["garage"]) == "up":
 			ui.g_tab = "up"
@@ -326,7 +349,18 @@ func car_changed() -> void:
 	sound.turbo = int(save.data["up"].get("turbo", 0))
 
 func reset_car() -> void:
-	var xf := _road_spot(car.global_position, car.global_rotation.y)
+	var p := car.global_position
+	var xf := _road_spot(p, car.global_rotation.y)
+	# in the stunt yard: back to the start of the nearest run
+	if (island.stunt["rect"] as Rect2).grow(10.0).has_point(Vector2(p.x, p.z)):
+		var best := 1e9
+		for r in island.stunt["resets"]:
+			var d := ((r as Transform3D).origin - p).length()
+			if d < best:
+				best = d
+				xf = r
+	jump = {}
+	loop_on = -1
 	car.place(xf)
 	_break_drift(false)
 	flip_t = 0.0
@@ -339,6 +373,8 @@ func reset_car() -> void:
 ## Fast travel from the map.
 func travel_to(xf: Transform3D) -> void:
 	_end_challenges()
+	jump = {}
+	loop_on = -1
 	car.place(xf)
 	_break_drift(false)
 	_snap_cam()
@@ -449,8 +485,10 @@ func _process(dt: float) -> void:
 	if args.has("shot") and frames == int(args.get("shot_at", "200")):
 		get_viewport().get_texture().get_image().save_png(String(args["shot"]))
 	if args.has("quit_after") and (time > float(args["quit_after"]) or (args.has("shot") and frames > int(args.get("shot_at", "200")) + 2)):
-		print("RESULT t=%.1f dist=%.0f drift=%.0f coins=%d max_kmh=%.0f knocks=%.0f state=%d" % [time, save.stat("distance"),
-			save.stat("drift_points"), int(save.data["coins"]), save.stat("max_kmh"), save.stat("knocks"), state])
+		print("RESULT t=%.1f dist=%.0f drift=%.0f coins=%d max_kmh=%.0f knocks=%.0f state=%d tris=%d draws=%d" % [time, save.stat("distance"),
+			save.stat("drift_points"), int(save.data["coins"]), save.stat("max_kmh"), save.stat("knocks"), state,
+			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME),
+			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)])
 		get_tree().quit()
 
 func _controls_off() -> void:
@@ -462,6 +500,9 @@ func _controls_off() -> void:
 func _controls(dt: float) -> void:
 	if autopilot:
 		_autopilot(dt)
+		return
+	if args.has("stunt"):
+		_stunt_test()
 		return
 	if args.has("demo"):
 		# a scripted drift for screenshots: get going, flick it, hold it
@@ -485,6 +526,53 @@ func _controls(dt: float) -> void:
 	car.handbrake = 1.0 if held.get("hand", false) else 0.0
 	ui.pressed_controls(held)
 
+## A test: hold the gas along the line the car started on, then do a trick in the air:
+## --stunt=straight|backflip|frontflip|spin|roll|level  (logs every few frames)
+func _stunt_test() -> void:
+	if not auto.has("line"):
+		auto["line"] = car.global_transform
+	var o: Transform3D = auto["line"]
+	var dir := -o.basis.z
+	dir.y = 0.0
+	dir = dir.normalized()
+	var xf := car.global_transform
+	var fwd := -xf.basis.z
+	fwd.y = 0.0
+	var off := (car.global_position - o.origin).dot(dir.cross(Vector3.UP))
+	var herr := atan2(dir.cross(fwd.normalized()).y, dir.dot(fwd.normalized()))
+	car.throttle = 1.0
+	car.brake = 0.0
+	car.handbrake = 0.0
+	car.steer_in = 0.0
+	if car.grounded >= 2 and loop_on < 0:
+		car.steer_in = clampf(-off * 0.25 + herr * 1.4, -1.0, 1.0)
+	var air := car.grounded == 0 and car.air_t > 0.2
+	if car.grounded == 0 and not air:
+		car.throttle = 0.0      # (off the gas at the lip, so pressing it again in the air counts)
+	# (let go once the trick's round, and let it settle for the landing)
+	var done := not jump.is_empty() and maxf(absf(float(jump["pitch"])), maxf(absf(float(jump["roll"])), absf(float(jump["yaw"])))) > float(args.get("turn", "5.0"))
+	if air and done:
+		car.throttle = 0.0
+	elif air:
+		match String(args["stunt"]):
+			"backflip":
+				car.throttle = 0.0
+				car.brake = 1.0
+			"spin":
+				car.throttle = 0.0
+				car.steer_in = 1.0
+			"roll":
+				car.throttle = 0.0
+				car.handbrake = 1.0
+				car.steer_in = 1.0
+			"level":
+				car.throttle = 0.0
+	if frames % 6 == 0:
+		var p := car.global_position
+		print("st t=%.2f p=(%.1f,%.1f,%.1f) v=%.1f up=%.2f gr=%d on=%d air=%.2f loop=%d/%s jump=%s pts=%.0f" % [time, p.x, p.y, p.z,
+			car.linear_velocity.length(), xf.basis.y.y, car.grounded, car.on_stunt, car.air_t, loop_on, str(loop_flip),
+			"" if jump.is_empty() else "t%.1f p%.1f y%.1f r%.1f" % [jump["t"], jump["pitch"], jump["yaw"], jump["roll"]], save.stat("stunt_points")])
+
 func _drive(dt: float) -> void:
 	var p := car.global_position
 	var v := car.linear_velocity
@@ -500,6 +588,7 @@ func _drive(dt: float) -> void:
 	if car.air_t > 0.0:
 		save.max_stat("max_air", car.air_t)
 	_drift(dt)
+	_stunts(dt)
 	_effects(dt)
 	_impacts(dt)
 	_breakables()
@@ -562,7 +651,8 @@ func _drift(dt: float) -> void:
 		drift_off_t += dt
 		if drift_off_t > 0.55:
 			_bank()
-	else:
+	elif car.grounded > 0:
+		# (it keeps while you're in the air, so a jump can carry a combo on)
 		combo_t = maxf(0.0, combo_t - dt)
 		if combo_t <= 0.0:
 			combo = 1
@@ -661,7 +751,7 @@ func _on_bump(strength: float) -> void:
 			ui.toast("Battered! The gas station on Castle Road fixes you up", "gear", K.PAPER, K.INK, 3.0)
 		save.add_stat("crashes", 1)
 	# a big hit lands with a moment of slow motion
-	if strength > 15.0 and not autopilot:
+	if strength > 15.0 and not autopilot and kind != "ground":
 		Engine.time_scale = 0.4
 		get_tree().create_timer(0.14, true, false, true).timeout.connect(func(): Engine.time_scale = 1.0)
 
@@ -764,8 +854,10 @@ func _recover(dt: float) -> void:
 		ui.toast("Splash! Back to the road.", "rain", K.SKY, K.PAPER, 1.5)
 		reset_car()
 		return
-	if car.is_upside_down() or (car.grounded == 0 and car.linear_velocity.length() < 0.5):
+	if (car.is_upside_down() and car.linear_velocity.length() < 4.0 and car.on_stunt < 2) or (car.grounded == 0 and car.linear_velocity.length() < 0.5):
 		flip_t += dt
+		if flip_t > 0.5:
+			_bail()
 		if flip_t > 2.2:
 			reset_car()
 	else:
@@ -827,7 +919,7 @@ func _build_markers() -> void:
 func _zone_start(z: Dictionary) -> Vector3:
 	var c: Vector3 = z["pos"]
 	var starts := {"bowl": Vector3(175, 0, 178), "square": Vector3(-110, 0, 0), "harbour": Vector3(-362, 0, 163),
-		"farmyard": Vector3(235, 0, 2), "beach": Vector3(60, 0, 378), "skate": Vector3(70, 0, 120)}
+		"farmyard": Vector3(235, 0, 2), "beach": Vector3(60, 0, 378), "skate": Vector3(70, 0, 120), "stunt": Vector3(-110, 0, 199)}
 	var p: Vector3 = starts.get(z["id"], c)
 	p.y = island.height_at(p.x, p.z)
 	return p
@@ -881,7 +973,8 @@ func _start_zone(id: String) -> void:
 	zone_pts = 0.0
 	zone_out = 0.0
 	_break_drift(false)
-	ui.challenge_start(zone["name"], "Drift inside the zone. %d seconds!" % int(zone_t), zone["medals"], false)
+	var how := "Jumps, flips, the loop and drifts all count. %d seconds!" if zone["id"] == "stunt" else "Drift inside the zone. %d seconds!"
+	ui.challenge_start(zone["name"], how % int(zone_t), zone["medals"], false)
 	sfx("go", -2.0)
 
 func _in_zone() -> bool:
@@ -889,6 +982,8 @@ func _in_zone() -> bool:
 		return false
 	var c: Vector3 = zone["pos"]
 	var p := car.global_position
+	if zone.has("rect"):
+		return (zone["rect"] as Rect2).grow(6.0).has_point(Vector2(p.x, p.z))
 	return Vector2(p.x - c.x, p.z - c.z).length() < float(zone["r"])
 
 func _zone_tick(dt: float) -> void:
@@ -1080,6 +1175,164 @@ func _coins_tick(_dt: float) -> void:
 			ui.found_coin(save.data["coins_taken"].size(), coins_live.size(), COIN_PICKUP)
 			ach_check()
 
+# ------------------------------------------------------------------ stunts
+
+func _stunts(dt: float) -> void:
+	var p := car.global_position
+	var xf := car.global_transform
+	var st: Dictionary = island.stunt
+	# boost pads: a shove forward as you drive over one
+	boost_cd = maxf(0.0, boost_cd - dt)
+	if boost_cd <= 0.0 and car.grounded >= 2:
+		for pad in st["pads"]:
+			var d: Vector3 = p - (pad["pos"] as Vector3)
+			var dir: Vector3 = pad["dir"]
+			var hs: Vector2 = pad["hs"]
+			if absf(d.y) > 2.0 or absf(d.dot(dir)) > hs.y or absf(d.dot(Vector3(-dir.z, 0, dir.x))) > hs.x:
+				continue
+			var v := car.linear_velocity
+			var va := v.dot(dir)
+			if va < 3.0:
+				continue
+			var to := clampf(maxf(va + 7.0, 25.0), va, 34.0)
+			car.linear_velocity = v + dir * (to - va)
+			boost_cd = 1.0
+			sfx("boost", -1.0)
+			ui.popup_text("Boost!", K.SKY)
+			shake = maxf(shake, 0.35)
+			buzz(60, 0.7)
+			for k in 10:
+				fx.puff(p + Vector3(randf_range(-1.2, 1.2), 0.3, randf_range(-1.2, 1.2)), Color("8fe3ff"), randf_range(0.6, 1.1),
+					-dir * randf_range(4.0, 9.0) + Vector3(0, randf_range(0.5, 2.0), 0), 0.6, 0.6)
+			save.add_stat("boosts", 1)
+			break
+	# flying through a hoop
+	if last_sp != Vector3.INF:
+		for h in st["hoops"]:
+			var c: Vector3 = h["pos"]
+			var n: Vector3 = h["n"]
+			var a := (last_sp - c).dot(n)
+			var b := (p - c).dot(n)
+			if (a < 0.0) != (b < 0.0):
+				var q := last_sp.lerp(p, a / (a - b))
+				if q.distance_to(c) < float(h["r"]):
+					sfx("checkpoint", -2.0)
+					ui.popup_text("Through the hoop!", K.SUN)
+					fx.sparkle(q, Color("ffd34d"), 24)
+					save.add_stat("hoops", 1)
+					if jump.is_empty():
+						_stunt_bank(800.0, "Hoop!")
+					else:
+						jump["hoops"] = int(jump["hoops"]) + 1
+	last_sp = p
+	# round the loop
+	if loop_on < 0 and car.on_stunt >= 2 and xf.basis.y.y < 0.3:
+		for i in st["loops"].size():
+			var lc: Vector3 = st["loops"][i]["pos"]
+			if Vector2(p.x - lc.x, p.z - lc.z).length() < 16.0:
+				loop_on = i
+				loop_last = i
+				loop_flip = false
+	if loop_on >= 0:
+		if xf.basis.y.y < -0.6 and car.on_stunt >= 2:
+			loop_flip = true
+		if car.grounded == 0 and car.air_t > 0.3:
+			loop_on = -1          # fell off
+		elif xf.basis.y.y > 0.85 and car.grounded >= 2:
+			if loop_flip:
+				save.add_stat("loops", 1)
+				_stunt_bank(1500.0, "Loop the loop!")
+			loop_on = -1
+	# jumps: add up the turns in the air, score them when the wheels are back down
+	if car.grounded == 0 and not car.freeze:
+		if jump.is_empty():
+			jump = {"t": 0.0, "from": p, "pitch": 0.0, "yaw": 0.0, "roll": 0.0, "hoops": 0}
+		jump["t"] = float(jump["t"]) + dt
+		# (from how the car's turned since last frame, so a slow frame doesn't lose any of it)
+		var bn := xf.basis.orthonormalized()
+		if jump.has("b"):
+			var dq := Quaternion((jump["b"] as Basis).inverse() * bn)
+			var ang := dq.get_angle()
+			if ang > PI:
+				ang -= TAU
+			var rv := dq.get_axis() * ang if absf(ang) > 0.00001 else Vector3.ZERO
+			jump["pitch"] = float(jump["pitch"]) + rv.x
+			jump["yaw"] = float(jump["yaw"]) + rv.y
+			jump["roll"] = float(jump["roll"]) + rv.z
+		jump["b"] = bn
+	elif not jump.is_empty() and car.grounded >= 2:
+		_landed()
+		jump = {}
+
+func _landed() -> void:
+	var t: float = jump["t"]
+	var hoops: int = jump["hoops"]
+	if t < 0.7 and hoops == 0:
+		return
+	var p := car.global_position
+	var from: Vector3 = jump["from"]
+	var dist := Vector2(p.x - from.x, p.z - from.z).length()
+	var pitch: float = jump["pitch"]
+	var flips := int((absf(pitch) + 0.6) / TAU)
+	var rolls := int((absf(float(jump["roll"])) + 0.6) / TAU)
+	var halves := int((absf(float(jump["yaw"])) + 0.45) / PI)
+	var parts := PackedStringArray()
+	if flips > 0:
+		parts.append(("Backflip" if pitch > 0.0 else "Frontflip") + (" x%d" % flips if flips > 1 else ""))
+	if rolls > 0:
+		parts.append("Barrel roll" + (" x%d" % rolls if rolls > 1 else ""))
+	if halves > 0:
+		parts.append(str(halves * 180))
+	if hoops > 0:
+		parts.append("hoop")
+	var tricks := flips + rolls + halves
+	var pts := t * 160.0 + dist * 5.0 + flips * 1200.0 + rolls * 1000.0 + halves * 350.0 + hoops * 800.0
+	if tricks > 0 and car.global_transform.basis.y.y > 0.8:
+		pts *= 1.5
+		parts.append("clean!")
+	if tricks == 0:
+		parts.insert(0, "Big air %.1f s" % t if t >= 1.5 else "Air %.1f s" % t)
+	save.add_stat("jumps", 1)
+	save.add_stat("flips", flips + rolls)
+	save.max_stat("max_flips", flips + rolls)
+	save.max_stat("max_jump", dist)
+	_stunt_bank(pts, " · ".join(parts))
+
+## Scores a stunt like a banked drift: the combo multiplies it, and it keeps the combo going.
+func _stunt_bank(pts: float, text: String) -> void:
+	if combo_t > 0.0:
+		combo = mini(combo + 1, 10)
+		ui.combo_bump(combo)
+	combo_t = 2.6
+	var total := int(pts * combo)
+	if args.has("stunt"):
+		print("STUNT %s  %d x%d = %d" % [text, int(pts), combo, total])
+	save.add_stat("stunt_points", total)
+	save.max_stat("max_stunt", total)
+	coin_frac += total / 120.0
+	var c := int(coin_frac)
+	coin_frac -= c
+	save.data["coins"] = int(save.data["coins"]) + c
+	if not zone.is_empty() and _in_zone():
+		zone_pts += total
+	ui.popup_text(text, K.SUN)
+	ui.banked(total, c)
+	sfx("near", -2.0)
+	sfx("coin", -6.0, 1.0 + minf(total / 20000.0, 0.5))
+	if total > 2500:
+		island.people.cheer(car.global_position)
+
+## Came down on the roof: the jump in progress scores nothing.
+func _bail() -> void:
+	if jump.is_empty():
+		return
+	var t: float = jump["t"]
+	jump = {}
+	if t > 0.7:
+		ui.popup_text("Bailed!", K.CORAL)
+		combo = 1
+		combo_t = 0.0
+
 # ------------------------------------------------------------------ camera
 
 func _snap_cam() -> void:
@@ -1090,16 +1343,24 @@ func _cam(dt: float, snap := false) -> void:
 	var xf := car.global_transform
 	var fwd := -xf.basis.z
 	fwd.y = 0.0
-	fwd = fwd.normalized()
 	var v := car.linear_velocity
 	v.y = 0.0
+	var flying := car.grounded == 0 and car.air_t > 0.15
+	if flying or xf.basis.y.y < 0.35 or fwd.length() < 0.3:
+		# flipping in the air or up a wall: follow where it's going, not which way it points
+		fwd = v if v.length() > 2.0 else Vector3(-sin(cam_yaw), 0, -cos(cam_yaw))
+	fwd = fwd.normalized()
 	var dirv := fwd
-	if v.length() > 3.0 and car.speed > 0.0:
+	if v.length() > 3.0 and car.speed > 0.0 and not flying:
 		# look along where the car is going, so a drift shows off its side
 		dirv = fwd.slerp(v.normalized(), clampf(car.drift * 0.7 + 0.25, 0.0, 0.8))
 	var want := atan2(-dirv.x, -dirv.z)
 	var rate := 3.2 + clampf(v.length() / 10.0, 0.0, 3.0)
-	cam_yaw = want if snap else lerp_angle(cam_yaw, want, 1.0 - exp(-dt * rate))
+	if loop_on < 0:
+		cam_yaw = want if snap else lerp_angle(cam_yaw, want, 1.0 - exp(-dt * rate))
+	else:
+		# round the loop: hold the heading you came in on (it comes out the same way)
+		dirv = Vector3(-sin(cam_yaw), 0, -cos(cam_yaw))
 	var far := cam_mode == 1
 	var dist := (11.0 if far else 7.6) + clampf(v.length() * 0.05, 0.0, 2.0)
 	var height := (4.4 if far else 2.7)
@@ -1116,10 +1377,19 @@ func _cam(dt: float, snap := false) -> void:
 		desired = (hit["position"] as Vector3) + (target - (hit["position"] as Vector3)).normalized() * 0.6
 	cam_pos = desired if snap else cam_pos.lerp(desired, 1.0 - exp(-dt * 9.0))
 	cam.position = cam_pos
+	var look := target + dirv * 3.0 + Vector3(0, -0.2, 0)
+	# going round a loop, the camera stands off to the side to watch
+	loop_cam = 0.0 if snap else move_toward(loop_cam, 1.0 if loop_on >= 0 else 0.0, dt * (4.0 if loop_on >= 0 else 2.2))
+	if loop_cam > 0.0:
+		var lp: Dictionary = island.stunt["loops"][loop_last]
+		var side_pos: Vector3 = (lp["pos"] as Vector3) + (lp["side"] as Vector3) * 24.0 + Vector3(0, M.LOOP_R + 1.0, 0)
+		var k := smoothstep(0.0, 1.0, loop_cam)
+		cam.position = cam_pos.lerp(side_pos, k)
+		look = look.lerp(xf.origin, k)
 	if shake > 0.0:
 		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * shake * 0.18
 		shake = maxf(0.0, shake - dt * 2.5)
-	cam.look_at(target + dirv * 3.0 + Vector3(0, -0.2, 0), Vector3.UP)
+	cam.look_at(look, Vector3.UP)
 	cam.fov = lerpf(cam.fov, 62.0 + clampf(absf(car.speed) * 3.6 * 0.09, 0.0, 16.0), 1.0 - exp(-dt * 3.0))
 
 func _title_cam(dt: float) -> void:
@@ -1240,7 +1510,7 @@ func _autopilot(dt: float) -> void:
 		var bd := 1e18
 		for ri in island.roads.size():
 			var r: Dictionary = island.roads[ri]
-			if r["kind"] == "dirt" and ri % 2 == 0:
+			if (r["kind"] == "dirt" and ri % 2 == 0) or r["kind"] == "yard":
 				continue
 			var pts: PackedVector2Array = r["pts"]
 			for k in range(0, pts.size(), 2):

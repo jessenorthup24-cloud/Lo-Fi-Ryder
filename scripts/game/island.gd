@@ -57,6 +57,9 @@ var zones: Array = []              # drift zones {id, name, pos, r, gold...}
 var trials: Array = []             # time trials {id, name, gates: [Transform3D], ...}
 var coin_spots: Array = []         # {id, pos}
 var places: Array = []             # named areas {name, pos, r}
+## The stunt yard: boost pads {pos, dir, hs}, hoops {pos, n, r}, loops {pos, dir}, reset spots
+## [Transform3D] and its rect (x, z).
+var stunt := {"pads": [], "hoops": [], "loops": [], "resets": [], "rect": Rect2()}
 var spawn := Transform3D()
 var sea_y := 0.0
 var time := 0.0
@@ -254,7 +257,8 @@ func is_free(c: Vector2, hs: Vector2, yaw := 0.0) -> bool:
 ## kind: ring, main, street, lane, mountain, dirt. Points are xz control points; the road is a
 ## Catmull-Rom spline through them, sampled every 2.5 m.
 func add_road(name: String, ctrl: Array, kind: String, closed := false) -> Dictionary:
-	var w: float = {"ring": 12.0, "main": 12.0, "road": 11.0, "street": 10.0, "lane": 8.0, "mountain": 9.0, "dirt": 6.5}[kind]
+	# ("yard": a way in to the stunt yard; traffic leaves it alone)
+	var w: float = {"ring": 12.0, "main": 12.0, "road": 11.0, "street": 10.0, "lane": 8.0, "mountain": 9.0, "dirt": 6.5, "yard": 8.0}[kind]
 	var pts := _spline(ctrl, closed)
 	var r := {"name": name, "pts": pts, "y": PackedFloat32Array(), "w": w, "kind": kind, "closed": closed,
 		"walk": kind == "street" or kind == "main", "surf": S_DIRT if kind == "dirt" else S_ASPHALT}
@@ -671,7 +675,7 @@ func _road_meshes() -> void:
 			var lift := Vector3(0, 0.015, 0)
 			# centre line: dashed (solid yellow on the mountain)
 			var dash := kind == "mountain" or (k / 2) % 3 != 0
-			if kind != "lane" and dash:
+			if kind != "lane" and kind != "yard" and dash:
 				var cw := 0.13
 				var cc: Color = line_y if kind in ["ring", "mountain", "main", "road"] else line_w
 				mb.quad(pa - la * cw + lift, pb - lb * cw + lift, pb + lb * cw + lift, pa + la * cw + lift, up, cc)
@@ -1046,14 +1050,50 @@ func _props_body() -> RID:
 		PhysicsServer3D.body_set_collision_mask(props_body, 0)
 	return props_body
 
+## The stunt pieces you drive on (ramps, the loop, half-pipes) get a body of their own, so the car can tell
+## riding up a wall of the loop from scraping a real wall.
+var stunt_body := RID()
+
+func _stunt_body() -> RID:
+	if not stunt_body.is_valid():
+		stunt_body = PhysicsServer3D.body_create()
+		PhysicsServer3D.body_set_mode(stunt_body, PhysicsServer3D.BODY_MODE_STATIC)
+		if is_inside_tree():
+			PhysicsServer3D.body_set_space(stunt_body, get_world_3d().space)
+		PhysicsServer3D.body_set_collision_layer(stunt_body, 1)
+		PhysicsServer3D.body_set_collision_mask(stunt_body, 0)
+	return stunt_body
+
 func _enter_tree() -> void:
-	if props_body.is_valid():
-		PhysicsServer3D.body_set_space(props_body, get_world_3d().space)
+	for b in [props_body, stunt_body]:
+		if (b as RID).is_valid():
+			PhysicsServer3D.body_set_space(b, get_world_3d().space)
 
 func _exit_tree() -> void:
 	if props_body.is_valid():
 		PhysicsServer3D.free_rid(props_body)
 		props_body = RID()
+	if stunt_body.is_valid():
+		PhysicsServer3D.free_rid(stunt_body)
+		stunt_body = RID()
+
+## A stunt piece's exact shape, on the stunt body. Uses the model's own simple collision mesh when it
+## comes with one (<name>_col), else its triangles.
+func add_stunt_collider(name: String, xf: Transform3D) -> void:
+	var sc := xf.basis.get_scale().x
+	var key := "s%s_%.3f" % [name, sc]
+	if not shapes.has(key):
+		var src := name
+		if name.begins_with("k_") and ResourceLoader.exists("res://assets/kenney/%s_col.res" % name):
+			src = name + "_col"
+		var faces := M.get_mesh(src).get_faces()
+		for i in faces.size():
+			faces[i] *= sc
+		var sh := ConcavePolygonShape3D.new()
+		sh.set_faces(faces)
+		sh.backface_collision = true     # (so a hard-pressed car can't slip through the back of a deck)
+		shapes[key] = sh
+	PhysicsServer3D.body_add_shape(_stunt_body(), (shapes[key] as Shape3D).get_rid(), Transform3D(xf.basis.orthonormalized(), xf.origin))
 
 func add_box_collider(xf: Transform3D, size: Vector3) -> void:
 	PhysicsServer3D.body_add_shape(_props_body(), _shape_box(size).get_rid(), xf)
@@ -1063,14 +1103,22 @@ func add_cyl_collider(p: Vector3, r: float, h: float) -> void:
 
 ## The exact shape of a mesh (ramps, half-pipes) to drive on.
 func add_mesh_collider(name: String, xf: Transform3D) -> void:
-	var key := "m" + name
+	# (the scale goes into the shape: a scaled concave shape is asking for trouble)
+	var sc := xf.basis.get_scale().x
+	var key := "m%s_%.3f" % [name, sc]
 	if not shapes.has(key):
-		shapes[key] = M.get_mesh(name).create_trimesh_shape()
-	PhysicsServer3D.body_add_shape(_props_body(), (shapes[key] as Shape3D).get_rid(), xf)
+		var faces := M.get_mesh(name).get_faces()
+		for i in faces.size():
+			faces[i] *= sc
+		var sh := ConcavePolygonShape3D.new()
+		sh.set_faces(faces)
+		shapes[key] = sh
+	PhysicsServer3D.body_add_shape(_props_body(), (shapes[key] as Shape3D).get_rid(), Transform3D(xf.basis.orthonormalized(), xf.origin))
 
 # ---------------------------------------------------------------- placing things
 
-## Puts a model in the world for good. col: "box" (its bounds), "cyl" (a trunk), "mesh", "" (none).
+## Puts a model in the world for good. col: "box" (its bounds), "cyl" (a trunk), "mesh", "stunt" (exact,
+## on the stunt body), "" (none).
 ## Returns its transform. y < -1000: sits on the ground.
 func put(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, col := "box", y := -10000.0, landmark := false) -> Transform3D:
 	var m := M.get_mesh(name)
@@ -1116,6 +1164,8 @@ func put(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, col := "box", 
 			add_cyl_collider(xf.origin, clampf(minf(ab.size.x, ab.size.z) * sc * 0.12, 0.18, 0.6), ab.size.y * sc)
 		"mesh":
 			add_mesh_collider(name, xf)
+		"stunt":
+			add_stunt_collider(name, xf)
 	return xf
 
 ## Something you can knock over (lamps, benches, cones...). It springs back once you're gone.

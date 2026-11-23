@@ -27,14 +27,25 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   traffic scores half as much again. Hitting something hard loses the drift you were holding.
 - Challenges, marked on the map and on the road:
   - Drift zones (orange rings): score as much as you can inside the zone before the clock runs out.
-    The Drift Bowl, the town square, the harbour lot, the farmyard, the beach car park and the skate
-    park.
+    The Drift Bowl, the town square, the harbour lot, the farmyard, the beach car park, the skate
+    park and the Stunt Yard (where jumps, flips and the loop count too).
   - Time trials (blue): race through the gates. Drift runs (purple): drift through every gate.
   - Each has bronze, silver and gold medals that pay out once.
-  - Hidden coins are tucked around the island, and finding all 12 places counts toward trophies.
+  - Hidden coins are tucked around the island (a few hang in the Stunt Yard's air), and finding all 13
+    places counts toward trophies.
+- Stunts, GTA style. In the air, GAS tips the nose down and BRAKE pulls it up (hold to flip); steering
+  spins the car round, and DRIFT + steering barrel-rolls it. Let go and it eases its spin and levels
+  out for the landing. A button you were already holding as you left the ground doesn't count until
+  you press it again, so ordinary jumps with your foot down don't nose-dive. Flips, barrel rolls,
+  180s, air time and distance all score when you land on your wheels, half as much again for a clean
+  landing; land on the roof and it's lost. Stunts take the drift combo and keep it going.
+- The Stunt Yard, on the meadow south of town (Stunt Lane, off South Street): in under the gate and
+  over a boost pad into a corkscrew loop; Big Air on the south side (boost, kicker, a gold hoop to fly
+  through); two half-pipes end to end; a raised platform run with a jump across the gap; a container
+  jump, cones and a tunnel. Crash in there and you're put back at the start of the nearest run.
 - The garage: 18 cars (each with its own power, top speed, grip and drift), plus four upgrades that
   work on every car you own (engine, turbo, tyres, steering angle).
-- 29 trophies, each paying coins once.
+- 35 trophies, each paying coins once.
 - If you flip, land in the water or get stuck, the car is put back on the road.
 - Crashes: hit a traffic car and it gets shoved and spun by the knock (you share it by weight), then the
   driver straightens up and carries on, dents and all. Your own car dents where it hits, smokes once
@@ -75,7 +86,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `scripts/ui/` | All screens (built in code), icons drawn in code |
 | `shaders/` | Toon shader with the season palette, sea, wipe |
 | `tools/kenney/bake_kenney.gd` | Bakes the chosen Kenney kit models into `assets/kenney/` (people posed, arms loose) |
-| `tools/look/` | Look-dev: `island_look.gd` photographs parts of the island, `kgrid.gd` makes a model contact sheet |
+| `tools/kenney/bake_klyo.gd` | Bakes the Klyo stunt kit models (and their simple collision meshes, `_col`) into `assets/kenney/k_klyo_*` |
+| `tools/look/` | Look-dev: `island_look.gd` photographs parts of the island, `kgrid.gd` makes a model contact sheet, `piece_look.gd` photographs one model from four sides on a 1 m grid |
 | `tools/test/` | `handling.gd` (handling report), `road_audit.gd` (nothing in roads or pavements), `road_surface.gd` (roads meet the ground and each other), `road_net.gd` (junctions and loose ends), `traffic_soak.gd` (overlaps, jams, cars off the road), `collide_test.gd`, `probe.gd` |
 | `tools/audio/`, `tools/music/` | Sound synthesis scripts (the fallback sounds); the CC0 music list the build fetches |
 | `scripts/game/dents.gd` | Crash damage: bends a mesh in around an impact |
@@ -88,6 +100,7 @@ There are no autoloads and no `class_name`s, so an update pack can replace any s
 godot --path . -- --auto                         # autopilot drives the roads
 godot --path . -- --drive --at=harbour --hour=21 # start at a zone, trial, place name or x,z[,yaw]
 godot --path . -- --garage=up --fresh            # garage on the Upgrades tab, fresh save
+godot --path . -- --drive --put=-108,284,90 --stunt=backflip   # exactly here (x,z,yaw), gas on, a trick in the air
 godot --path . -- --drive --season=3             # 0 spring, 1 summer, 2 autumn, 3 winter
 xvfb-run godot --path . -- --drive --shot=/tmp/x.png --shot_at=200 --quit_after=30
 godot --headless --path . -s res://tools/test/handling.gd -- bug,hotrod all   # handling report
@@ -111,7 +124,12 @@ the game falls back to its own synthesized sounds (`tools/audio/`). The building
 ships and props are from Kenney's CC0 kits (kenney.nl: City Kit
 Suburban and Commercial, Modular Buildings, Retro Urban Kit, Car Kit, Mini Characters, Cube Pets,
 Mini Skate, Survival Kit, Mini Forest, Castle Kit, Holiday Kit, Mini Arena, Pirate Kit). The player cars
-are the Tiny Car Pack. Terrain, roads and the remaining props are made in code. Music: CC0 lo-fi hip hop
+are the Tiny Car Pack. The Stunt Yard's ramps, platforms, half-pipes, gap jump, boost pads, gate, hoop,
+tunnel and yard props are "Stunt arena 3D models: ramps, hoop, barriers (GLB)" and "Stunt arena 3D
+expansion: loop, half-pipe, tunnel, obstacles" by Klyo Games (https://games.klyo.pl/free-game-assets/),
+licensed CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/); they're baked to the game's
+flat-colour style, and the loop is built in code to match (the kit's loop is a closed ring a car can't
+drive into). Terrain, roads and the remaining props are made in code. Music: CC0 lo-fi hip hop
 by HoliznaCC0 and omfgdude from OpenGameArt (see `tools/music/sources.json`; the tracks actually used
 are listed in `tracks.json` on the `music` branch). The font is Fredoka (SIL Open Font License,
 `assets/fonts/LICENSE_Fredoka.txt`).

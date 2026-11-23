@@ -31,6 +31,14 @@ const VIEWS := {
 	"jmaple": [Vector3(-288, 45, -150.1), Vector3(-288, 0, -150), 60.0],
 	"jstreet": [Vector3(-170, 9, 12), Vector3(-140, 0, 0), 60.0],
 	"spawntop": [Vector3(-262, 140, 61.1), Vector3(-262, 0, 61), 60.0],
+	"stunttop": [Vector3(-170, 170, 262.1), Vector3(-170, 0, 262), 60.0],
+	"stunt": [Vector3(-110, 40, 190), Vector3(-175, 2, 265), 60.0],
+	"stunt2": [Vector3(-235, 30, 330), Vector3(-170, 2, 250), 60.0],
+	"stuntgate": [Vector3(-104, 6, 196), Vector3(-118, 4, 250), 60.0],
+	"stuntloop": [Vector3(-146, 8, 262), Vector3(-114, 7, 256), 60.0],
+	"stuntplat": [Vector3(-186, 9, 246), Vector3(-205, 3, 224), 62.0],
+	"stuntpipe": [Vector3(-216, 7, 296), Vector3(-234, 1.5, 262), 60.0],
+	"stuntair": [Vector3(-120, 7, 300), Vector3(-160, 6, 284), 60.0],
 }
 
 var frames := 0

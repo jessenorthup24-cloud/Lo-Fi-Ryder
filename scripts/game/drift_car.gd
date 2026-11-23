@@ -67,6 +67,16 @@ var _clock := 0.0
 var _swing_dir := 0.0        # the side the last drift went (+1 right), for swinging into the next one
 var _swing_t := 0.0         # what the front wheels show (they point into the slide when drifting)
 const DRIFT_PACE := 19.0     # m/s (about 68 km/h): a held drift settles around here
+# in the air: how fast each control turns the car (rad/s) and how hard it gets there (rad/s²)
+const AIR_PITCH := 3.4
+const AIR_YAW := 2.8
+const AIR_ROLL := 3.6
+const AIR_ACC := 9.0
+var on_stunt := 0            # wheels on a stunt piece (ramps, the loop, half-pipes)
+var roof_t := 0.0            # lying on its roof or side, touching the ground (counts down)
+# in the air, a button only does a trick once it's been pressed up there: the gas you were holding when
+# you left the ramp doesn't tip the nose down (press it again for that)
+var _air_free := {"gas": false, "brake": false, "steer": false}
 const GEARS := [0.0, 8.5, 15.0, 22.0, 29.5, 37.0, 46.0, 60.0]
 const TRAVEL := 0.28
 const REST := 0.32           # ray starts this far above the wheel centre
@@ -144,8 +154,28 @@ func tune(def: Dictionary, up: Dictionary) -> void:
 func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 	var wall := false
 	var com := st.transform * st.center_of_mass_local
+	var stunt_rid: RID = island.stunt_body if island else RID()
+	var upw := st.transform.basis.y
 	for i in st.get_contact_count():
 		var n := st.get_contact_local_normal(i)
+		# lying on its roof: the ground underneath pushes up into it (hanging upside down at the top of the
+		# loop, the track above pushes down instead)
+		var n_in := n if (com - st.get_contact_local_position(i)).dot(n) >= 0.0 else -n
+		if upw.y < 0.35 and n_in.y > 0.6:
+			roof_t = 0.15
+
+		if stunt_rid.is_valid() and st.get_contact_collider(i) == stunt_rid:
+			# a stunt piece: riding its deck or walls (whichever way up) isn't a knock; only its sides
+			# square on to the car are, and even those don't hold the car flat (it may be mid-loop)
+			var upc := st.transform.basis.y
+			if absf(n.dot(upc)) >= 0.6:
+				continue
+			var cps := st.get_contact_local_position(i)
+			if (com - cps).dot(n) < 0.0:
+				n = -n
+			if hit.is_empty() or _clock - float(hit["t"]) > 0.25:
+				hit = {"t": _clock, "pos": cps, "n": n, "kind": "wall"}
+			continue
 		if absf(n.y) >= 0.6:
 			continue
 		wall = true
@@ -272,8 +302,10 @@ func _physics_process(dt: float) -> void:
 	# ---- each wheel
 	var space := get_world_3d().direct_space_state
 	grounded = 0
+	on_stunt = 0
 	wheelspin = 0.0
 	var rear_surf := -1
+	var stunt_rid: RID = island.stunt_body if island else RID()
 	for i in 4:
 		var wd: Dictionary = wheels[i]
 		var r: float = wd["r"]
@@ -288,6 +320,8 @@ func _physics_process(dt: float) -> void:
 			wd["load"] = 0.0
 			continue
 		grounded += 1
+		if stunt_rid.is_valid() and hit.get("rid") == stunt_rid:
+			on_stunt += 1
 		wd["contact"] = true
 		var hp: Vector3 = hit["position"]
 		var n: Vector3 = hit["normal"]
@@ -298,7 +332,11 @@ func _physics_process(dt: float) -> void:
 		var fz := maxf(0.0, spring_k * comp + damper_c * comp_v)
 		if length < 0.02:
 			fz += (0.02 - length) * spring_k * 6.0   # bump stop
-		fz = minf(fz, mass * 9.8 * 2.5)
+		var on_piece: bool = stunt_rid.is_valid() and hit.get("rid") == stunt_rid
+		if on_piece and length < 0.12:
+			# round the loop the load runs to several g: a firm stop keeps the body off the track
+			fz += (0.12 - length) * spring_k * 6.0
+		fz = minf(fz, mass * 9.8 * (3.2 if on_piece else 2.5))
 		wd["load"] = fz
 		apply_force(up * fz, hp - com)
 		# anti-roll bar: share the load across the axle
@@ -413,14 +451,52 @@ func _physics_process(dt: float) -> void:
 		var yr := angular_velocity.dot(up)
 		if absf(steer_in) < 0.1 and drift < 0.2:
 			apply_torque(-up * yr * (2600.0 if brake > 0.1 else 900.0) * assist)
-	# ---- air: a little spin control, and level out gently
+	# ---- in the air, GTA style: gas tips the nose down and brake pulls it up (hold either to flip),
+	# steering spins the car round, and with the handbrake held steering barrel-rolls it instead. Hands off,
+	# the spin eases and, if it's roughly upright, the car settles level for the landing.
 	if grounded == 0:
 		air_t += dt
-		apply_torque(up * -steer_in * 2200.0)
-		var tilt := up.cross(Vector3.UP)
-		apply_torque(tilt * 3000.0)
+		if throttle < 0.1:
+			_air_free["gas"] = true
+		if brake < 0.1:
+			_air_free["brake"] = true
+		if absf(steer_in) < 0.1:
+			_air_free["steer"] = true
+		var gas_a := throttle if _air_free["gas"] else 0.0
+		var brake_a := brake if _air_free["brake"] else 0.0
+		var steer_a := steer_in if _air_free["steer"] else 0.0
+		var ctl := clampf((air_t - 0.12) / 0.2, 0.0, 1.0)     # (a hop over a crest isn't a flip)
+		if ctl > 0.0:
+			var bs := xf.basis
+			var wl := bs.inverse() * angular_velocity       # x: nose up, y: turning left, z: rolling left
+			var rolling := handbrake > 0.5
+			var ask := Vector3(brake_a - gas_a, 0.0 if rolling else -steer_a, -steer_a if rolling else 0.0)
+			var rates := Vector3(AIR_PITCH, AIR_YAW, AIR_ROLL)
+			var acc := Vector3.ZERO
+			for a in 3:
+				if absf(ask[a]) > 0.1:
+					acc[a] = clampf((ask[a] * rates[a] - wl[a]) * 8.0, -AIR_ACC, AIR_ACC)
+				else:
+					acc[a] = clampf(-wl[a] * 2.0, -4.0, 4.0)
+			apply_torque(bs * (acc * inertia) * ctl)
+			if absf(steer_a) < 0.1 and gas_a < 0.1 and brake_a < 0.1 and up.y > 0.3:
+				apply_torque(up.cross(Vector3.UP) * 4500.0 * ctl)
 	else:
 		air_t = 0.0
+		for k in _air_free:
+			_air_free[k] = false
+	# ---- on a stunt piece (the loop, a half-pipe wall) the tyres hold on, as long as you keep some pace
+	if on_stunt >= 2 and up.y < 0.9:
+		# (only needed at a crawl: going fast, the bend itself holds the car on)
+		var hold := clampf((vs - 4.0) / 6.0, 0.0, 1.0) * clampf((22.0 - vs) / 8.0, 0.0, 1.0)
+		apply_central_force(-up * mass * 9.8 * clampf(1.0 - up.y, 0.0, 2.0) * 0.75 * hold)
+	# ---- on its roof (or side), the bodywork scrapes along the ground and soon stops
+	roof_t = maxf(0.0, roof_t - dt)
+	if roof_t > 0.0 and grounded == 0:
+		var vh := Vector3(v.x, 0.0, v.z)
+		if vh.length() > 0.3:
+			apply_central_force(-vh.normalized() * mass * 9.8 * 0.55 - vh * mass * 0.6)
+		apply_torque(-angular_velocity * 900.0)
 	# ---- air resistance and a bit of downforce
 	apply_central_force(-v * v.length() * drag)
 	if grounded > 0:
