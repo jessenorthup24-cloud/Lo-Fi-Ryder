@@ -7,7 +7,7 @@ const CARS := preload("res://scripts/game/cars.gd")
 
 const ALL := ["accel", "brake", "grip_turn", "power_turn", "hb_drift", "hb_release", "drift_exit", "lift_off",
 	"transition", "long_hold", "brake_drift", "uturn", "reverse", "wall_head", "wall_glance", "kerb", "jump", "tap_steer", "wall_drift", "hb_fast", "hb_slow",
-	"skid40", "skid60", "skid80", "power_exit"]
+	"skid40", "skid60", "skid80", "power_exit", "turn_gas", "turn_coast", "turn_half"]
 
 var car: RigidBody3D
 var cars: Array = []
@@ -207,6 +207,15 @@ func _physics_process(dt: float) -> bool:
 				m["lat"] = float(m.get("lat", 0.0)) + car.linear_velocity.length() * yr
 				m["vsum"] = float(m.get("vsum", 0.0)) + car.linear_velocity.length()
 				m["n"] = int(m.get("n", 0)) + 1
+		"turn_gas", "turn_coast", "turn_half":   # full lock from 50 km/h: how far round does it get in 2 s?
+			if t < 0.45 and settled: _launch(50.0 / 3.6)
+			car.steer_in = 1.0 if t > 1.0 else 0.0
+			car.throttle = {"turn_gas": 1.0, "turn_coast": 0.0, "turn_half": 0.5}[name] if t > 1.0 else 0.3
+			if t > 1.0 and not m.has("h0"):
+				m["h0"] = car.global_rotation.y
+			if t > 3.0 and not m.has("h2"):
+				m["h2"] = car.global_rotation.y
+				m["v2"] = car.linear_velocity.length() * 3.6
 		"power_exit":   # full lock and full throttle out of a slow corner: does the tail step out?
 			if t < 0.45 and settled: _launch(30.0 / 3.6)
 			car.steer_in = 1.0 if t > 1.0 else 0.0
@@ -254,6 +263,8 @@ func _report() -> void:
 			s += "exit %.0f km/h" % m.get("exit_v", 0.0)
 		"jump":
 			s += "air %.2fs" % m.get("air", 0.0)
+		"turn_gas", "turn_coast", "turn_half":
+			s += "turned %.0f° in 2 s, at %.0f km/h " % [absf(rad_to_deg(wrapf(float(m.get("h2", 0.0)) - float(m.get("h0", 0.0)), -PI, PI))), float(m.get("v2", 0.0))]
 		"skid40", "skid60", "skid80":
 			var nn: int = maxi(int(m.get("n", 0)), 1)
 			var lat: float = float(m.get("lat", 0.0)) / nn

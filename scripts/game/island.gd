@@ -1275,7 +1275,8 @@ func put_breakable(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, r :=
 		audit.append([name, [Vector2(x, z)]])
 	if not pools.has(name):
 		var p: Pool = Pool.new()
-		p.setup(M.get_mesh(name), 200, mat, false, true)
+		# (thin posts don't cast shadows: a pole's shadow is thinner than the shadow map can draw, and flickers)
+		p.setup(M.get_mesh(name), 200, mat, false, not _is_post(name))
 		p.name = "B_" + name
 		add_child(p)
 		pools[name] = p
@@ -1584,6 +1585,8 @@ func fall(mesh: Mesh, xf: Transform3D, vel: Vector3, h: float) -> void:
 	node.mesh = mesh
 	node.material_override = mat
 	node.transform = xf
+	if h < 5.0:
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(node)
 	var hh := maxf(h, 1.0)
 	fallers.append({"node": node, "xf0": xf, "axis": Vector3.UP.cross(dir.normalized()).normalized(),      # (so the top goes the way you were going)

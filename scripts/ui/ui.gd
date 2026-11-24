@@ -85,6 +85,9 @@ var g_spin := 0.0
 var g_drag := 0.0
 var speed_fx: ColorRect          # streaks at the screen edges when you're flying along
 var count_lbl: Label             # the race countdown, big in the middle
+var _fps_t := 0.0
+var _fps_worst := 0.0
+var _fps_txt := ""
 var count_ring: Control          # (and the burst of colour behind each number)
 var start_card: PanelContainer   # a challenge's card, up while you sit in its beacon
 var _start_cb := Callable()
@@ -680,6 +683,15 @@ func hud_update(d: Dictionary) -> void:
 	gear_lbl.text = "R" if game.car.speed < -0.5 and game.car.grounded > 0 else str(int(d["gear"]))
 	rpm_bar.value = d["rpm"]
 	clock_lbl.text = d["clock"] if bool(game.save.setting("clock")) else ""
+	if bool(game.save.setting("fps")):
+		# (for tracking down stutters: frames a second, and the slowest frame in the last second)
+		_fps_worst = maxf(_fps_worst, get_process_delta_time())
+		_fps_t += get_process_delta_time()
+		if _fps_t > 1.0:
+			_fps_txt = "%d fps · worst %d ms" % [Engine.get_frames_per_second(), int(_fps_worst * 1000.0)]
+			_fps_t = 0.0
+			_fps_worst = 0.0
+		clock_lbl.text += ("   " if clock_lbl.text != "" else "") + _fps_txt
 	var fv := float(d.get("fuel", 100.0)) / 100.0
 	var cv := 1.0 - float(d.get("damage", 0.0)) / 100.0
 	if absf(float(fuel_g.get_meta("v")) - fv) > 0.002:
@@ -1204,6 +1216,7 @@ func open_settings(from_pause := false) -> void:
 	g.add_child(_setting_toggle("shadow", "Shadows", st["shadows"], func(v): game.set_setting("shadows", v)))
 	g.add_child(_setting_toggle("sun", "Show clock", st["clock"], func(v): game.set_setting("clock", v)))
 	g.add_child(_setting_toggle("wind", "Speed blur", st.get("speedfx", true), func(v): game.set_setting("speedfx", v)))
+	g.add_child(_setting_toggle("eye", "Show FPS", st.get("fps", false), func(v): game.set_setting("fps", v)))
 	var reset := K.button("Reset progress", K.PAPER, K.LINE, 24, 0, 60)
 	reset.add_theme_color_override("font_color", K.CORAL_DK)
 	var armed := [false]
@@ -1745,7 +1758,7 @@ func _show_car(d: Dictionary) -> void:
 	var ni := int(tn.get("neon", 0))
 	if ni > 0 and ni < CarScript.NEON.size():
 		var nn := CarScript.make_neon(c, CarScript.NEON[ni], g_mat)
-		nn.position.y = low + 0.03
+		(nn.get_meta("pool") as Node3D).position.y = low + 0.03
 		(nn.get_meta("pool_mat") as ShaderMaterial).set_shader_parameter("night", 0.6)
 		g_car.add_child(nn)
 

@@ -175,6 +175,9 @@ func tune(def: Dictionary, up: Dictionary, tun := {}) -> void:
 	if ni > 0 and ni < NEON.size() and not info.is_empty():
 		neon_node = make_neon(info, NEON[ni], body_node.material_override if body_node else null)
 		add_child(neon_node)
+		var pl: MeshInstance3D = neon_node.get_meta("pool")
+		pl.top_level = true            # (it goes on the ground, not with the car's tilt)
+		pl.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	var pw: float = def.get("power", 1.0) * (1.0 + 0.08 * int(up.get("engine", 0)))
 	engine_force = 7600.0 * pw
 	power_speed = 13.0 * (1.0 + 0.05 * int(up.get("turbo", 0)))
@@ -420,7 +423,14 @@ func _physics_process(dt: float) -> void:
 		var vx := pv.dot(wr)
 		var vz := pv.dot(wf)
 		# (gripping, the rear holds on a little better than the front: it turns in, it doesn't spin)
-		var cap := mu * g * minf(fz, mass * 9.8 * 0.45) * (1.0 if wd["front"] else (rear_grip if drift_mode else maxf(rear_grip, 1.04)))
+		var fz_g := minf(fz, mass * 9.8 * 0.45)
+		if wd["front"] and not drift_mode and drive > 0.0:
+			# gripping on the gas: give the nose back the load accelerating takes off it (so it doesn't go light
+			# and push wide), and you can turn while you accelerate
+			# (only while the tail's following: once it starts to slide, the nose doesn't get the help)
+			var follow := clampf(1.0 - (absf(slip) - deg_to_rad(2.5)) / deg_to_rad(3.0), 0.0, 1.0)
+			fz_g = minf(fz_g + minf(drive * 0.5 * 0.21, mass * 9.8 * 0.055) * follow, mass * 9.8 * 0.45)
+		var cap := mu * g * fz_g * (1.0 if wd["front"] else (rear_grip if drift_mode else maxf(rear_grip, 1.04)))
 		if not drift_mode:
 			cap *= GRIP_MU * grip_k        # race tyres, as it were (less with camber): drifting keeps its own feel
 		elif not wd["front"]:
@@ -455,9 +465,11 @@ func _physics_process(dt: float) -> void:
 		fx -= vz * 4.0
 		if offroad:
 			fx -= vz * (8.0 + 30.0 * maxf(-ride, 0.0))   # rough ground drags, a low car more
-		# gripping: traction control keeps the drive wheels just short of spinning up
-		if not wd["front"] and not drift_mode and fx > cap * 0.8:
-			fx = cap * 0.8
+		# gripping: traction control keeps the drive wheels just short of spinning up, and cornering comes
+		# first: the engine only gets the grip the tyre isn't already using to turn
+		if not wd["front"] and not drift_mode and fx > 0.0:
+			var spare := sqrt(maxf(cap * cap - fy * fy, cap * cap * 0.05))
+			fx = minf(fx, minf(cap * 0.8, spare * 0.92))
 		# friction circle: the drive wheels spinning up steal sideways grip
 		if absf(fx) > cap:
 			if not wd["front"] and drive > 0.0:
@@ -618,46 +630,77 @@ func _wheel_vis(dt: float) -> void:
 			b = Basis(Vector3.UP, -vis_steer)
 		b = b * camber_basis(bool(wd["left"]), camber) * Basis(Vector3.RIGHT, -float(wd["spin"]))
 		wn.transform = Transform3D(b, home - Vector3(0, drop, 0))
-	if neon_node:
-		var gy := 0.0
-		for wd2 in wheels:
-			gy += float((wd2["home"] as Vector3).y) - clampf(float(wd2["len"]) - REST, -0.2, TRAVEL) - float(wd2["r"])
-		neon_node.position.y = gy / 4.0 + 0.04
+
 
 ## A wheel leaning in at the top by camber (0..1 of CAMBER_MAX).
 static func camber_basis(left: bool, cam: float) -> Basis:
 	return Basis(Vector3(0, 0, 1), deg_to_rad(CAMBER_MAX) * cam * (-1.0 if left else 1.0))
 
-## Underglow for a car: a pool of light on the ground and glowing tubes along the sills.
-static func make_neon(car_info: Dictionary, col: String, mat: Material) -> Node3D:
+## Underglow for a car: a pool of light on the ground and neon tubes under the floor (seen only from
+## underneath). The pool is its child "pool" (meta); in the game it's laid on the ground by neon_tick.
+static func make_neon(car_info: Dictionary, col: String, _mat: Material) -> Node3D:
 	var root := Node3D.new()
 	root.name = "Neon"
 	var w: float = car_info["width"]
 	var l: float = car_info["length"]
+	var zc: float = (float(car_info["front"]) + float(car_info["back"])) * 0.5
 	var pool := MeshInstance3D.new()
 	var pm := PlaneMesh.new()
-	pm.size = Vector2(w * 1.7, l * 1.3)
+	pm.size = Vector2(w * 2.7, l * 1.75)
 	pool.mesh = pm
 	var sm := ShaderMaterial.new()
 	sm.shader = load("res://shaders/neon.gdshader")
 	sm.set_shader_parameter("col", Color(col))
 	pool.material_override = sm
 	pool.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	pool.position = Vector3(0, 0.02, (float(car_info["front"]) + float(car_info["back"])) * 0.5)
+	pool.position = Vector3(0, 0.03, zc)
 	root.add_child(pool)
+	# the tubes: tucked under the floor, inside the outline of the body
 	var tubes := MeshInstance3D.new()
 	var mb := MB.new()
-	var zc: float = (float(car_info["front"]) + float(car_info["back"])) * 0.5
+	var fy: float = float(car_info["r_f"]) * 0.9 - 0.04
 	for sd in [-1.0, 1.0]:
-		mb.box(Vector3(sd * w * 0.4, 0.16, zc), Vector3(0.05, 0.04, l * 0.62), MB.glow(col))
-	mb.box(Vector3(0, 0.16, zc + l * 0.36), Vector3(w * 0.7, 0.04, 0.05), MB.glow(col))
+		mb.box(Vector3(sd * w * 0.32, fy, zc), Vector3(0.05, 0.03, l * 0.56), MB.rgb("ffffff"))
+	for e in [-1.0, 1.0]:
+		mb.box(Vector3(0, fy, zc + e * l * 0.3), Vector3(w * 0.6, 0.03, 0.05), MB.rgb("ffffff"))
 	tubes.mesh = mb.commit()
-	tubes.material_override = mat
+	var tm := ShaderMaterial.new()
+	tm.shader = load("res://shaders/neon_tube.gdshader")
+	tm.set_shader_parameter("col", Color(col))
+	tubes.material_override = tm
 	tubes.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	tubes.name = "Tubes"
 	root.add_child(tubes)
 	root.set_meta("pool_mat", sm)
+	root.set_meta("pool", pool)
+	root.set_meta("zc", zc)
 	return root
+
+## Every frame (xf: where the car's drawn): the underglow lies on the ground under the car, and fades as
+## the car lifts off or tips over.
+func neon_tick(xf: Transform3D) -> void:
+	if neon_node == null:
+		return
+	var pool: MeshInstance3D = neon_node.get_meta("pool")
+	var mat: ShaderMaterial = neon_node.get_meta("pool_mat")
+	var up := xf.basis.y
+	var c := xf * Vector3(0, 0.3, float(neon_node.get_meta("zc")))
+	var q := PhysicsRayQueryParameters3D.create(c + Vector3(0, 0.8, 0), c - Vector3(0, 3.0, 0), 1)
+	q.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		pool.visible = false
+		return
+	var hp: Vector3 = hit["position"]
+	var n: Vector3 = hit["normal"]
+	var k := clampf(1.0 - (c.y - 0.3 - hp.y - 0.4) / 1.0, 0.0, 1.0) * clampf((up.dot(n) - 0.55) / 0.3, 0.0, 1.0)
+	pool.visible = k > 0.02
+	if not pool.visible:
+		return
+	var f := xf.basis.z
+	f = (f - n * f.dot(n)).normalized()
+	pool.global_transform = Transform3D(Basis(n.cross(f).normalized(), n, f), hp + n * 0.05)
+	mat.set_shader_parameter("k", k)
 
 ## A dent where you hit (global point and the direction into the car), sized by how hard.
 func dent(at: Vector3, into: Vector3, strength: float) -> void:

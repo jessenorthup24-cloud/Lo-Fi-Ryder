@@ -25,7 +25,10 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - Tuning (garage, Tune tab, per car): camber (0-10°) and ride height (slammed to lifted) change the look
   and the handling. More camber and lower: drifts more easily but less race grip and worse off-road.
   Less camber and higher: harder to drift, more grip, better on grass, dirt and sand. Bars show the
-  trade-off as you go. Neon underglow (a one-off kit for all cars) in eight colours, brighter at night.
+  trade-off as you go. Neon underglow (a one-off kit for all cars) in eight colours: a soft pool of light
+  laid on the ground under the car (it fades as the car leaves the ground or tips over), brighter at
+  night, with the tubes themselves only visible from underneath.
+- Settings → Show FPS puts the frame rate and the slowest frame of the last second by the clock.
 - Nitrous: hold NOS (above GAS; N or E on a keyboard) for a hard shove and a higher top speed, with blue
   flames, a wider view and more speed blur. The bottle refills slowly as you drive, quicker drifting or
   in the air. The Nitrous Tank upgrade makes it bigger (3 s up to 9 s).

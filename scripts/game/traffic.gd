@@ -839,6 +839,7 @@ func _posts_rebuild() -> void:
 	if _posts_mi == null:
 		_posts_mi = MeshInstance3D.new()
 		_posts_mi.material_override = mat
+		_posts_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(_posts_mi)
 	_posts_mi.mesh = post.commit() if not post.is_empty() else null
 

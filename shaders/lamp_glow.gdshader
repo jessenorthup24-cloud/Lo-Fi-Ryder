@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode unshaded, blend_add, depth_draw_never, cull_disabled, shadows_disabled;
+render_mode unshaded, blend_add, depth_draw_never, cull_disabled, shadows_disabled, fog_disabled;
 
 // The pool of warm light a street lamp throws on the road below it (fades in after dusk).
 uniform float night = 0.0;

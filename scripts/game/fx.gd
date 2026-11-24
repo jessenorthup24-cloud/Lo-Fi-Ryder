@@ -12,11 +12,16 @@ var live_puffs: Array = []
 var live_skids: Array = []
 var live_bits: Array = []
 
+var smoke_mat: ShaderMaterial
+
 func setup(mat: ShaderMaterial) -> void:
-	var soft: ShaderMaterial = mat.duplicate()
-	soft.set_shader_parameter("rim_strength", 0.0)
+	# smoke: soft camera-facing puffs that fade (not little solid balls)
+	smoke_mat = ShaderMaterial.new()
+	smoke_mat.shader = load("res://shaders/smoke.gdshader")
+	var qm := QuadMesh.new()
+	qm.size = Vector2(1.7, 1.7)
 	puffs = Pool.new()
-	puffs.setup(M.get_mesh("puff"), 220, soft, false, false)
+	puffs.setup(qm, 220, smoke_mat, false, false)
 	add_child(puffs)
 	var marks: ShaderMaterial = mat.duplicate()
 	marks.set_shader_parameter("depth_bias", 0.0009)
@@ -39,7 +44,7 @@ func puff(p: Vector3, col: Color, size := 0.35, v := Vector3.ZERO, life := 0.7, 
 	if s < 0:
 		return
 	puffs.multimesh.set_instance_color(s, col)
-	live_puffs.append({"s": s, "p": p, "v": v + Vector3(0, rise, 0), "t": 0.0, "life": life, "size": size})
+	live_puffs.append({"s": s, "p": p, "v": v + Vector3(0, rise, 0), "t": 0.0, "life": life, "size": size, "c": col})
 
 ## A tyre mark: len along yaw, w wide (metres), lying on a surface with normal n.
 func skid(p: Vector3, yaw: float, len := 0.24, w := 0.16, n := Vector3.UP) -> void:
@@ -87,8 +92,10 @@ func tick(dt: float) -> void:
 			continue
 		q["v"] *= 1.0 - dt * 2.5
 		q["p"] += q["v"] * dt
-		var sz: float = q["size"] * (0.5 + k * 0.9) * (1.0 - k * k)
+		var sz: float = q["size"] * (0.6 + k * 1.4)       # (it spreads as it thins out)
 		puffs.put(q["s"], Transform3D(Basis().scaled(Vector3.ONE * maxf(sz, 0.001)), q["p"]))
+		var c0: Color = q["c"]
+		puffs.multimesh.set_instance_color(q["s"], Color(c0.r, c0.g, c0.b, (1.0 - k) * (1.0 - k) * minf(k * 8.0, 1.0)))
 	for q in done:
 		live_puffs.erase(q)
 	done.clear()

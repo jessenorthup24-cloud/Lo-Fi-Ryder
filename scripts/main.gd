@@ -54,6 +54,8 @@ var cam_mode := 0           # 0 near, 1 far, 2 close and low
 # looking round: drag a finger anywhere off the buttons to swing the camera round the car, pinch to zoom
 var look_yaw := 0.0
 var look_pitch := 0.0
+var look_yaw_t := 0.0       # where the finger has asked the view to go (the view eases there each frame,
+var look_pitch_t := 0.0     # so touches arriving unevenly don't make it judder)
 var look_t := 9.0           # since the last look drag
 var cam_zoom := 1.0
 var look_touches := {}      # touch index -> position
@@ -191,6 +193,7 @@ func _build_world() -> void:
 	fx = Fx.new()
 	add_child(fx)
 	fx.setup(toon)
+	atmos.add_material(fx.smoke_mat)
 	traffic = Traffic.new()
 	traffic.name = "Traffic"
 	add_child(traffic)
@@ -265,6 +268,12 @@ func _build_world() -> void:
 		var off := Vector3(np.x - sp.origin.x, 0, np.z - sp.origin.z)
 		var side := Vector3(-f3.z, 0, f3.x)
 		car.place(Transform3D(sp.basis, sp.origin + side * off.dot(side) + Vector3(0, 0.3, 0)))
+	if args.has("tunetest"):
+		# a test: this tuning on the car you drive (camber,height,neon), with the neon kit
+		var tq := String(args["tunetest"]).split(",")
+		save.data["neon_kit"] = true
+		save.data["tune"][String(save.data["car"])] = {"camber": int(tq[0]), "height": int(tq[1]), "neon": int(tq[2])}
+		car_changed()
 	if args.has("aim"):
 		# a test: lined up 22 m from a tree, a street lamp or a traffic light, with a clear run at it
 		var want := String(args["aim"])
@@ -310,12 +319,6 @@ func _build_world() -> void:
 			"map":
 				ui.open_map()
 	elif args.has("garage"):
-		if args.has("tunetest"):
-			# a test: this tuning on the car you drive (camber,height,neon), with the neon kit
-			var tq := String(args["tunetest"]).split(",")
-			save.data["neon_kit"] = true
-			save.data["tune"][String(save.data["car"])] = {"camber": int(tq[0]), "height": int(tq[1]), "neon": int(tq[2])}
-			car_changed()
 		open_garage()
 		if String(args["garage"]) in ["up", "paint", "tune"]:
 			ui.g_tab = String(args["garage"])
@@ -577,6 +580,7 @@ func _process(dt: float) -> void:
 		island.lamp_mi.visible = atmos.night > 0.02     # the street lamps' light on the road, after dusk
 	if car and car.neon_node:
 		(car.neon_node.get_meta("pool_mat") as ShaderMaterial).set_shader_parameter("night", atmos.night)
+		car.neon_tick(car.get_global_transform_interpolated())
 	var cp := car.global_position
 	island.tick(dt, cp, car.linear_velocity)
 	traffic.tick(dt, cp, car.linear_velocity, -cam.global_transform.basis.z)
@@ -1111,8 +1115,8 @@ func _marker(kind: String, id: String, pos: Vector3, col: Color, name: String, r
 	# a column of light, so you can see it from down the street
 	var pil := MeshInstance3D.new()
 	var cm := CylinderMesh.new()
-	cm.top_radius = r * 0.9
-	cm.bottom_radius = r * 0.9
+	cm.top_radius = r * 0.62
+	cm.bottom_radius = r * 0.7
 	cm.height = 16.0
 	cm.cap_top = false
 	cm.cap_bottom = false
@@ -1956,8 +1960,10 @@ func _cam(dt: float, snap := false) -> void:
 	# looking round: after a moment without a finger on it, the view swings back behind the car
 	look_t += dt
 	if look_touches.is_empty() and look_t > 1.2:
-		look_yaw = lerp_angle(look_yaw, 0.0, 1.0 - exp(-dt * 2.5))
-		look_pitch = lerpf(look_pitch, 0.0, 1.0 - exp(-dt * 2.5))
+		look_yaw_t = lerp_angle(look_yaw_t, 0.0, 1.0 - exp(-dt * 2.5))
+		look_pitch_t = lerpf(look_pitch_t, 0.0, 1.0 - exp(-dt * 2.5))
+	look_yaw = lerp_angle(look_yaw, look_yaw_t, 1.0 - exp(-dt * 16.0))
+	look_pitch = lerpf(look_pitch, look_pitch_t, 1.0 - exp(-dt * 16.0))
 	dist *= cam_zoom
 	var looking := absf(look_yaw) > 0.05 or absf(look_pitch) > 0.05
 	var yaw_v := cam_yaw + look_yaw
@@ -2100,8 +2106,8 @@ func _look_drag(idx: int, pos: Vector2) -> void:
 			cam_zoom = clampf(cam_zoom * d0 / maxf(d1, 1.0), 0.55, 1.7)
 	else:
 		var dlt := pos - old
-		look_yaw = wrapf(look_yaw - dlt.x * 0.005, -PI, PI)
-		look_pitch = clampf(look_pitch + dlt.y * 0.004, -0.25, 1.0)
+		look_yaw_t = wrapf(look_yaw_t - dlt.x * 0.005, -PI, PI)
+		look_pitch_t = clampf(look_pitch_t + dlt.y * 0.004, -0.25, 1.0)
 	look_touches[idx] = pos
 	look_t = 0.0
 
