@@ -39,15 +39,19 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - Knock things over: hit a tree, a street lamp, a signpost or a traffic light at more than about
   16 km/h and it falls over the way you were going (you lose some speed and take a little damage);
   slower than that it just stops you. They're back about 40 s later once you're well away.
-- Controls: steer left and right on the left; brake, gas and the handbrake (DRIFT) on the right.
+- Controls: steer with the steering wheel at the bottom left (the top half of a wheel: put a thumb on it
+  and turn it; it springs back when you let go; Settings → Steering wheel switches back to arrow
+  buttons); brake, gas, NOS and the handbrake (DRIFT) on the right.
   Hold brake when stopped to reverse.
 - Handling: normally the car grips like a race car (planted rear, traction control, a stability system
   that catches a slide), so you can carry speed through corners. Drifting only happens when you ask
   for it with the handbrake, and the car goes back to gripping once you've straightened up.
-- Drifting: at speed, tap the handbrake (DRIFT) while steering to kick the rear out, then hold the gas
-  and keep steering into the turn to hold the angle. Steer the other way with the gas down to swing
-  into a drift the other way. Let go of steering, or ease off the gas, to straighten up. Drift assist
-  (Settings) helps hold the angle.
+- Drifting, CarX style: pull the handbrake (DRIFT) with some steering to swing the tail out, then
+  balance it. The gas holds it out (more gas, more angle) and carries your speed round a long arc;
+  steering into the turn deepens the angle and tightens the arc, countersteering opens it out; the foot
+  brake throws it deeper and sharpens the turn. Off the gas and the brake, it straightens up and grips
+  again. Steer the other way with the gas down to swing into a drift the other way. The sweet spot is
+  22-42°: the drift readout shows your angle on a little scale, green inside it, worth ×1.4.
 - Points build with angle and speed. Keep drifting to raise the combo (up to x10); chain drifts within
   a moment of each other to keep it going. A drift banks once you're straight again, and every 120
   points of a banked drift is a coin. Drifting within a metre or so of a wall, a parked car or the

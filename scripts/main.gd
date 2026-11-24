@@ -54,6 +54,10 @@ var cam_mode := 0           # 0 near, 1 far, 2 close and low
 # looking round: drag a finger anywhere off the buttons to swing the camera round the car, pinch to zoom
 var look_yaw := 0.0
 var look_pitch := 0.0
+var wheel_idx := -1         # the finger on the steering wheel (-1: none)
+var wheel_angle := 0.0      # how far it's turned (radians, + right)
+var wheel_grab := 0.0       # (where on the rim the finger took hold)
+const WHEEL_MAX := 1.6      # turned this far: full lock
 var look_yaw_t := 0.0       # where the finger has asked the view to go (the view eases there each frame,
 var look_pitch_t := 0.0     # so touches arriving unevenly don't make it judder)
 var look_t := 9.0           # since the last look drag
@@ -681,7 +685,12 @@ func _controls(dt: float) -> void:
 		return
 	var l := 1.0 if held.get("left", false) else 0.0
 	var r := 1.0 if held.get("right", false) else 0.0
-	car.steer_in = r - l
+	if wheel_idx >= 0:
+		car.steer_in = clampf(wheel_angle / WHEEL_MAX, -1.0, 1.0)      # (the wheel: as far as you've turned it)
+	else:
+		# let go: the wheel springs back to the middle (keys and buttons steer as before)
+		wheel_angle = move_toward(wheel_angle, (r - l) * WHEEL_MAX, get_process_delta_time() * 9.0)
+		car.steer_in = r - l if (l > 0.0 or r > 0.0) else clampf(wheel_angle / WHEEL_MAX, -1.0, 1.0)
 	car.throttle = 1.0 if held.get("gas", false) else 0.0
 	car.brake = 1.0 if held.get("brake", false) else 0.0
 	car.handbrake = 1.0 if held.get("hand", false) else 0.0
@@ -778,7 +787,7 @@ func _drive(dt: float) -> void:
 		"zone": zone, "zone_t": zone_t, "zone_pts": zone_pts, "trial": trial, "trial_t": trial_t, "trial_gate": trial_gate,
 		"trial_pts": trial_pts, "race": {} if race == null else race.hud(), "car_pos": car.get_global_transform_interpolated().origin, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip)),
 		"close": drift_on and close < 1.6 and car.drift > 0.2, "damage": car.damage, "fuel": fuel,
-		"nos": nos_left / nos_cap(), "nos_on": car.nitro})
+		"nos": nos_left / nos_cap(), "nos_on": car.nitro, "wheel": wheel_angle / WHEEL_MAX})
 
 # ------------------------------------------------------------------ drifting
 
@@ -809,7 +818,9 @@ func _drift(dt: float) -> void:
 				sfx("near", -4.0)
 				save.add_stat("close_calls", 1)
 		var ang := rad_to_deg(absf(car.slip))
-		drift_pts += dt * ang * 0.65 * maxf(car.speed, 0.0) * (1.5 if near else 1.0)
+		# held in the sweet spot (not too shallow, not too sideways): worth more
+		var sweet: bool = ang >= Car.SWEET[0] and ang <= Car.SWEET[1]
+		drift_pts += dt * ang * 0.65 * maxf(car.speed, 0.0) * (1.5 if near else 1.0) * (1.4 if sweet else 1.0)
 		# hold it long enough and the multiplier ticks up too
 		if drift_len > 3.0:
 			drift_len -= 3.0
@@ -2118,20 +2129,29 @@ func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventScreenTouch:
 		if e.pressed:
 			var c := ui.control_at(e.position)
-			if c != "":
+			if c == "wheel":
+				# took hold of the steering wheel: it turns with the finger round its middle
+				touches[e.index] = c
+				wheel_idx = e.index
+				wheel_grab = ui.wheel_angle_at(e.position) - wheel_angle
+			elif c != "":
 				touches[e.index] = c
 			elif state == DRIVE:
 				look_touches[e.index] = e.position
 		else:
 			touches.erase(e.index)
+			if e.index == wheel_idx:
+				wheel_idx = -1
 			if look_touches.has(e.index):
 				look_touches.erase(e.index)
 				if look_touches.is_empty():
 					save.data["settings"]["zoom"] = cam_zoom
 		_touch_held()
 	elif e is InputEventScreenDrag:
+		if e.index == wheel_idx:
+			wheel_angle = clampf(wrapf(ui.wheel_angle_at(e.position) - wheel_grab, -PI, PI), -WHEEL_MAX, WHEEL_MAX)
 		# slide a thumb from one button to its neighbour
-		if touches.has(e.index):
+		elif touches.has(e.index):
 			var c2 := ui.control_at(e.position)
 			if c2 != "":
 				touches[e.index] = c2

@@ -7,7 +7,7 @@ const CARS := preload("res://scripts/game/cars.gd")
 
 const ALL := ["accel", "brake", "grip_turn", "power_turn", "hb_drift", "hb_release", "drift_exit", "lift_off",
 	"transition", "long_hold", "brake_drift", "uturn", "reverse", "wall_head", "wall_glance", "kerb", "jump", "tap_steer", "wall_drift", "hb_fast", "hb_slow",
-	"skid40", "skid60", "skid80", "power_exit", "turn_gas", "turn_coast", "turn_half"]
+	"skid40", "skid60", "skid80", "power_exit", "turn_gas", "turn_coast", "turn_half", "drift_gas", "drift_brake", "drift_counter", "drift_lift"]
 
 var car: RigidBody3D
 var cars: Array = []
@@ -216,6 +216,31 @@ func _physics_process(dt: float) -> bool:
 			if t > 3.0 and not m.has("h2"):
 				m["h2"] = car.global_rotation.y
 				m["v2"] = car.linear_velocity.length() * 3.6
+		"drift_gas", "drift_brake", "drift_counter", "drift_lift":   # into a drift, then: hold the gas / brake / countersteer / let go
+			if t < 0.45 and settled: _launch(62.0 / 3.6)
+			car.steer_in = 1.0 if t > 1.0 else 0.0
+			car.handbrake = 1.0 if t > 1.0 and t < 1.3 else 0.0
+			car.throttle = 1.0
+			car.brake = 0.0
+			if t > 3.0:
+				match name:
+					"drift_brake":
+						car.throttle = 0.0
+						car.brake = 0.6
+					"drift_counter":
+						car.steer_in = -0.5
+					"drift_lift":
+						car.throttle = 0.0
+						car.steer_in = 0.0
+			var vh := Vector3(car.linear_velocity.x, 0, car.linear_velocity.z)
+			if m.has("lastv") and t > 3.3 and t < 4.8 and vh.length() > 2.0:
+				var lv: Vector3 = m["lastv"]
+				var w := absf(lv.signed_angle_to(vh, Vector3.UP)) / maxf(get_root().get_physics_process_delta_time(), 0.001)
+				m["rsum"] = float(m.get("rsum", 0.0)) + vh.length() / maxf(w, 0.01)
+				m["asum"] = float(m.get("asum", 0.0)) + aslip
+				m["vsum2"] = float(m.get("vsum2", 0.0)) + vh.length() * 3.6
+				m["rn"] = int(m.get("rn", 0)) + 1
+			m["lastv"] = vh
 		"power_exit":   # full lock and full throttle out of a slow corner: does the tail step out?
 			if t < 0.45 and settled: _launch(30.0 / 3.6)
 			car.steer_in = 1.0 if t > 1.0 else 0.0
@@ -263,6 +288,9 @@ func _report() -> void:
 			s += "exit %.0f km/h" % m.get("exit_v", 0.0)
 		"jump":
 			s += "air %.2fs" % m.get("air", 0.0)
+		"drift_gas", "drift_brake", "drift_counter", "drift_lift":
+			var rn: int = maxi(int(m.get("rn", 0)), 1)
+			s += "after 3 s: radius %.0f m, angle %.0f°, %.0f km/h " % [float(m.get("rsum", 0.0)) / rn, float(m.get("asum", 0.0)) / rn, float(m.get("vsum2", 0.0)) / rn]
 		"turn_gas", "turn_coast", "turn_half":
 			s += "turned %.0f° in 2 s, at %.0f km/h " % [absf(rad_to_deg(wrapf(float(m.get("h2", 0.0)) - float(m.get("h0", 0.0)), -PI, PI))), float(m.get("v2", 0.0))]
 		"skid40", "skid60", "skid80":

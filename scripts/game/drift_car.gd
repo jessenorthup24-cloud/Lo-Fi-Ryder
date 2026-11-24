@@ -70,6 +70,8 @@ var _vh: Array = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]   # the last few vel
 var _ram_cd := 0.0
 var _clock := 0.0
 var drift_mode := false      # pulled the handbrake: drifting physics until you straighten up
+var _last_vdir := Vector3.ZERO   # (which way it was going last step: how fast the line is curving)
+const SWEET := [22.0, 42.0]  # degrees: the sweet spot of a drift (bonus points)
 # ---- the garage tuning: camber 0..1, ride -1 (slammed) .. 1 (lifted). More camber and lower: drifts
 # easier, grips less on the road, worse off it. Less camber and higher: harder to drift, more grip, better
 # off-road.
@@ -509,7 +511,11 @@ func _physics_process(dt: float) -> void:
 		# a handbrake flick with some steering swings the tail out
 		if _hb_t > 0.0 and absf(steer_in) > 0.2 and aslip < deg_to_rad(28.0):
 			apply_torque(up * -steer_in * 3600.0 * (1.0 + 0.3 * drift_k) * clampf(_hb_t / 0.45, 0.0, 1.0) * clampf(vs / 12.0, 0.3, 1.0))
-		var holding := (drift > 0.15 or aslip > deg_to_rad(14.0)) and throttle > 0.15 and speed > 3.0
+		# CarX-style: the gas holds the tail out (more gas, more angle) and carries the speed round a long arc;
+		# steering balances it (into the turn: deeper and tighter; countersteer: shallower and wider); the foot
+		# brake throws it deeper and tightens the line; off both, it straightens up
+		var sliding := (drift > 0.08 or aslip > deg_to_rad(8.0)) and speed > 3.0
+		var holding := sliding and (throttle > 0.15 or brake > 0.1)
 		# a transition: steer the other way with your foot down and, as the car swings through
 		# straight, the tail lets go again so it carries on into a drift the other way
 		var yaw_to := -angular_velocity.dot(up) * steer_in
@@ -522,14 +528,23 @@ func _physics_process(dt: float) -> void:
 			var dir := -signf(slip)                 # +1: sliding round to the right
 			_swing_dir = dir
 			_swing_t = 0.9
-			var press := steer_in * dir             # +1 into the drift, -1 out of it
-			var target := deg_to_rad(10.0) + maxf(press, 0.0) * deg_to_rad(34.0)   # hands off: it eases out
-			if press < -0.5:
-				target = deg_to_rad(4.0)
+			var press := clampf(steer_in * dir, -1.0, 1.0)   # +1 into the turn, -1 countersteering
+			var target := deg_to_rad(18.0 + 14.0 * throttle + 14.0 * press + 6.0 * brake)
+			target = clampf(target, deg_to_rad(5.0), deg_to_rad(58.0))
 			var err := target - aslip
 			apply_torque(-up * dir * (err * 16000.0 - slip_rate * 5200.0) * assist * (1.0 + 0.35 * drift_k))
-		elif aslip > deg_to_rad(8.0) and speed > 3.0 and (throttle < 0.15 or brake > 0.1):
-			# off the gas or on the brakes: the tyres bite again and it straightens up
+			# the line it carves: a long sweep on the gas, tighter steering in, wider countersteering, much
+			# tighter on the brake (the weight comes forward and the nose bites)
+			var radius := 26.0 - 9.0 * maxf(press, 0.0) + 14.0 * maxf(-press, 0.0)
+			radius = maxf(radius * (1.0 - 0.45 * brake), 9.0)
+			var vdir := vflat.normalized()
+			if _last_vdir != Vector3.ZERO:
+				var path_w := atan2(_last_vdir.cross(vdir).dot(up), _last_vdir.dot(vdir)) / dt   # (+: curving left)
+				var want_w := -dir * vs / radius
+				var a_lat := clampf(vs * (want_w - path_w) * (4.0 + 3.0 * brake), -(9.0 + 4.0 * brake), 9.0 + 4.0 * brake)
+				apply_central_force(-vdir.cross(up) * mass * a_lat * assist)
+		elif aslip > deg_to_rad(8.0) and speed > 3.0 and throttle < 0.15 and brake < 0.1:
+			# off the gas and the brake: the tyres bite again and it straightens up
 			var dir2 := -signf(slip)
 			apply_torque(-up * dir2 * ((deg_to_rad(1.0) - aslip) * 10000.0 - slip_rate * 4200.0) * assist * (1.0 - 0.25 * drift_k))
 		if aslip > deg_to_rad(58.0) and speed > 2.0:
@@ -589,6 +604,7 @@ func _physics_process(dt: float) -> void:
 		if vh.length() > 0.3:
 			apply_central_force(-vh.normalized() * mass * 9.8 * 0.55 - vh * mass * 0.6)
 		apply_torque(-angular_velocity * 900.0)
+	_last_vdir = (v - up * v.dot(up)).normalized() if vs > 1.0 else Vector3.ZERO
 	# ---- nitrous: a hard shove along the nose while it lasts (the drag lets it run a good deal faster)
 	if nitro > 0.0 and grounded >= 2 and speed > -1.0:
 		var nf := Vector3(fwd.x, 0.0, fwd.z).normalized()

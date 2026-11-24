@@ -85,6 +85,8 @@ var g_spin := 0.0
 var g_drag := 0.0
 var speed_fx: ColorRect          # streaks at the screen edges when you're flying along
 var count_lbl: Label             # the race countdown, big in the middle
+var sweet_meter: Control         # the drift angle, with the sweet spot marked
+var wheel: Control               # the steering wheel (top half), bottom left
 var _fps_t := 0.0
 var _fps_worst := 0.0
 var _fps_txt := ""
@@ -416,6 +418,21 @@ func _build_hud() -> void:
 	dh.add_child(combo_lbl)
 	angle_lbl = K.label("DRIFT", 15, Color(1, 1, 1, 0.85), 650, HORIZONTAL_ALIGNMENT_LEFT)
 	dvb.add_child(angle_lbl)
+	# the drift angle on a little scale, 0-60°, with the sweet spot marked
+	sweet_meter = Control.new()
+	sweet_meter.custom_minimum_size = Vector2(172, 12)
+	sweet_meter.set_meta("a", 0.0)
+	sweet_meter.draw.connect(func():
+		var w := sweet_meter.size.x
+		var a: float = sweet_meter.get_meta("a")
+		sweet_meter.draw_rect(Rect2(0, 4, w, 4), Color(1, 1, 1, 0.22))
+		var s0: float = CarScript.SWEET[0] / 60.0 * w
+		var s1: float = CarScript.SWEET[1] / 60.0 * w
+		var inside := a >= CarScript.SWEET[0] and a <= CarScript.SWEET[1]
+		sweet_meter.draw_rect(Rect2(s0, 3, s1 - s0, 6), Color("54e08a") if inside else Color(0.33, 0.88, 0.54, 0.55))
+		var x := clampf(a / 60.0, 0.0, 1.0) * w
+		sweet_meter.draw_rect(Rect2(x - 2, 0, 4, 12), Color.WHITE))
+	dvb.add_child(sweet_meter)
 	combo_bar = K.bar(172, 4, Color("e8dcc4"), Color(1, 1, 1, 0.22))
 	dvb.add_child(combo_bar)
 	drift_card.modulate.a = 0.0
@@ -447,6 +464,7 @@ func _build_hud() -> void:
 	# steering, bottom left
 	ctl["left"] = _pad("left", Vector2(40, -210), Vector2(170, 170), true, K.PAPER)
 	ctl["right"] = _pad("right", Vector2(230, -210), Vector2(170, 170), true, K.PAPER)
+	_build_wheel()
 	# pedals, bottom right
 	ctl["brake"] = _pad("brake", Vector2(-420, -210), Vector2(130, 170), false, K.PAPER)
 	ctl["gas"] = _pad("gas", Vector2(-270, -250), Vector2(150, 210), false, K.PAPER)
@@ -513,12 +531,62 @@ func _pad(name: String, pos: Vector2, size: Vector2, left_side: bool, col: Color
 	hud.add_child(p)
 	return p
 
+## The steering wheel: the top half of a wheel at the bottom left. Put a thumb on it and turn it.
+func _build_wheel() -> void:
+	wheel = Control.new()
+	wheel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	wheel.position = Vector2(26, -262)
+	wheel.size = Vector2(400, 262)
+	wheel.custom_minimum_size = wheel.size
+	wheel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wheel.set_meta("a", 0.0)
+	wheel.set_meta("on", false)
+	wheel.draw.connect(func():
+		var a: float = wheel.get_meta("a")
+		var on: bool = wheel.get_meta("on")
+		var c := _wheel_hub()
+		var r := 176.0
+		var rim := Color(K.PAPER, 0.8 if on else 0.62)
+		var edge := Color(K.INK, 0.55)
+		# the rim (the top half, turned)
+		wheel.draw_arc(c, r, PI + a - 0.15, TAU + a + 0.15, 48, edge, 40.0, true)
+		wheel.draw_arc(c, r, PI + a - 0.13, TAU + a + 0.13, 48, rim, 34.0, true)
+		# spokes and the hub
+		for sp_a in [a - 0.38, a + PI + 0.38]:      # (two spokes, angled up a little so they show)
+			var dirv := Vector2.from_angle(sp_a)
+			wheel.draw_line(c + dirv * 40.0, c + dirv * (r - 14.0), edge, 22.0, true)
+			wheel.draw_line(c + dirv * 40.0, c + dirv * (r - 14.0), rim, 16.0, true)
+		wheel.draw_circle(c, 52.0, edge)
+		wheel.draw_circle(c, 46.0, rim)
+		# the mark at the top, so you can see how far it's turned
+		var top := c + Vector2.from_angle(-PI * 0.5 + a) * r
+		wheel.draw_circle(top, 13.0, Color("ff5c7a")))
+	hud.add_child(wheel)
+
+func _wheel_hub() -> Vector2:
+	return Vector2(wheel.size.x * 0.5, wheel.size.y + 4.0)
+
+## The angle (radians, 0 straight up, + clockwise) of a point round the middle of the wheel.
+func wheel_angle_at(pos: Vector2) -> float:
+	var c := wheel.get_global_rect().position + _wheel_hub()
+	var d := pos - c
+	return atan2(d.x, -d.y)
+
+func wheel_mode() -> bool:
+	return bool(game.save.setting("wheel"))
+
 ## Which control (if any) a touch at pos lands on. Pads have generous edges.
 func control_at(pos: Vector2) -> String:
 	if not hud.visible or overlay.visible:
 		return ""
+	if wheel_mode() and wheel.get_global_rect().grow(16).has_point(pos):
+		var hub := wheel.get_global_rect().position + _wheel_hub()
+		if pos.distance_to(hub) < 250.0:
+			return "wheel"
 	for k in ["nos", "hand", "gas", "brake", "left", "right"]:
 		var c: Control = ctl[k]
+		if not c.visible:
+			continue
 		if c.get_global_rect().grow(14 if k == "nos" else 22).has_point(pos):
 			return k
 	return ""
@@ -655,6 +723,14 @@ func show_hud() -> void:
 func hud_update(d: Dictionary) -> void:
 	_hud_data = d
 	speed_lbl.text = str(int(round(d["kmh"])))
+	var wm := wheel_mode()
+	wheel.visible = wm
+	ctl["left"].visible = not wm
+	ctl["right"].visible = not wm
+	if wm:
+		wheel.set_meta("a", float(d.get("wheel", 0.0)) * 1.6)
+		wheel.set_meta("on", game.wheel_idx >= 0)
+		wheel.queue_redraw()
 	var nf: Control = ctl["nos"].get_meta("fill")
 	nf.set_meta("v", float(d.get("nos", 1.0)))
 	nf.queue_redraw()
@@ -711,7 +787,12 @@ func hud_update(d: Dictionary) -> void:
 		_drift_show = 1.0
 		drift_lbl.text = K.fmt(int(pts * combo))
 		combo_lbl.text = "x%d" % combo
-		angle_lbl.text = ("%d°  ·  close ×1.5" if d.get("close", false) else "%d°") % int(d["angle"])
+		var ang := int(d["angle"])
+		var sweet: bool = ang >= CarScript.SWEET[0] and ang <= CarScript.SWEET[1]
+		angle_lbl.text = "%d°%s%s" % [ang, "  ·  SWEET SPOT ×1.4" if sweet else "", "  ·  close ×1.5" if d.get("close", false) else ""]
+		angle_lbl.add_theme_color_override("font_color", Color("7dffae") if sweet else Color(1, 1, 1, 0.85))
+		sweet_meter.set_meta("a", float(ang))
+		sweet_meter.queue_redraw()
 		combo_bar.value = 1.0
 	elif _bank_t <= 0.0:
 		combo_bar.value = clampf(float(d["combo_t"]) / 2.2, 0.0, 1.0)
@@ -1216,6 +1297,7 @@ func open_settings(from_pause := false) -> void:
 	g.add_child(_setting_toggle("shadow", "Shadows", st["shadows"], func(v): game.set_setting("shadows", v)))
 	g.add_child(_setting_toggle("sun", "Show clock", st["clock"], func(v): game.set_setting("clock", v)))
 	g.add_child(_setting_toggle("wind", "Speed blur", st.get("speedfx", true), func(v): game.set_setting("speedfx", v)))
+	g.add_child(_setting_toggle("tire", "Steering wheel", st.get("wheel", true), func(v): game.set_setting("wheel", v)))
 	g.add_child(_setting_toggle("sun", "Bloom", st.get("bloom", true), func(v): game.set_setting("bloom", v)))
 	g.add_child(_setting_toggle("leaf", "Ambient particles", st.get("motes", true), func(v): game.set_setting("motes", v)))
 	g.add_child(_setting_toggle("eye", "Show FPS", st.get("fps", false), func(v): game.set_setting("fps", v)))
