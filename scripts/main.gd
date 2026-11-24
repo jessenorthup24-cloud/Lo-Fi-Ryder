@@ -19,6 +19,7 @@ const Pool := preload("res://scripts/game/pool.gd")
 const Traffic := preload("res://scripts/game/traffic.gd")
 const Route := preload("res://scripts/game/route.gd")
 const Race := preload("res://scripts/game/race.gd")
+const Police := preload("res://scripts/game/police.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
 
@@ -49,6 +50,7 @@ var held := {}             # control name -> true (touch or keyboard)
 var keys := {}
 # camera
 var cam_yaw := 0.0
+var cam_look := Vector3.ZERO   # which way the camera aims along the car (eased every frame: see _cam)
 var cam_pos := Vector3.ZERO
 var cam_mode := 0           # 0 near, 1 far, 2 close and low
 # looking round: drag a finger anywhere off the buttons to swing the camera round the car, pinch to zoom
@@ -122,6 +124,7 @@ var fuel := 100.0
 var fuel_told := 0          # 1: told it's low, 2: told it's empty
 var at_station := {}        # the station you're stopped at
 var router: Route
+var police: Police
 var route := {}             # where the GPS is taking you: {pos, name, kind}
 var route_pick := {}        # a place you picked on the map
 var route_pts := PackedVector3Array()
@@ -129,6 +132,14 @@ var route_t := 0.0
 var race: Race = null       # the street race on now
 var in_marker := {}         # the beacon you're sitting in (its start card is up)
 var nos_left := 3.0         # seconds of nitrous in the bottle
+# ---- rewind: the last few seconds, kept so you can hold REWIND and take them back
+var rw_buf: Array = []      # snapshots, oldest first
+var rw_t := 0.0
+var rewinding := false
+var rw_pos := 0.0           # (where in the buffer the rewind is: fractional, so it plays back smoothly)
+var rw_ghost := 0.0         # just after a rewind: the traffic can't hit you for a moment
+const RW_SECS := 10.0
+const RW_HZ := 20.0
 var nos_on := false
 var nos_fx_t := 0.0
 var intro := {}             # a challenge getting going: {kind, id, t, said}: the title, then 3-2-1-GO
@@ -218,6 +229,11 @@ func _build_world() -> void:
 	car.damage = clampf(float(save.data.get("damage", 0.0)), 0.0, 100.0)
 	router = Route.new()
 	router.build(island)
+	police = Police.new()
+	police.name = "Police"
+	add_child(police)
+	police.setup(self, island, traffic)
+	car.rammed.connect(func(b, _v, _j, _at): police.rammed(b))
 	for st in island.stations:
 		island.map_marker(st["pos"], Color("4fb3a5"), 7.0)
 	_build_markers()
@@ -341,6 +357,9 @@ func _build_world() -> void:
 			# a test: as if START was pressed (kind:id, e.g. race:downtown, zone:bowl, trial:coast)
 			var bq := String(args["begin"]).split(":")
 			start_challenge_now(bq[0], bq[1])
+		if args.has("wanted"):
+			# a test: the police are after you from the start (at this heat)
+			police.start(float(args["wanted"]), "A test")
 	else:
 		state = TITLE
 		ui.show_title()
@@ -406,6 +425,7 @@ func go_title() -> void:
 	_save_now()
 	state = TITLE
 	_end_challenges()
+	police.clear()
 	ui.show_title()
 
 func pause() -> void:
@@ -416,6 +436,7 @@ func pause() -> void:
 	car.freeze = true
 	if race != null:
 		race.hold(true)
+	police.hold(true)
 	sound.mute_loops(true)
 	ui.open_pause()
 	_save_now()
@@ -427,17 +448,22 @@ func resume() -> void:
 	car.freeze = false
 	if race != null:
 		race.hold(false)
+	police.hold(false)
 	sound.mute_loops(false)
 	ui.close_sheet()
 	ui.show_hud()
 
 func open_garage() -> void:
+	if police.wanted():
+		ui.toast("Lose the police first", "eye", Color("ff5c7a"), Color.WHITE)
+		return
 	_save_now()
 	var from := state
 	state = GARAGE
 	car.freeze = true
 	if race != null:
 		race.hold(true)
+	police.hold(true)
 	sound.mute_loops(true)
 	ui.show_garage(from)
 
@@ -449,6 +475,7 @@ func close_garage(back_to: int) -> void:
 		car.freeze = false
 		if race != null:
 			race.hold(false)
+		police.hold(false)
 		ui.show_hud()
 	else:
 		state = TITLE
@@ -468,6 +495,7 @@ func car_changed() -> void:
 	sound.turbo = int(save.data["up"].get("turbo", 0))
 
 func reset_car() -> void:
+	rw_buf.clear()
 	if race != null and race.state == 1:
 		# in a race: back to the last checkpoint
 		var lc := int(race.you["last_cp"])
@@ -498,6 +526,12 @@ func reset_car() -> void:
 
 ## Fast travel from the map.
 func travel_to(xf: Transform3D) -> void:
+	if police.wanted():
+		ui.toast("Lose the police first", "eye", Color("ff5c7a"), Color.WHITE)
+		if state == PAUSED:
+			resume()
+		return
+	rw_buf.clear()
 	_end_challenges()
 	jump = {}
 	loop_on = -1
@@ -528,6 +562,7 @@ func _apply_settings() -> void:
 	sound.set_volumes(float(st["music"]), float(st["sfx"]))
 	atmos.sun.shadow_enabled = bool(st["shadows"])
 	atmos.env.glow_enabled = bool(st.get("bloom", true))
+	Engine.max_fps = 60 if bool(st.get("fps60", false)) else 0
 	cam_mode = clampi(int(st.get("cam", 0)), 0, 2)
 	cam_zoom = clampf(float(st.get("zoom", 1.0)), 0.55, 1.7)
 	if car:
@@ -568,6 +603,12 @@ func ach_check() -> void:
 
 func _process(dt: float) -> void:
 	frames += 1
+	if args.has("interp") and state == DRIVE and time > 4.0 and time < 4.2:
+		# testing: is the car drawn smoothly between physics steps? (run with --fixed-fps 120)
+		var xi := car.get_global_transform_interpolated().origin
+		print("INTERP f=%d frac=%.2f drawn=(%.3f,%.3f) physics=(%.3f,%.3f) cam=(%.3f,%.3f) mesh=(%.3f,%.3f)" % [frames, Engine.get_physics_interpolation_fraction(),
+			xi.x, xi.z, car.global_position.x, car.global_position.z, cam.global_position.x, cam.global_position.z,
+			car.body_node.get_global_transform_interpolated().origin.x, car.body_node.get_global_transform_interpolated().origin.z])
 	if args.has("hitch") and state == DRIVE:
 		# testing: report frames that took far longer than the rest (stutters you'd feel)
 		var pt := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
@@ -605,8 +646,14 @@ func _process(dt: float) -> void:
 		DRIVE:
 			_controls(dt)
 			_intro_tick(dt)
-			_drive(dt)
+			_rewind_tick(dt)
+			# (the camera first: the HUD works out where the car is on screen from it, this frame's view)
 			_cam(dt)
+			if not rewinding:
+				_drive(dt)
+			else:
+				ui.hud_update_light()
+			police.tick(dt)
 		PAUSED, GARAGE:
 			_controls_off()
 	_sound(dt)
@@ -787,7 +834,7 @@ func _drive(dt: float) -> void:
 		"zone": zone, "zone_t": zone_t, "zone_pts": zone_pts, "trial": trial, "trial_t": trial_t, "trial_gate": trial_gate,
 		"trial_pts": trial_pts, "race": {} if race == null else race.hud(), "car_pos": car.get_global_transform_interpolated().origin, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip)),
 		"close": drift_on and close < 1.6 and car.drift > 0.2, "damage": car.damage, "fuel": fuel,
-		"nos": nos_left / nos_cap(), "nos_on": car.nitro, "wheel": wheel_angle / WHEEL_MAX})
+		"nos": nos_left / nos_cap(), "nos_on": car.nitro, "wheel": wheel_angle / WHEEL_MAX, "police": police.hud()})
 
 # ------------------------------------------------------------------ drifting
 
@@ -1160,7 +1207,7 @@ func _marker(kind: String, id: String, pos: Vector3, col: Color, name: String, r
 
 func _markers_tick(_dt: float) -> void:
 	var p := car.global_position
-	var busy := not zone.is_empty() or not trial.is_empty() or race != null or not intro.is_empty()
+	var busy := not zone.is_empty() or not trial.is_empty() or race != null or not intro.is_empty() or police.wanted()
 	var inside := {}
 	for m in markers:
 		var d := (m["pos"] as Vector3).distance_to(p)
@@ -1456,6 +1503,7 @@ func _finish_trial() -> void:
 func _end_challenges() -> void:
 	zone = {}
 	trial = {}
+	rw_buf.clear()           # (nothing to rewind back into)
 	if not intro.is_empty():
 		intro = {}
 	car.hold = false
@@ -1518,18 +1566,24 @@ func _coins_tick(_dt: float) -> void:
 var _lamp_t := 0.0
 var _lamp_buf := PackedVector4Array()
 
+## Lamps lighting things up after dark: your headlights (moved every frame, with the car as it's drawn)
+## and the nearest street lamps. Which lamps are picked is worked out a few times a second; each one
+## eases in and out, so one joining or leaving the few that are lit never flickers on or off.
+var _lamp_want := {}        # lamp -> how lit it should be
+var _lamp_w := {}           # lamp -> how lit it is
 func _lamp_lights(dt: float) -> void:
-	_lamp_t -= dt
-	if _lamp_t > 0.0:
-		return
-	_lamp_t = 0.1
 	_lamp_buf.resize(16)
 	_lamp_buf.fill(Vector4.ZERO)
-	if atmos.night > 0.02:
-		# your headlights: a pool of light on the road ahead
-		var hx := car.get_global_transform_interpolated()
-		var ahead := hx.origin - hx.basis.z * 7.0 + Vector3(0, 1.2, 0)
-		_lamp_buf[0] = Vector4(ahead.x, ahead.y, ahead.z, -11.0)
+	if atmos.night <= 0.02:
+		if not _lamp_w.is_empty():
+			_lamp_w.clear()
+			_lamp_want.clear()
+		for m in [toon, island.road_mat]:
+			(m as ShaderMaterial).set_shader_parameter("lamps", _lamp_buf)
+		return
+	_lamp_t -= dt
+	if _lamp_t <= 0.0:
+		_lamp_t = 0.1
 		var cp := cam.global_position
 		var near := []
 		for i in island.lamp_src.size():
@@ -1540,12 +1594,166 @@ func _lamp_lights(dt: float) -> void:
 			if d2 < 75.0 * 75.0:
 				near.append([d2, i])
 		near.sort_custom(func(a, b): return a[0] < b[0])
-		for k in mini(near.size(), 15):
-			var lp2: Vector3 = island.lamp_src[near[k][1]]
-			var fade := clampf((75.0 - sqrt(float(near[k][0]))) / 25.0, 0.0, 1.0)
-			_lamp_buf[k + 1] = Vector4(lp2.x, lp2.y, lp2.z, 13.0 * fade)
+		_lamp_want.clear()
+		for k in mini(near.size(), 14):
+			_lamp_want[int(near[k][1])] = clampf((75.0 - sqrt(float(near[k][0]))) / 25.0, 0.0, 1.0)
+	for i in _lamp_want:
+		if not _lamp_w.has(i):
+			_lamp_w[i] = 0.0
+	var lit := []
+	for i in _lamp_w.keys():
+		var w := move_toward(float(_lamp_w[i]), float(_lamp_want.get(i, 0.0)), dt * 2.5)
+		if w <= 0.0 and not _lamp_want.has(i):
+			_lamp_w.erase(i)
+			continue
+		_lamp_w[i] = w
+		lit.append([w, i])
+	if lit.size() > 15:
+		lit.sort_custom(func(a, b): return a[0] > b[0])
+	# your headlights: a pool of light on the road ahead
+	var hx := car.get_global_transform_interpolated()
+	var ahead := hx.origin - hx.basis.z * 7.0 + Vector3(0, 1.2, 0)
+	_lamp_buf[0] = Vector4(ahead.x, ahead.y, ahead.z, -11.0)
+	for k in mini(lit.size(), 15):
+		var lp2: Vector3 = island.lamp_src[lit[k][1]]
+		_lamp_buf[k + 1] = Vector4(lp2.x, lp2.y, lp2.z, 13.0 * float(lit[k][0]))
 	for m in [toon, island.road_mat]:
 		(m as ShaderMaterial).set_shader_parameter("lamps", _lamp_buf)
+
+# ------------------------------------------------------------------ rewind
+
+# ------------------------------------------------------------------ the police
+
+## Whether the police take notice of you right now (not in the middle of a challenge, or rewinding).
+func chase_ok() -> bool:
+	return state == DRIVE and intro.is_empty() and zone.is_empty() and trial.is_empty() and race == null and not rewinding
+
+## (hitting one: that counts in a chase that's on already, or a race they've come to)
+func chase_ok_or_chase() -> bool:
+	return chase_ok() or police.wanted()
+
+func police_started(why: String) -> void:
+	ui.intro_banner("POLICE", "WANTED", why, Color("ff3b4e"))
+	ui.start_card_hide()
+	in_marker = {}
+	rw_buf.clear()
+	route = {}
+
+func police_busted(fine: int) -> void:
+	save.data["coins"] = maxi(int(save.data["coins"]) - fine, 0)
+	save.add_stat("busts", 1)
+	ui.intro_banner("POLICE", "BUSTED", ("Fined %d coins" % fine) if fine > 0 else "Let off with a warning", Color("5c8dff"))
+	sfx("crash_heavy", -10.0, 0.6)
+	if race != null and race.state == 1:
+		# busted in a race: you're out of it
+		race.state = 2
+		ui.popup_text("Out of the race", Color("ff5c7a"))
+		race_end_t = 3.0
+	_save_now()
+
+func police_escaped(bounty: int, heat: int) -> void:
+	save.data["coins"] = int(save.data["coins"]) + bounty
+	save.add_stat("escapes", 1)
+	ui.intro_banner("POLICE", "ESCAPED", "%d-star getaway · +%d coins" % [heat, bounty], Color("54e08a"))
+	sfx("mission")
+	_save_now()
+	ach_check()
+
+## Rewinding's not on during a countdown, after you've finished a race (or with the police after you).
+func rewind_ok() -> bool:
+	return intro.is_empty() and (race == null or race.state == 1) and state == DRIVE and not police.wanted()
+
+func _rw_snap() -> Dictionary:
+	var sn := {"xf": car.global_transform, "v": car.linear_velocity, "w": car.angular_velocity, "fuel": fuel, "nos": nos_left, "dmg": car.damage,
+		"drift": [drift_on, drift_pts, combo, combo_t, drift_len], "zone": [zone_t, zone_pts], "trial": [trial_t, trial_gate, trial_pts]}
+	if race != null:
+		sn["race"] = race.snapshot()
+	return sn
+
+func _rewind_tick(dt: float) -> void:
+	if args.has("rwtest"):
+		# tools: hold REWIND from 6 s to 7.5 s, report where the car is
+		var at := float(args.get("rwtest", "6"))
+		if at < 1.0:
+			at = 6.0
+		held["rewind"] = time > at and time < at + 1.5
+		if frames % 10 == 0 and time > at - 2.0 and time < at + 4.0:
+			var cp0 := car.global_position
+			print("rw t=%.2f on=%s pos=(%.1f,%.1f,%.1f) v=%.0f buf=%d at=%.1f%s" % [time, rewinding, cp0.x, cp0.y, cp0.z, car.speed * 3.6, rw_buf.size(), rw_pos,
+				(" race s=%.0f t=%.1f" % [race.racers[0]["s"], race.t]) if race != null else ""])
+	var want: bool = held.get("rewind", false) and rewind_ok() and rw_buf.size() > 3
+	if want and not rewinding:
+		rewinding = true
+		rw_pos = float(rw_buf.size() - 1)
+		car.freeze = true
+		_break_drift(false)
+		if race != null:
+			race.rw_hold(true)
+		ui.rewind_fx(true)
+		sfx("blowoff", -6.0, 0.6)
+	elif rewinding and not want:
+		_rewind_end()
+	elif not rewinding and rewind_ok():
+		# keep recording
+		rw_t += dt
+		if rw_t >= 1.0 / RW_HZ:
+			rw_t = 0.0
+			rw_buf.append(_rw_snap())
+			if rw_buf.size() > int(RW_SECS * RW_HZ):
+				rw_buf.pop_front()
+	if rw_ghost > 0.0:
+		rw_ghost -= dt
+		if rw_ghost <= 0.0:
+			car.collision_mask = car.collision_mask | 2
+
+## (moved in the physics steps, so the frozen car is drawn smoothly between them)
+func _physics_process(dt: float) -> void:
+	if not rewinding:
+		return
+	rw_pos = maxf(0.0, rw_pos - dt * RW_HZ * 2.0)        # (twice as fast as it happened)
+	var i := int(floor(rw_pos))
+	var f := rw_pos - float(i)
+	var a: Dictionary = rw_buf[i]
+	var b: Dictionary = rw_buf[mini(i + 1, rw_buf.size() - 1)]
+	var xa: Transform3D = a["xf"]
+	var xb: Transform3D = b["xf"]
+	car.global_transform = xa.interpolate_with(xb, f)
+	if race != null and a.has("race"):
+		race.rw_apply(a["race"], true)
+	if rw_pos <= 0.0:
+		_rewind_end()
+
+## Let go of REWIND: back to that moment, at the speed you had then.
+func _rewind_end() -> void:
+	rewinding = false
+	var i := clampi(int(round(rw_pos)), 0, rw_buf.size() - 1)
+	var sn: Dictionary = rw_buf[i]
+	rw_buf.resize(i + 1)
+	car.global_transform = sn["xf"]
+	car.freeze = false
+	car.linear_velocity = sn["v"]
+	car.angular_velocity = sn["w"]
+	fuel = float(sn["fuel"])
+	nos_left = float(sn["nos"])
+	car.damage = float(sn["dmg"])
+	var dr: Array = sn["drift"]
+	drift_on = dr[0]
+	drift_pts = dr[1]
+	combo = dr[2]
+	combo_t = dr[3]
+	drift_len = dr[4]
+	zone_t = float(sn["zone"][0])
+	zone_pts = float(sn["zone"][1])
+	trial_t = float(sn["trial"][0])
+	trial_gate = int(sn["trial"][1])
+	trial_pts = float(sn["trial"][2])
+	if race != null and sn.has("race"):
+		race.rw_hold(false)          # (unfrozen first: a frozen body drops the speeds it's given)
+		race.rw_apply(sn["race"], false)
+	# a moment where the traffic can't hit you (it didn't rewind)
+	rw_ghost = 1.2
+	car.collision_mask = car.collision_mask & ~2
+	ui.rewind_fx(false)
 
 ## Seconds of nitrous a full bottle holds (the Nitrous Tank upgrade makes it bigger).
 func nos_cap() -> float:
@@ -2005,6 +2213,10 @@ func _cam(dt: float, snap := false) -> void:
 	if v.length() > 3.0 and car.speed > 0.0 and not flying:
 		# look along where the car is going, so a drift shows off its side
 		dirv = fwd.slerp(v.normalized(), clampf(car.drift * 0.7 + 0.25, 0.0, 0.8))
+	# (the car's velocity only changes on physics steps, 60 a second: on a 120 Hz screen aiming straight
+	# along it makes the view step every other frame. Eased every frame instead, it glides.)
+	cam_look = dirv if snap or cam_look.length() < 0.5 else cam_look.slerp(dirv, 1.0 - exp(-dt * 12.0)).normalized()
+	dirv = cam_look
 	var want := atan2(-dirv.x, -dirv.z)
 	var rate := 3.2 + clampf(v.length() / 10.0, 0.0, 3.0)
 	if loop_on < 0:
@@ -2094,7 +2306,8 @@ func _sound(dt: float) -> void:
 		skid *= car.linear_velocity.length() / 3.0
 	sound.tick(dt, {"speed": absf(car.speed), "active": active, "grounded": car.grounded > 0, "drift": maxf(skid, car.wheelspin),
 		"air_t": car.air_t, "rpm_k": car.rpm, "throttle": car.throttle, "roll": roll, "pace": 2.6,
-		"grind": active and car.wall_t > 0.12 and car.linear_velocity.length() > 3.0})
+		"grind": active and car.wall_t > 0.12 and car.linear_velocity.length() > 3.0,
+		"siren": 1.0 if active and police.siren_k > 0.0 else 0.0, "siren_close": police.siren_k})
 
 # ------------------------------------------------------------------ input
 
@@ -2114,6 +2327,8 @@ func _unhandled_input(e: InputEvent) -> void:
 				held["hand"] = on
 			KEY_N, KEY_E:
 				held["nos"] = on
+			KEY_BACKSPACE, KEY_Z:
+				held["rewind"] = on
 			KEY_R:
 				if on and state == DRIVE:
 					reset_car()
@@ -2179,7 +2394,7 @@ func _look_drag(idx: int, pos: Vector2) -> void:
 	look_t = 0.0
 
 func _touch_held() -> void:
-	for k in ["left", "right", "gas", "brake", "hand", "nos"]:
+	for k in ["left", "right", "gas", "brake", "hand", "nos", "rewind"]:
 		var on := false
 		for t in touches.values():
 			if t == k:

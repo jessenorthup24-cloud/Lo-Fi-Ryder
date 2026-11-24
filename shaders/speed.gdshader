@@ -2,7 +2,8 @@ shader_type canvas_item;
 
 // The sense of speed, without smearing your car: the picture is blurred outward from the road ahead
 // (more toward the edges), with an oval round the car kept sharp, plus faint light streaks rushing past
-// the edges of the screen.
+// the edges of the screen. The blur never takes in the car either (a pixel beside the car blurs from the
+// scenery only), so no ghost of the car gets smeared across the background.
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
 uniform float amount : hint_range(0.0, 1.0) = 0.0;
 uniform float aspect = 1.7778;
@@ -24,10 +25,14 @@ void fragment() {
 	float k = amount * keep * smoothstep(0.12, 0.75, r);
 	if (k > 0.003) {
 		vec3 acc = col.rgb;
+		float wsum = 1.0;
 		for (int i = 1; i < 7; i++) {
-			acc += texture(screen_tex, uv - dir * k * 0.075 * float(i) / 6.0).rgb;
+			vec2 su = uv - dir * k * 0.075 * float(i) / 6.0;
+			float w = smoothstep(1.15, 1.6, length((su - car_uv) / car_size));
+			acc += texture(screen_tex, su).rgb * w;
+			wsum += w;
 		}
-		col.rgb = acc / 7.0;
+		col.rgb = acc / wsum;
 	}
 	// streaks at the edges
 	float lanes = 170.0;

@@ -10,7 +10,7 @@ const MB := preload("res://scripts/core/mesh_builder.gd")
 const Dents := preload("res://scripts/game/dents.gd")
 
 const MODELS := ["k_car_sedan", "k_car_sedan-sports", "k_car_hatchback-sports", "k_car_suv", "k_car_suv-luxury", "k_car_taxi",
-	"k_car_van", "k_car_police", "k_car_delivery", "k_car_truck", "k_car_sedan", "k_car_hatchback-sports", "k_car_taxi",
+	"k_car_van", "k_car_police", "k_car_delivery", "k_car_truck", "k_car_sedan", "k_car_police", "k_car_taxi",
 	"k_car_garbage-truck", "k_car_ambulance"]
 const SPEED := {"ring": 17.0, "main": 12.5, "road": 14.0, "street": 10.0, "lane": 7.5, "mountain": 11.0}
 const COUNT := 36

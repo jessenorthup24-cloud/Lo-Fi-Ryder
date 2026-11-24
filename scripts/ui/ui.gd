@@ -94,6 +94,12 @@ var count_ring: Control          # (and the burst of colour behind each number)
 var start_card: PanelContainer   # a challenge's card, up while you sit in its beacon
 var _start_cb := Callable()
 var speed_k := 0.0
+var wanted_box: VBoxContainer    # the police: wanted stars, top middle
+var wanted_stars: Array = []
+var wanted_lbl: Label
+var wanted_bar: Control
+var limit_sign: PanelContainer   # the speed limit, by the speedo while a patrol car's about
+var limit_lbl: Label
 
 func setup(g: Node) -> void:
 	game = g
@@ -365,6 +371,27 @@ func _build_hud() -> void:
 	camb.position = Vector2(-300, 230)
 	_tap(camb, func(): game.toggle_cam())
 	hud.add_child(camb)
+	# REWIND: hold it to take the last few seconds back
+	var rw := PanelContainer.new()
+	rw.add_theme_stylebox_override("panel", K.box(Color(K.PAPER, 0.7), 30, 6, Color(K.LINE_DK, 0.7), 0))
+	rw.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	rw.position = Vector2(-432, 226)
+	rw.size = Vector2(118, 70)
+	rw.custom_minimum_size = rw.size
+	rw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rw.pivot_offset = rw.size * 0.5
+	var rwh := HBoxContainer.new()
+	rwh.alignment = BoxContainer.ALIGNMENT_CENTER
+	rwh.add_theme_constant_override("separation", 4)
+	rwh.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rw.add_child(rwh)
+	var rwi := Icon.new("back", K.INK, 30)
+	rwi.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	rwh.add_child(rwi)
+	rwh.add_child(K.label("REWIND", 17, K.INK, 750))
+	hud.add_child(rw)
+	ctl["rewind"] = rw
+	_build_wanted()
 	# the challenge card, top middle
 	chal_card = K.card(K.PAPER, 22)
 	chal_card.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
@@ -531,6 +558,118 @@ func _pad(name: String, pos: Vector2, size: Vector2, left_side: bool, col: Color
 	hud.add_child(p)
 	return p
 
+## The police: five stars top middle (the lit ones flash while they've lost sight of you), with a bar under
+## them for how near you are to losing them (or, in red, to being busted). And a speed limit sign by the
+## speedo whenever a patrol car's about.
+func _build_wanted() -> void:
+	wanted_box = VBoxContainer.new()
+	wanted_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	wanted_box.position = Vector2(-160, 116)
+	wanted_box.size = Vector2(320, 90)
+	wanted_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	wanted_box.add_theme_constant_override("separation", 2)
+	wanted_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wanted_box.visible = false
+	hud.add_child(wanted_box)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 4)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wanted_box.add_child(row)
+	for i in 5:
+		var st := Icon.new("star", Color("ffd34d"), 44)
+		row.add_child(st)
+		wanted_stars.append(st)
+	wanted_lbl = K.outlined(K.label("", 21, Color.WHITE, 750), K.INK, 8)
+	wanted_box.add_child(wanted_lbl)
+	wanted_bar = Control.new()
+	wanted_bar.custom_minimum_size = Vector2(230, 12)
+	wanted_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	wanted_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wanted_bar.set_meta("v", 0.0)
+	wanted_bar.set_meta("c", Color.WHITE)
+	wanted_bar.draw.connect(func():
+		var r := Rect2(Vector2.ZERO, wanted_bar.size)
+		wanted_bar.draw_rect(r.grow(3.0), K.INK)
+		wanted_bar.draw_rect(r, Color(1, 1, 1, 0.18))
+		var v := clampf(float(wanted_bar.get_meta("v")), 0.0, 1.0)
+		wanted_bar.draw_rect(Rect2(Vector2.ZERO, Vector2(r.size.x * v, r.size.y)), wanted_bar.get_meta("c")))
+	wanted_box.add_child(wanted_bar)
+	limit_sign = PanelContainer.new()
+	var lsb := K.box(Color.WHITE, 40, 0, Color.TRANSPARENT, 0)
+	lsb.border_color = Color("e0303e")
+	lsb.set_border_width_all(9)
+	limit_sign.add_theme_stylebox_override("panel", lsb)
+	limit_sign.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	limit_sign.position = Vector2(132, -150)
+	limit_sign.size = Vector2(80, 80)
+	limit_sign.custom_minimum_size = limit_sign.size
+	limit_sign.pivot_offset = limit_sign.size * 0.5
+	limit_sign.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	limit_sign.visible = false
+	limit_lbl = K.label("50", 30, K.INK, 800)
+	limit_sign.add_child(limit_lbl)
+	hud.add_child(limit_sign)
+
+func _wanted_update(pd: Dictionary, kmh: float) -> void:
+	var heat := int(pd.get("heat", 0))
+	wanted_box.visible = heat > 0
+	if heat > 0:
+		var now := Time.get_ticks_msec() * 0.001
+		var blink := not bool(pd["seen"]) and fmod(now, 0.5) < 0.25
+		for i in 5:
+			var st: Control = wanted_stars[i]
+			st.modulate = (Color(1, 1, 1, 0.35) if blink else Color.WHITE) if i < heat else Color(0.15, 0.14, 0.13, 0.45)
+		var b := float(pd["bust"])
+		if b > 0.04:
+			wanted_lbl.text = "PULL OVER!"
+			wanted_bar.set_meta("v", b)
+			wanted_bar.set_meta("c", Color("ff3b4e"))
+		elif not bool(pd["seen"]):
+			wanted_lbl.text = "LOSING THEM"
+			wanted_bar.set_meta("v", float(pd["evade"]))
+			wanted_bar.set_meta("c", Color("54e08a"))
+		else:
+			wanted_lbl.text = "POLICE CHASE · LOSE THEM"
+			wanted_bar.set_meta("v", 0.0)
+		wanted_bar.visible = b > 0.04 or not bool(pd["seen"])
+		wanted_bar.queue_redraw()
+	var lim := int(pd.get("limit", 0))
+	limit_sign.visible = heat == 0 and bool(pd.get("patrol", false)) and lim > 0
+	if limit_sign.visible:
+		limit_lbl.text = str(lim)
+		var over := kmh > lim + 10.0
+		limit_sign.scale = Vector2.ONE * ((1.0 + 0.08 * sin(Time.get_ticks_msec() * 0.02)) if over else 1.0)
+		limit_lbl.add_theme_color_override("font_color", Color("e0303e") if over else K.INK)
+
+## Rewinding: the picture goes blue and a REWIND banner pulses at the top.
+var _rw_fx: Control
+func rewind_fx(on: bool) -> void:
+	if _rw_fx == null:
+		_rw_fx = Control.new()
+		_rw_fx.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_rw_fx.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var tint := ColorRect.new()
+		tint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		tint.color = Color(0.25, 0.45, 0.95, 0.2)
+		tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_rw_fx.add_child(tint)
+		var lb := K.outlined(K.label("◀◀  REWIND", 44, Color.WHITE, 800), K.INK, 10)
+		lb.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+		lb.position = Vector2(-160, 120)
+		lb.size = Vector2(320, 60)
+		lb.name = "Label"
+		_rw_fx.add_child(lb)
+		hud.add_child(_rw_fx)
+		hud.move_child(_rw_fx, 1)
+	_rw_fx.visible = on
+
+## While rewinding, only what moves with the picture (the minimap) keeps up.
+func hud_update_light() -> void:
+	if _rw_fx and _rw_fx.visible:
+		(_rw_fx.get_node("Label") as Control).modulate.a = 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.012)
+	_minimap_tick(game.car.get_global_transform_interpolated().origin, game.car.global_rotation.y)
+
 ## The steering wheel: the top half of a wheel at the bottom left. Put a thumb on it and turn it.
 func _build_wheel() -> void:
 	wheel = Control.new()
@@ -583,7 +722,7 @@ func control_at(pos: Vector2) -> String:
 		var hub := wheel.get_global_rect().position + _wheel_hub()
 		if pos.distance_to(hub) < 250.0:
 			return "wheel"
-	for k in ["nos", "hand", "gas", "brake", "left", "right"]:
+	for k in ["rewind", "nos", "hand", "gas", "brake", "left", "right"]:
 		var c: Control = ctl[k]
 		if not c.visible:
 			continue
@@ -731,6 +870,7 @@ func hud_update(d: Dictionary) -> void:
 		wheel.set_meta("a", float(d.get("wheel", 0.0)) * 1.6)
 		wheel.set_meta("on", game.wheel_idx >= 0)
 		wheel.queue_redraw()
+	_wanted_update(d.get("police", {}), float(d["kmh"]))
 	var nf: Control = ctl["nos"].get_meta("fill")
 	nf.set_meta("v", float(d.get("nos", 1.0)))
 	nf.queue_redraw()
@@ -1301,6 +1441,7 @@ func open_settings(from_pause := false) -> void:
 	g.add_child(_setting_toggle("sun", "Bloom", st.get("bloom", true), func(v): game.set_setting("bloom", v)))
 	g.add_child(_setting_toggle("leaf", "Ambient particles", st.get("motes", true), func(v): game.set_setting("motes", v)))
 	g.add_child(_setting_toggle("eye", "Show FPS", st.get("fps", false), func(v): game.set_setting("fps", v)))
+	g.add_child(_setting_toggle("vibe", "Cap at 60 fps", st.get("fps60", false), func(v): game.set_setting("fps60", v)))
 	var reset := K.button("Reset progress", K.PAPER, K.LINE, 24, 0, 60)
 	reset.add_theme_color_override("font_color", K.CORAL_DK)
 	var armed := [false]

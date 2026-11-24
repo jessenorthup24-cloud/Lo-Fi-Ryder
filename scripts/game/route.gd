@@ -9,9 +9,11 @@ var island
 var verts: Array = []           # vertex -> Vector2
 var adj: Array = []             # vertex -> [[other, length, road, s_here, s_there, dir]]
 var on_road := {}               # road -> [[s, vertex]] sorted by s
+var grid := {}                  # Vector2i (20 m cells) -> [[road, segment]]: for finding the nearest road quickly
 
 func build(isl) -> void:
 	island = isl
+	grid = isl._road_segs_grid()
 	verts.clear()
 	adj.clear()
 	on_road.clear()
@@ -61,8 +63,44 @@ func _link(a: Array, b: Array, ri: int, dir: int, samples: float) -> void:
 	adj[va].append([vb, l, ri, float(a[0]), float(b[0]), dir])
 	adj[vb].append([va, l, ri, float(b[0]), float(a[0]), -dir])
 
+## The nearest road within r metres of p (r up to 20): [road, s, distance], road -1 if there's none that close.
+func nearest_near(p: Vector2, r := 20.0) -> Array:
+	var best := [-1, 0.0, r]
+	var cx := int(floor(p.x / 20.0))
+	var cz := int(floor(p.y / 20.0))
+	for gx in range(cx - 1, cx + 2):
+		for gz in range(cz - 1, cz + 2):
+			for e in grid.get(Vector2i(gx, gz), []):
+				var ri: int = e[0]
+				var k: int = e[1]
+				var pts: PackedVector2Array = island.roads[ri]["pts"]
+				var a := pts[k]
+				var b := pts[(k + 1) % pts.size()]
+				var q := Geometry2D.get_closest_point_to_segment(p, a, b)
+				var d := q.distance_to(p)
+				if d < float(best[2]):
+					var ab := a.distance_to(b)
+					best = [ri, float(k) + (0.0 if ab < 0.001 else a.distance_to(q) / ab), d]
+	return best
+
+## The point at sample s of road ri (between samples too; round the wrap on a closed road).
+func road_at(ri: int, s: float) -> Vector2:
+	var r: Dictionary = island.roads[ri]
+	var pts: PackedVector2Array = r["pts"]
+	var n := pts.size()
+	if r["closed"]:
+		s = fposmod(s, float(n))
+	else:
+		s = clampf(s, 0.0, float(n - 1))
+	var k := mini(int(floor(s)), n - 1)
+	var k2 := (k + 1) % n if r["closed"] else mini(k + 1, n - 1)
+	return pts[k].lerp(pts[k2], s - float(k))
+
 ## The nearest road to p: [road, s] (any road you can drive: lanes and tracks too).
 func _nearest(p: Vector2) -> Array:
+	var near := nearest_near(p, 20.0)
+	if int(near[0]) >= 0:
+		return [near[0], near[1]]
 	var best := [0, 0.0]
 	var bd := INF
 	for ri in island.roads.size():
@@ -101,8 +139,9 @@ func _sides(ri: int, s: float) -> Array:
 			out.append([before[1], s - float(before[0]), -1])
 	return out
 
-## The way from a to b along the roads, as points (x, 0, z); empty if there's no way.
-func find(a: Vector3, b: Vector3) -> PackedVector3Array:
+## The way from a to b along the roads, as points (x, 0, z); empty if there's no way. (quick: stop
+## searching once the way in to b is settled, for the police cars, which ask often.)
+func find(a: Vector3, b: Vector3, quick := false) -> PackedVector3Array:
 	var out := PackedVector3Array()
 	if verts.is_empty():
 		return out
@@ -142,6 +181,10 @@ func find(a: Vector3, b: Vector3) -> PackedVector3Array:
 			prev[v] = [-1, ri_a, s_a, float(island.roads[ri_a]["pts"].size()), int(sd[2])]
 			open.append(v)
 	var done := {}
+	var ends := {}
+	for sd in _sides(ri_b, s_b):
+		ends[int(sd[0])] = true
+	var left := ends.size()
 	while not open.is_empty():
 		var bi := 0
 		for i in open.size():
@@ -152,6 +195,10 @@ func find(a: Vector3, b: Vector3) -> PackedVector3Array:
 		if done.has(u):
 			continue
 		done[u] = true
+		if quick and ends.has(u):
+			left -= 1
+			if left <= 0:
+				break
 		for e in adj[u]:
 			var v2: int = e[0]
 			var nd: float = float(dist[u]) + float(e[1])

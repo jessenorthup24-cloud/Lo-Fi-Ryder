@@ -25,7 +25,10 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - The car is drawn smoothly between physics steps (physics interpolation, with the physics jitter fix
   off as Godot needs), so it stays sharp on 90/120 Hz screens. From about 70 km/h the surroundings blur
   outward from the road ahead and light streaks rush past the edges; an oval round your car is kept
-  sharp. Settings → Speed blur turns it off.
+  sharp, and the blur never samples the car itself (so no ghost of it smears across the background).
+  The camera's aim is eased every frame, so on a 120 Hz screen the view never steps along with the 60 Hz
+  physics. Settings → Speed blur turns it off; Settings → Cap at 60 fps holds the frame rate at 60 (smoother
+  on phones that pace 120 Hz unevenly, and easier on the battery).
 - Tuning (garage, Tune tab, per car): camber (0-10°) and ride height (slammed to lifted) change the look
   and the handling. More camber and lower: drifts more easily but less race grip and worse off-road.
   Less camber and higher: harder to drift, more grip, better on grass, dirt and sand. Bars show the
@@ -33,6 +36,23 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   laid on the ground under the car (it fades as the car leaves the ground or tips over), brighter at
   night, with the tubes themselves only visible from underneath.
 - Settings → Show FPS puts the frame rate and the slowest frame of the last second by the clock.
+- Rewind: hold REWIND (by the camera button; Backspace or Z on a keyboard) to take back the last 10
+  seconds. The picture goes blue and plays backwards at double speed; let go to carry on from there, at
+  the speed you had then (fuel, nitrous, damage, the drift you were holding and any challenge clock go
+  back too). In a street race the other racers and the race clock rewind with you. The traffic doesn't,
+  so for a moment after a rewind it can't hit you. Not during a countdown, after the finish, or with the
+  police after you.
+- The police: patrol cars drive about in the traffic. Go past one more than 10 km/h over the limit
+  (a limit sign comes up by the speedo while one's about: 50 in town, 70 on the main roads, 80 on the
+  ring road, 40 on lanes) or hit one, and they're after you: wanted stars top middle, sirens, flashing
+  red and blue light bars, red-blue dots on the minimap. They follow you along the roads, go straight for
+  you once they're close, plough through the traffic, and more turn up out of sight as the stars go up
+  (a star every 40 s they've had you in sight, more for ramming them or wrecking one). Get out of sight
+  and stay out of sight till the stars stop flashing to lose them (a bounty in coins); stop with one on
+  your bumper for 3 seconds and you're busted (a fine). No challenges, garage or fast travel while
+  they're after you. Half the street races get a visit: they turn up some way in, go for the racers too
+  (a racer they stop is out of the race) and the chase goes on after the finish line. Trophies for
+  losing them once and ten times, and for five stars.
 - Nitrous: hold NOS (above GAS; N or E on a keyboard) for a hard shove and a higher top speed, with blue
   flames, a wider view and more speed blur. The bottle refills slowly as you drive, quicker drifting or
   in the air. The Nitrous Tank upgrade makes it bigger (3 s up to 9 s).
@@ -149,6 +169,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `tools/audio/`, `tools/music/` | Sound synthesis scripts (the fallback sounds); the CC0 music list the build fetches |
 | `scripts/game/dents.gd` | Crash damage: bends a mesh in around an impact and scuffs the paint |
 | `scripts/game/route.gd` | GPS: the road network as a graph and the shortest way along it |
+| `scripts/game/police.gd` | The police: patrol cars in the traffic noticing you, wanted stars, the police cars (road-following, ramming, boxing in, getting unstuck, coming in out of sight), busted and escaped, police at street races |
 | `scripts/game/race.gd` | Street races: the racing line (the streets' middle pulled tight within their width, with a speed for every metre), the CPU drivers (follow, pass, recover), checkpoints, laps and places |
 | `tools/cars/export_paints.gd` | Bakes each car's other liveries as per-vertex colour rows (`assets/cars/*_paints.res`) |
 
@@ -166,6 +187,10 @@ godot --path . -- --drive --race=downtown --raceauto --racelog   # straight into
 godot --path . -- --drive --begin=trial:main      # as if START was pressed (race:downtown, zone:bowl...)
 godot --path . -- --drive --demo=100 --aim=tree   # lined up for a run at a tree (lamp, light)
 godot --path . -- --drive --race=downtown --topcam=-170,120,190  # ...watched from straight above
+godot --path . -- --auto --wanted=3 --copslog     # the police after you from the start (3 stars), logged
+godot --path . -- --drive --begin=race:downtown --raceauto --cops=1 --copsat=12   # police at this race, 12 s in
+godot --path . -- --drive --demo=3 --rwtest=6     # hold REWIND at 6 s for 1.5 s, logged
+godot --headless --path . --fixed-fps 120 -- --drive --demo=8 --interp   # the car between physics steps, per frame
 xvfb-run godot --path . -- --drive --shot=/tmp/x.png --shot_at=200 --quit_after=30
 godot --headless --path . -s res://tools/test/handling.gd -- bug,hotrod all   # handling report
 godot --headless --path . -s res://tools/test/road_audit.gd                  # props in the road

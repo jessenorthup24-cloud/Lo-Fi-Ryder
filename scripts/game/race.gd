@@ -402,6 +402,8 @@ func tick(dt: float) -> void:
 		print(line)
 	var robot: bool = game.args.has("raceauto")      # testing: the CPU drives your car as well
 	for r in racers:
+		if r.get("busted", false):
+			continue          # (pulled over by the police: out of it)
 		_progress(r)
 		if r["ai"] or (robot and r == you and float(r["done"]) < 0.0):
 			_drive(r, dt)       # (over the line: a slower lap to cool down, not stopped in anyone's way)
@@ -591,6 +593,43 @@ func _gates_tick() -> void:
 	for k in gates.size():
 		(gates[k] as Node3D).visible = k == next or k == (next + 1) % cps.size() or k == cps.size() - 1
 
+# ---------------------------------------------------------------- rewind
+
+## Where everyone is (for rewinding): the clock, and each racer's place round the course and its car.
+func snapshot() -> Dictionary:
+	var rs := []
+	for r in racers:
+		var c: RigidBody3D = r["car"]
+		rs.append([float(r["s"]), int(r["last_cp"]), float(r["done"]), float(r["lane_now"]), c.global_transform, c.linear_velocity, c.angular_velocity])
+	return {"t": t, "racers": rs, "finished": finished.size()}
+
+## Rewinding: the CPU cars are held where the snapshots put them.
+func rw_hold(on: bool) -> void:
+	for r in racers:
+		if r["ai"]:
+			(r["car"] as RigidBody3D).freeze = on
+
+## Back to a snapshot (moving: true while rewinding, just the positions; false at the end: speeds too).
+func rw_apply(snap: Dictionary, moving: bool) -> void:
+	t = float(snap["t"])
+	var rs: Array = snap["racers"]
+	for i in mini(rs.size(), racers.size()):
+		var r: Dictionary = racers[i]
+		var q: Array = rs[i]
+		r["s"] = q[0]
+		r["last_cp"] = q[1]
+		r["done"] = q[2]
+		r["lane_now"] = q[3]
+		if r["ai"]:
+			var c: RigidBody3D = r["car"]
+			c.global_transform = q[4]
+			if not moving:
+				c.linear_velocity = q[5]
+				c.angular_velocity = q[6]
+				c.reset_physics_interpolation()
+	while finished.size() > int(snap["finished"]):
+		finished.pop_back()
+
 ## Paused (or in the garage): everyone waits where they are, and carries on at the same speed after.
 func hold(on: bool) -> void:
 	for r in racers:
@@ -617,8 +656,17 @@ func standings() -> Array:
 	for r in racers:
 		if not finished.has(r):
 			rest.append(r)
-	rest.sort_custom(func(a, b): return float(a["s"]) > float(b["s"]))
+	# (anyone the police pulled over is out of it: last)
+	rest.sort_custom(func(a, b): return (-1e9 if a.get("busted", false) else float(a["s"])) > (-1e9 if b.get("busted", false) else float(b["s"])))
 	return finished + rest
+
+## The police have stopped this CPU racer: it's out of the race, parked where it was caught.
+func bust(car_node: Node) -> void:
+	for r in racers:
+		if r["car"] == car_node and r["ai"] and not r.get("busted", false):
+			r["busted"] = true
+			(r["car"] as Car).hold = true
+			game.ui.popup_text("%s got busted!" % r["name"], Color("5c8dff"))
 
 ## For the HUD.
 func hud() -> Dictionary:

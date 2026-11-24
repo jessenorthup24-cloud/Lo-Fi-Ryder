@@ -225,9 +225,9 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 		if (com - cp).dot(n) < 0.0:
 			n = -n                       # into the car
 		var col := st.get_contact_collider_object(i)
-		var kind := "car" if col is Node and ((col as Node).has_meta("traffic_id") or (col as Node).has_meta("wreck") or (col as Node).has_meta("racer")) else "wall"
+		var kind := "car" if col is Node and ((col as Node).has_meta("traffic_id") or (col as Node).has_meta("wreck") or (col as Node).has_meta("racer") or (col as Node).has_meta("police")) else "wall"
 		if hit.is_empty() or _clock - float(hit["t"]) > 0.25:
-			hit = {"t": _clock, "pos": cp, "n": n, "kind": kind}
+			hit = {"t": _clock, "pos": cp, "n": n, "kind": kind, "who": col}
 		if kind == "car" and col is AnimatableBody3D and _ram_cd <= 0.0:
 			var vt := st.get_contact_collider_velocity_at_position(i)
 			var vb: Vector3 = _vh[0]
