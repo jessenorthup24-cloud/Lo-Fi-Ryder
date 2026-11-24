@@ -53,6 +53,15 @@ const VIEWS := {
 	"raceway": [Vector3(345, 40, 330), Vector3(470, 0, 430), 60.0],
 	"pits": [Vector3(470, 14, 395), Vector3(425, 3, 350), 60.0],
 	"raceway2": [Vector3(575, 25, 545), Vector3(460, 0, 440), 60.0],
+	"rwcross": [Vector3(381, 70, 385.1), Vector3(381, 0, 385), 50.0],
+	"rwcrosslow": [Vector3(362, 9, 352), Vector3(384, 2.4, 380), 62.0],
+	"rwwest": [Vector3(352, 90, 418.1), Vector3(352, 0, 418), 62.0],
+	"rwsouth": [Vector3(486, 90, 492.1), Vector3(486, 0, 492), 62.0],
+	"rweast": [Vector3(536, 90, 420.1), Vector3(536, 0, 420), 62.0],
+	"rwdrift": [Vector3(452, 130, 445.1), Vector3(452, 0, 445), 62.0],
+	"rwstraight": [Vector3(345, 5, 368), Vector3(440, 2.4, 374), 60.0],
+	"rwhair": [Vector3(440, 7, 452), Vector3(447, 2.4, 488), 64.0],
+	"rwring": [Vector3(300, 60, 262.1), Vector3(300, 0, 262), 62.0],
 }
 
 var frames := 0

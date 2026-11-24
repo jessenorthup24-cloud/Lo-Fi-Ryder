@@ -25,7 +25,8 @@ const GP_W := 14.0
 const DRIFT := [Vector3(372, 398, 10), Vector3(522, 398, 12), Vector3(524, 492, 12), Vector3(448, 492, 10),
 	Vector3(448, 440, 9), Vector3(372, 440, 10)]
 const DRIFT_W := 11.0
-const CROSS_X := 380.0                  # where the way in crosses the main straight into the drift course
+const CROSS_X := 394.0                  # where the way in crosses the main straight into the drift course
+										# (on the drift course's top straight, well clear of its first corner)
 const START_X := 430.0                  # the start/finish line, on the main straight
 
 ## How far inland a point is of the peninsula alone (negative: out at sea): a rounded rectangle.
@@ -64,45 +65,39 @@ static func plan(I) -> void:
 	# the way in: off the ring road, under the railway, down past the paddock, across the main straight
 	I.add_road("Raceway Road", [Vector2(300, 250), Vector2(322, 292), Vector2(352, 322), Vector2(CROSS_X, 345),
 		Vector2(CROSS_X, 372), Vector2(CROSS_X, 398)], "yard")
-	I.add_lot(Vector2(437, 343), Vector2(46, 14), I.S_ASPHALT)          # the paddock and pits
+	I.add_lot(Vector2(445.5, 343), Vector2(47.5, 14), I.S_ASPHALT)      # the paddock and pits (up to the road's edge)
 
 ## Everything that dresses the track (after the roads and the land are in).
 static func populate(I, rr: RandomNumberGenerator) -> void:
 	# nothing else grows or gets put here
 	I.block_rect(C, HS - Vector2(4, 4), 0.0, 0.0)
-	var gp: PackedVector2Array = _road(I, "Raceway Circuit")["pts"]
-	var dr: PackedVector2Array = _road(I, "Drift Course")["pts"]
+	var gi := _road_i(I, "Raceway Circuit")
+	var di := _road_i(I, "Drift Course")
+	var gp: PackedVector2Array = I.roads[gi]["pts"]
+	var dr: PackedVector2Array = I.roads[di]["pts"]
 	var y := LIFT + 0.02
-	_kerbs(I, gp, GP_W * 0.5, y)
-	_kerbs(I, dr, DRIFT_W * 0.5, y)
+	_kerbs(I, gi, GP_W * 0.5, true)
+	_kerbs(I, di, DRIFT_W * 0.5, false)
 	_start_line(I, gp, y)
-	# the circuit's outside: a wall all round, a few metres back from the edge (gaps where the road comes in)
-	var mid := Vector2.ZERO
-	for p in gp:
-		mid += p
-	mid /= gp.size()
-	_edge(I, gp, GP_W * 0.5 + 4.0, mid, true, "k_race_barrierWall", 8.0, 1.0, [Vector2(CROSS_X, 372)])
+	# the circuit's outside: a wall all round, a few metres back from the edge (open where the way in crosses)
+	_edge(I, gi, GP_W * 0.5 + 4.0, "k_race_barrierWall", 8.0, 1.5)
 	# the drift course's outside: red and white blocks, close to the edge (for running the wall)
-	var dmid := Vector2.ZERO
-	for p in dr:
-		dmid += p
-	dmid /= dr.size()
-	_edge(I, dr, DRIFT_W * 0.5 + 1.6, dmid, true, "", 2.0, 1.0, [Vector2(CROSS_X, 398)])
+	_edge(I, di, DRIFT_W * 0.5 + 1.6, "", 2.0, 1.0)
 	# the pits: a row of garages facing the straight, the office at the end, race cars out front
 	for k in 6:
-		var gx := 400.0 + k * 8.0
+		var gx := 410.0 + k * 8.0
 		I.put("k_race_pitsGarageClosed" if k % 3 == 2 else "k_race_pitsGarage", gx, 342.5, PI, 1.0, "box", y)
-	I.put("k_race_pitsOffice", 448.0, 342.5, PI, 1.0, "box", y)
-	I.put("k_race_pitsOfficeRoof", 456.0, 342.5, PI, 1.0, "box", y)
+	I.put("k_race_pitsOffice", 458.0, 342.5, PI, 1.0, "box", y)
+	I.put("k_race_pitsOfficeRoof", 466.0, 342.5, PI, 1.0, "box", y)
 	var rcars := ["k_race_raceCarRed", "k_race_raceCarGreen", "k_race_raceCarOrange", "k_race_raceCarWhite"]
 	for k in 4:
-		I.put(rcars[k], 404.0 + k * 13.0, 354.0, PI + rr.randf_range(-0.15, 0.15), 1.0, "box", y)
+		I.put(rcars[k], 414.0 + k * 13.0, 354.0, PI + rr.randf_range(-0.15, 0.15), 1.0, "box", y)
 	# tents and the grandstands behind the paddock, looking over the straight
-	I.put("k_race_tentLong", 418.0, 329.0, PI, 1.0, "box", y)
-	I.put("k_race_tent", 440.0, 329.0, PI, 1.0, "box", y)
-	I.put("k_race_tentClosed", 450.0, 329.0, PI, 1.0, "box", y)
+	I.put("k_race_tentLong", 426.0, 329.0, PI, 1.0, "box", y)
+	I.put("k_race_tent", 448.0, 329.0, PI, 1.0, "box", y)
+	I.put("k_race_tentClosed", 458.0, 329.0, PI, 1.0, "box", y)
 	for k in 5:
-		I.put("k_race_grandStandCovered", 492.0 + k * 8.2, 344.0, PI, 1.0, "box", y)
+		I.put("k_race_grandStandCovered", 494.0 + k * 8.2, 344.0, PI, 1.0, "box", y)
 	# more stands on the outside of the west side, and at the south end
 	for k in 3:
 		I.put("k_race_grandStand", 321.5, 400.0 + k * 8.2, PI * 0.5, 1.0, "box", y)
@@ -142,43 +137,83 @@ static func _road(I, name: String) -> Dictionary:
 			return r
 	return {}
 
+static func _road_i(I, name: String) -> int:
+	for ri in I.roads.size():
+		if I.roads[ri]["name"] == name:
+			return ri
+	return -1
+
+## A loop's centre line, `sub` points to each of its samples, with the direction at each: the same curve the
+## track's surface is drawn on.
+static func _dense(I, pts: PackedVector2Array, sub: int) -> Array:
+	var ps := PackedVector2Array()
+	var ts := PackedVector2Array()
+	for k in pts.size():
+		for u in sub:
+			var at: Array = I.loop_at(pts, k, float(u) / sub)
+			ps.append(at[0])
+			ts.append(at[1])
+	return [ps, ts]
+
 static func _near_road(pts: PackedVector2Array, p: Vector2, d: float) -> bool:
 	for q in pts:
 		if q.distance_to(p) < d:
 			return true
 	return false
 
-## Right of the loop at point k.
-static func _right(pts: PackedVector2Array, k: int) -> Vector2:
-	var n := pts.size()
-	var t := (pts[(k + 1) % n] - pts[(k - 1 + n) % n]).normalized()
-	return Vector2(-t.y, t.x)
-
-## Red and white kerbs along both edges wherever the loop bends.
-static func _kerbs(I, pts: PackedVector2Array, hw: float, y: float) -> void:
+static func _kerbs(I, ri: int, hw: float, both: bool) -> void:
+	var d: Array = _dense(I, I.roads[ri]["pts"], 4)
+	var ps: PackedVector2Array = d[0]
+	var ts: PackedVector2Array = d[1]
+	var n := ps.size()
+	var step := ps[0].distance_to(ps[1])
+	# where it bends tighter than about a 70 m radius, run on 4 m either side
+	var on := PackedByteArray()
+	on.resize(n)
+	var side := PackedFloat32Array()          # which side the bend's inside is (+1: the right-hand side)
+	side.resize(n)
+	var ext := int(ceil(4.0 / step))
+	var w := int(ceil(2.5 / step))            # the bend judged over 5 m, so the little wobble where an arc
+	for i in n:                               # meets a straight doesn't count as a bend the other way
+		var ta := ts[posmod(i - w, n)]
+		var tb := ts[(i + w) % n]
+		var turn := ta.cross(tb)
+		var b := absf(ta.angle_to(tb)) / (2.0 * w * step)
+		if b > 1.0 / 70.0:
+			for j in range(-ext, ext + 2):
+				on[posmod(i + j, n)] = 1
+				side[posmod(i + j, n)] = signf(turn)
 	var mb := MB.new()
-	var n := pts.size()
 	var red := MB.rgb("d9433b")
 	var white := MB.rgb("f2efe9")
-	for k in n:
-		var a := pts[k]
-		var b := pts[(k + 1) % n]
-		var t0 := (pts[(k + 2) % n] - pts[(k - 2 + n) % n]).normalized()
-		var t1 := (pts[(k + 4) % n] - pts[k]).normalized()
-		var bend := absf(t0.angle_to(t1))
-		var bend2 := absf((pts[(k + 6) % n] - pts[(k + 2) % n]).normalized().angle_to((pts[(k - 2 + n) % n] - pts[(k - 6 + n) % n]).normalized()))
-		if bend < 0.05 and bend2 < 0.08:
+	var stripe := maxi(1, int(round(1.9 / step)))        # stripes about 2 m long
+	var i0 := hw - 0.35
+	var i1 := hw + 0.9
+	# number the stripes from the start of each run of kerb, so every run starts on red
+	var run_k := 0
+	for i in n:
+		var j := (i + 1) % n
+		if on[i] == 0 or on[j] == 0:
+			run_k = 0
 			continue
-		var ra := _right(pts, k)
-		var rb := _right(pts, (k + 1) % n)
-		var col := red if (k / 1) % 2 == 0 else white
-		for sd0 in [-1.0, 1.0]:
-			var sd: float = sd0
-			var i0 := a + ra * (hw - 0.6) * sd
-			var o0 := a + ra * (hw + 0.7) * sd
-			var i1 := b + rb * (hw - 0.6) * sd
-			var o1 := b + rb * (hw + 0.7) * sd
-			mb.quad(_v(I, i0), _v(I, i1), _v(I, o1), _v(I, o0), Vector3.UP, col)
+		var col := red if (run_k / stripe) % 2 == 0 else white
+		run_k += 1
+		var ra := Vector2(-ts[i].y, ts[i].x)
+		var rb := Vector2(-ts[j].y, ts[j].x)
+		for sd: float in [-1.0, 1.0]:
+			if not both and sd != side[i]:
+				continue
+			var mid := (ps[i] + ps[j]) * 0.5 + (ra + rb).normalized() * (i0 + i1) * 0.5 * sd
+			if I.on_carriageway(mid, ri, 0.8):
+				continue
+			var a0 := ps[i] + ra * i0 * sd
+			var a1 := ps[i] + ra * i1 * sd
+			var b0 := ps[j] + rb * i0 * sd
+			var b1 := ps[j] + rb * i1 * sd
+			if sd > 0:
+				mb.quad(_v(I, a0), _v(I, b0), _v(I, b1), _v(I, a1), Vector3.UP, col)
+			else:
+				mb.quad(_v(I, a1), _v(I, b1), _v(I, b0), _v(I, a0), Vector3.UP, col)
 	_mesh(I, mb, "Kerbs")
 
 ## The start/finish line: a band of black and white squares across the straight.
@@ -216,42 +251,74 @@ static func _mesh(I, mb: MB, nm: String) -> void:
 	I.add_child(mi)
 
 ## A barrier along the outside of a loop, `off` metres out from the middle: kit wall pieces (or, with no
-## model, red and white blocks of our own), solid, with gaps where a road comes through.
-static func _edge(I, pts: PackedVector2Array, off: float, mid: Vector2, outside: bool, model: String, piece: float, _h: float, gaps: Array) -> void:
-	var n := pts.size()
-	var walk := 0.0
+## model, red and white blocks of our own), solid. It follows the curve the track is drawn on, in pieces of
+## about `piece` metres fitted evenly into each unbroken run, so it closes up round the corners and stops
+## square either side of where another road comes through.
+static func _edge(I, ri: int, off: float, model: String, piece: float, clear: float) -> void:
+	var d: Array = _dense(I, I.roads[ri]["pts"], 4)
+	var ps: PackedVector2Array = d[0]
+	var ts: PackedVector2Array = d[1]
+	var n := ps.size()
+	# outward: whichever side faces east at the loop's most easterly point
+	var e := 0
+	for i in n:
+		if ps[i].x > ps[e].x:
+			e = i
+	var sgn := 1.0 if -ts[e].y > 0.0 else -1.0
+	var line := PackedVector2Array()
+	var free := PackedByteArray()
+	free.resize(n)
+	var start := -1
+	for i in n:
+		var q := ps[i] + Vector2(-ts[i].y, ts[i].x) * sgn * off
+		line.append(q)
+		free[i] = 0 if I.on_carriageway(q, ri, clear) else 1
+		if free[i] == 0 and start < 0:
+			start = i
+	# the unbroken runs of it (all the way round, closed, if nothing crosses)
+	var runs := []
+	var cur := PackedVector2Array()
+	var closed := start < 0
+	var cnt := n + 1 if closed else n
+	for j in cnt:
+		var i := (maxi(start, 0) + j) % n
+		if free[i] == 1:
+			cur.append(line[i])
+		elif cur.size() > 0:
+			runs.append(cur)
+			cur = PackedVector2Array()
+	if cur.size() > 0:
+		runs.append(cur)
 	var mb := MB.new()
-	var k := 0
 	var idx := 0
-	var last := Vector2.INF
-	while k < n:
-		var r := _right(pts, k)
-		var p := pts[k]
-		if (p + r - mid).length() < (p - r - mid).length():
-			r = -r                      # (outward)
-		if not outside:
-			r = -r
-		var q := p + r * off
-		var gap := false
-		for g in gaps:
-			if q.distance_to(g) < 14.0:
-				gap = true
-		if last == Vector2.INF or q.distance_to(last) >= piece:
-			if not gap and last != Vector2.INF and q.distance_to(last) < piece * 1.8:
-				var dirv := (q - last).normalized()
-				var c := (q + last) * 0.5
-				var yaw := atan2(-dirv.x, -dirv.y)
-				var len := q.distance_to(last)
-				if model != "":
-					var msz: Vector3 = M.ksize(model)
-					I.put(model, c.x, c.y, yaw + PI * 0.5, len / maxf(msz.x, 0.1), "box", LIFT)
-				else:
-					var col := MB.rgb("d9433b") if idx % 2 == 0 else MB.rgb("f2efe9")
-					mb.cbox(Vector3(c.x, LIFT + 0.45, c.y), Vector3(0.9, 0.9, len - 0.05), 0.08, col, Basis(Vector3.UP, yaw))
-					I.add_box_collider(Transform3D(Basis(Vector3.UP, yaw), Vector3(c.x, LIFT + 0.45, c.y)), Vector3(0.9, 0.9, len))
-				idx += 1
-			last = q if not gap else Vector2.INF
-		k += 1
+	for run: PackedVector2Array in runs:
+		var acc := PackedFloat32Array([0.0])
+		for i in range(1, run.size()):
+			acc.append(acc[i - 1] + run[i].distance_to(run[i - 1]))
+		var total: float = acc[acc.size() - 1]
+		if total < piece * 0.4:
+			continue
+		var m := maxi(1, int(round(total / piece)))
+		var at := 0
+		var a := run[0]
+		for p in m:
+			var want := total * (p + 1) / m
+			while at < run.size() - 2 and acc[at + 1] < want:
+				at += 1
+			var b := run[at].lerp(run[at + 1], clampf((want - acc[at]) / maxf(acc[at + 1] - acc[at], 0.001), 0.0, 1.0))
+			var dirv := (b - a).normalized()
+			var c := (a + b) * 0.5
+			var yaw := atan2(-dirv.x, -dirv.y)
+			var len := a.distance_to(b)
+			if model != "":
+				var msz: Vector3 = M.ksize(model)
+				I.put(model, c.x, c.y, yaw + PI * 0.5, len / maxf(msz.x, 0.1), "box", LIFT)
+			else:
+				var col := MB.rgb("d9433b") if idx % 2 == 0 else MB.rgb("f2efe9")
+				mb.cbox(Vector3(c.x, LIFT + 0.45, c.y), Vector3(0.9, 0.9, len - 0.05), 0.08, col, Basis(Vector3.UP, yaw))
+				I.add_box_collider(Transform3D(Basis(Vector3.UP, yaw), Vector3(c.x, LIFT + 0.45, c.y)), Vector3(0.9, 0.9, len))
+			idx += 1
+			a = b
 	if not mb.is_empty():
 		var mi := MeshInstance3D.new()
 		mi.mesh = mb.commit()

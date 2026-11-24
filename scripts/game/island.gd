@@ -18,6 +18,7 @@ const CELL := 2.5
 const N := 481               # height samples per side
 const CHUNK := 100.0         # static props merge per chunk
 const TCHUNK := 30           # terrain chunk, in cells (75 m)
+const TRACK_SUB := 4            # slices per sample on the Raceway's loops
 const ROAD_LIFT := 0.035     # road surface above the ground
 const MAP_LAYER := 1 << 19   # minimap-only meshes
 
@@ -290,7 +291,9 @@ func add_road(name: String, ctrl: Array, kind: String, closed := false) -> Dicti
 	# ("track", "drift": the Raceway's circuit and drift course)
 	var w: float = {"ring": 12.0, "main": 12.0, "road": 11.0, "street": 10.0, "lane": 8.0, "mountain": 9.0, "dirt": 6.5, "yard": 8.0,
 		"track": 14.0, "drift": 11.0}[kind]
-	var pts := _spline(ctrl, closed)
+	# the Raceway's loops come already rounded (arcs a metre apart between long straights): a spline through
+	# points that uneven folds back on itself at every corner, so they're only resampled
+	var pts := _even_loop(PackedVector2Array(ctrl)) if kind in ["track", "drift"] and closed else _spline(ctrl, closed)
 	var r := {"name": name, "pts": pts, "y": PackedFloat32Array(), "w": w, "kind": kind, "closed": closed,
 		"walk": kind == "street" or kind == "main", "surf": S_DIRT if kind == "dirt" else S_ASPHALT}
 	roads.append(r)
@@ -331,6 +334,28 @@ func _spline(ctrl: Array, closed: bool) -> PackedVector2Array:
 		acc += l
 	if not closed and out[out.size() - 1].distance_to(dense[dense.size() - 1]) > 0.5:
 		out.append(dense[dense.size() - 1])
+	return out
+
+## A closed polyline resampled to points an even step apart (as near CELL as divides the loop exactly, so the
+## last step back to the first point is the same as all the others).
+func _even_loop(poly: PackedVector2Array) -> PackedVector2Array:
+	var n := poly.size()
+	var total := 0.0
+	for i in n:
+		total += poly[i].distance_to(poly[(i + 1) % n])
+	var m := maxi(3, int(round(total / CELL)))
+	var step := total / m
+	var out := PackedVector2Array()
+	var seg := 0
+	var acc := 0.0
+	for k in m:
+		var want := k * step
+		while seg < n - 1 and acc + poly[seg].distance_to(poly[(seg + 1) % n]) < want:
+			acc += poly[seg].distance_to(poly[(seg + 1) % n])
+			seg += 1
+		var a := poly[seg]
+		var b := poly[(seg + 1) % n]
+		out.append(a.lerp(b, clampf((want - acc) / maxf(a.distance_to(b), 0.001), 0.0, 1.0)))
 	return out
 
 func _road_levels() -> void:
@@ -664,6 +689,9 @@ func _road_meshes() -> void:
 			var pb := Vector3(b.x, yb, b.y)
 			var la := Vector3(na.x, 0, na.y)
 			var lb := Vector3(nb.x, 0, nb.y)
+			if kind == "track" or kind == "drift":
+				_track_seg(mb, pts, ys, k, hw, col, line_w)
+				continue
 			if kind == "dirt":
 				# a dirt track stops at the edge of a paved road (and sits a hair under it): drawn in
 				# quarters so its end follows the kerb
@@ -744,8 +772,14 @@ func _road_meshes() -> void:
 						mb.quad(q1, q2, q3, q4, up, line_w)
 					else:
 						mb.quad(q4, q3, q2, q1, up, line_w)
-	# zebra crossings and stop lines at the mouths of junctions
+	# zebra crossings and stop lines at the mouths of junctions (none where a road meets the Raceway's track)
 	for nd in nodes:
+		var on_track := false
+		for m in nd["members"]:
+			if roads[m[0]]["kind"] in ["track", "drift"]:
+				on_track = true
+		if on_track:
+			continue
 		for arm in nd["arms"]:
 			var ri: int = arm["r"]
 			var r: Dictionary = roads[ri]
@@ -1072,6 +1106,51 @@ func _flat_rect(mb: MB, c: Vector3, along: Vector3, across: Vector3, _y: float, 
 	var q3 := m + across * hx + along * hz
 	var q4 := m - across * hx + along * hz
 	mb.quad(q4, q3, q2, q1, Vector3.UP, col)
+
+## A point on a closed loop of even samples, a fraction t of the way from sample k to k + 1, and its direction:
+## Catmull-Rom through the samples, so the Raceway's corners come out round rather than in 2.5 m facets.
+func loop_at(pts: PackedVector2Array, k: int, t: float) -> Array:
+	var n := pts.size()
+	var p0 := pts[posmod(k - 1, n)]
+	var p1 := pts[posmod(k, n)]
+	var p2 := pts[posmod(k + 1, n)]
+	var p3 := pts[posmod(k + 2, n)]
+	var a := 2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3
+	var b := -p0 + 3.0 * p1 - 3.0 * p2 + p3
+	var p := 0.5 * (2.0 * p1 + (p2 - p0) * t + a * t * t + b * t * t * t)
+	var d := 0.5 * ((p2 - p0) + 2.0 * a * t + 3.0 * b * t * t)
+	return [p, d.normalized()]
+
+## One sample's worth of the Raceway's circuit or drift course: the surface in short slices along the curve,
+## with its white edge lines running unbroken (across the mouths of the way in too, as on a real circuit).
+func _track_seg(mb: MB, pts: PackedVector2Array, ys: PackedFloat32Array, k: int, hw: float, col: Color, line_col: Color) -> void:
+	var n := pts.size()
+	var up := Vector3.UP
+	var lift := Vector3(0, 0.015, 0)
+	var pc := Vector3.ZERO
+	var pl := Vector3.ZERO
+	for u in TRACK_SUB + 1:
+		var t := float(u) / TRACK_SUB
+		var at := loop_at(pts, k, t)
+		var p2: Vector2 = at[0]
+		var tg: Vector2 = at[1]
+		var c := Vector3(p2.x, lerpf(ys[k], ys[(k + 1) % n], t) + ROAD_LIFT, p2.y)
+		var l := Vector3(-tg.y, 0, tg.x)
+		if u > 0:
+			mb.quad(pc - pl * hw, c - l * hw, c + l * hw, pc + pl * hw, up, col)
+			for sd in [-1.0, 1.0]:
+				var e0: float = (hw - 0.55) * sd
+				var e1: float = (hw - 0.35) * sd
+				var q1 := pc + pl * e0 + lift
+				var q2 := c + l * e0 + lift
+				var q3 := c + l * e1 + lift
+				var q4 := pc + pl * e1 + lift
+				if sd > 0:
+					mb.quad(q1, q2, q3, q4, up, line_col)
+				else:
+					mb.quad(q4, q3, q2, q1, up, line_col)
+		pc = c
+		pl = l
 
 func _tangent(pts: PackedVector2Array, k: int, closed: bool) -> Vector2:
 	var n := pts.size()

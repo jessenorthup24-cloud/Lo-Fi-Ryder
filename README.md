@@ -179,7 +179,10 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   sweeping south end, an S through the back and a last corner onto the straight, with red and white
   kerbs on every bend, barrier walls round the outside, the start gantry over a chequered line, banner
   towers, billboards, tents and parked race cars. Inside it, reached across the main straight, is a
-  tight drift course lined with red and white blocks to run along. Challenges: Raceway Grand Prix
+  tight drift course lined with red and white blocks to run along (its kerbs on the inside of each
+  bend only, the wall side left clear). Both loops are drawn as smooth curves with unbroken white edge
+  lines; the way in crosses the main straight and meets the drift course on its top straight, with the
+  walls stopping square either side of it. Challenges: Raceway Grand Prix
   (a race, 8 cars, 3 laps), Raceway Hot Lap (one timed lap) and Raceway Drift Course (drift it all the
   way round).
 
@@ -241,6 +244,7 @@ godot --path . -- --auto --wanted=4 --shot_t=14:heli.png        # a screenshot a
 xvfb-run godot --path . -- --drive --shot=/tmp/x.png --shot_at=200 --quit_after=30
 godot --headless --path . -s res://tools/test/handling.gd -- bug,hotrod all   # handling report
 godot --headless --path . -s res://tools/test/road_audit.gd                  # props in the road
+godot --headless --path . -s res://tools/test/track_audit.gd                 # the Raceway's loops: kinks, folds, seams
 godot --headless --path . -s res://tools/test/traffic_soak.gd -- 300         # five minutes of traffic
 ```
 
