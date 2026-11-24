@@ -121,6 +121,11 @@ var route_pick := {}        # a place you picked on the map
 var route_pts := PackedVector3Array()
 var route_t := 0.0
 var race: Race = null       # the street race on now
+var in_marker := {}         # the beacon you're sitting in (its start card is up)
+var intro := {}             # a challenge getting going: {kind, id, t, said}: the title, then 3-2-1-GO
+const INTRO_T := 2.4        # (how long the title shows before the countdown)
+const KIND_INFO := {"zone": ["DRIFT ZONE", "ff8a5c"], "time": ["TIME TRIAL", "5cc8ff"], "drift": ["DRIFT RUN", "c38bff"],
+	"race": ["STREET RACE", "ff5c7a"]}
 var race_end_t := 0.0
 
 func _ready() -> void:
@@ -312,6 +317,13 @@ func _build_world() -> void:
 		if args.has("race"):
 			# a test: straight into a street race (--raceauto: and the CPU drives your car too)
 			_start_race(String(args["race"]))
+		if args.has("resulttest"):
+			# a test: the results card with this medal (0-3)
+			get_tree().create_timer(0.5).timeout.connect(func(): ui.challenge_result("Main Street Sprint", "24.31 s", int(args["resulttest"]), 400, true))
+		if args.has("begin"):
+			# a test: as if START was pressed (kind:id, e.g. race:downtown, zone:bowl, trial:coast)
+			var bq := String(args["begin"]).split(":")
+			start_challenge_now(bq[0], bq[1])
 	else:
 		state = TITLE
 		ui.show_title()
@@ -569,6 +581,7 @@ func _process(dt: float) -> void:
 			_title_cam(dt)
 		DRIVE:
 			_controls(dt)
+			_intro_tick(dt)
 			_drive(dt)
 			_cam(dt)
 		PAUSED, GARAGE:
@@ -1081,6 +1094,24 @@ func _marker(kind: String, id: String, pos: Vector3, col: Color, name: String, r
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.position = pos
 	add_child(mi)
+	# a column of light, so you can see it from down the street
+	var pil := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = r * 0.9
+	cm.bottom_radius = r * 0.9
+	cm.height = 16.0
+	cm.cap_top = false
+	cm.cap_bottom = false
+	cm.radial_segments = 32
+	cm.rings = 1
+	pil.mesh = cm
+	var bm := ShaderMaterial.new()
+	bm.shader = load("res://shaders/beacon.gdshader")
+	bm.set_shader_parameter("col", col)
+	pil.material_override = bm
+	pil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pil.position = Vector3(0, 8.0, 0)
+	mi.add_child(pil)
 	var lb := Label3D.new()
 	lb.text = name
 	lb.font = K.font(700)
@@ -1097,25 +1128,125 @@ func _marker(kind: String, id: String, pos: Vector3, col: Color, name: String, r
 
 func _markers_tick(_dt: float) -> void:
 	var p := car.global_position
-	var busy := not zone.is_empty() or not trial.is_empty() or race != null
+	var busy := not zone.is_empty() or not trial.is_empty() or race != null or not intro.is_empty()
+	var inside := {}
 	for m in markers:
 		var d := (m["pos"] as Vector3).distance_to(p)
 		var show := d < 220.0 and not busy
 		(m["node"] as Node3D).visible = show
-		(m["label"] as Node3D).visible = show and d < 120.0
+		(m["label"] as Node3D).visible = show and d < 120.0 and d > float(m["r"]) + 6.0
+		# (the column of light thins out as you drive into it, so you're not sitting in a pink fog)
+		var pil: MeshInstance3D = (m["node"] as Node3D).get_child(0)
+		(pil.material_override as ShaderMaterial).set_shader_parameter("fade", clampf((d - float(m["r"])) / 14.0, 0.08, 1.0))
 		if show:
 			(m["node"] as Node3D).rotation.y += 0.3 * get_process_delta_time()
 			(m["label"] as Node3D).position.y = (m["pos"] as Vector3).y + 4.0 + sin(time * 2.0) * 0.3
-		# (a race lines you up on the grid: roll in gently to start one, so driving past doesn't)
-		if state == DRIVE and not busy and d < float(m["r"]) and car.linear_velocity.length() > 2.0 \
-				and (m["kind"] != "race" or car.linear_velocity.length() < 12.0):
-			if m["kind"] == "zone":
-				_start_zone(m["id"])
-			elif m["kind"] == "race":
-				_start_race(m["id"])
-			else:
-				_start_trial(m["id"])
-			busy = true
+		# inside a beacon: its start card comes up (nothing starts until you press START)
+		if state == DRIVE and not busy and d < float(m["r"]) + 1.0:
+			inside = m
+	if String(inside.get("id", "")) + String(inside.get("kind", "")) != String(in_marker.get("id", "")) + String(in_marker.get("kind", "")):
+		in_marker = inside
+		if inside.is_empty():
+			ui.start_card_hide()
+		else:
+			ui.start_card_show(_start_info(inside["kind"], inside["id"]))
+
+## What a challenge's start card says: {kind_label, name, info, col, medal, start}.
+func _start_info(kind: String, id: String) -> Dictionary:
+	var out := {"kind_label": "", "name": "", "info": "", "col": Color.WHITE, "medal": 0, "start": func(): begin_challenge(kind, id)}
+	match kind:
+		"zone":
+			for z in island.zones:
+				if z["id"] == id:
+					var best := int(save.data["zones"].get(id, 0))
+					out["kind_label"] = KIND_INFO["zone"][0]
+					out["col"] = Color(KIND_INFO["zone"][1])
+					out["name"] = z["name"]
+					out["info"] = "%d seconds · gold %s pts%s" % [int(z["time"]), K.fmt(int(z["medals"][2])), (" · best %s" % K.fmt(best)) if best > 0 else ""]
+					out["medal"] = int(save.data["medals"].get(id, 0))
+		"trial":
+			for t in island.trials:
+				if t["id"] == id:
+					var kk := "time" if t["kind"] == "time" else "drift"
+					var best2 := float(save.data["trials"].get(id, 0.0))
+					out["kind_label"] = KIND_INFO[kk][0]
+					out["col"] = Color(KIND_INFO[kk][1])
+					out["name"] = t["name"]
+					if kk == "time":
+						out["info"] = "%d gates · gold %.0f s%s" % [(t["gates"] as Array).size() - 1, float(t["medals"][0]), (" · best %.2f s" % best2) if best2 > 0.0 else ""]
+					else:
+						out["info"] = "%d gates · gold %s pts%s" % [(t["gates"] as Array).size() - 1, K.fmt(int(t["medals"][2])), (" · best %s" % K.fmt(int(best2))) if best2 > 0.0 else ""]
+					out["medal"] = int(save.data["medals"].get(id, 0))
+		"race":
+			for rc in island.races:
+				if rc["id"] == id:
+					var rb := float(save.data["races"].get(id, 0.0))
+					out["kind_label"] = KIND_INFO["race"][0]
+					out["col"] = Color(KIND_INFO["race"][1])
+					out["name"] = rc["name"]
+					out["info"] = "%d laps · 8 cars%s" % [int(rc["laps"]), (" · best %d:%05.2f" % [int(rb) / 60, fmod(rb, 60.0)]) if rb > 0.0 else ""]
+					out["medal"] = int(save.data["medals"].get("race_" + id, 0))
+	return out
+
+## START pressed: a wipe, then you're lined up for it, the title, the countdown and away.
+func begin_challenge(kind: String, id: String) -> void:
+	ui.start_card_hide()
+	in_marker = {}
+	ui.transition(func(): start_challenge_now(kind, id))
+
+func start_challenge_now(kind: String, id: String) -> void:
+	_end_challenges()
+	jump = {}
+	loop_on = -1
+	_break_drift(false)
+	var info := _start_info(kind, id)
+	var sub := ""
+	match kind:
+		"zone":
+			for z in island.zones:
+				if z["id"] == id:
+					var dz: Vector3 = (z["pos"] as Vector3) - (z["start"] as Vector3)
+					car.place(_road_spot(z["start"], atan2(-dz.x, -dz.z)))
+					sub = "Jumps, flips, the loop and drifts all count" if id == "stunt" else "Drift inside the zone before the clock runs out"
+			_start_zone(id)
+		"trial":
+			for t in island.trials:
+				if t["id"] == id:
+					car.place((t["gates"][0] as Transform3D).translated(Vector3(0, 1.0, 0)).translated_local(Vector3(0, 0, 14)))
+					sub = "Through every gate, fast as you can" if t["kind"] == "time" else "Drift all the way through. Points count"
+			_start_trial(id)
+		"race":
+			_start_race(id)
+			race.count = 3.0 + INTRO_T + 0.05      # (its own 3-2-1 waits for the title)
+			sub = "Follow the line. Beat seven drivers to the flag"
+	car.freeze = true
+	_snap_cam()
+	intro = {"kind": kind, "id": id, "t": 0.0, "said": 4}
+	ui.intro_banner(info["kind_label"], info["name"], sub + "  ·  " + info["info"], info["col"])
+	sfx("checkpoint", -5.0, 0.7)
+
+## The title, then 3, 2, 1, GO (a race counts itself down).
+func _intro_tick(dt: float) -> void:
+	if intro.is_empty():
+		return
+	intro["t"] = float(intro["t"]) + dt
+	var t: float = intro["t"]
+	if intro["kind"] == "race":
+		if race == null or race.state >= 1:
+			intro = {}
+		return
+	car.freeze = true
+	var n := 3 - int(floor(t - INTRO_T))      # 3, 2, 1, then 0 = GO
+	if t >= INTRO_T and n < int(intro["said"]):
+		intro["said"] = n
+		if n > 0:
+			ui.big_count(str(n))
+			sfx("checkpoint", -4.0, 0.8)
+		else:
+			ui.big_count("GO!")
+			sfx("go", 0.0)
+			car.freeze = false
+			intro = {}
 
 # ------------------------------------------------------------------ drift zones
 
@@ -1128,8 +1259,7 @@ func _start_zone(id: String) -> void:
 	zone_out = 0.0
 	_break_drift(false)
 	var how := "Jumps, flips, the loop and drifts all count. %d seconds!" if zone["id"] == "stunt" else "Drift inside the zone. %d seconds!"
-	ui.challenge_start(zone["name"], how % int(zone_t), zone["medals"], false)
-	sfx("go", -2.0)
+	ui.chal_card.visible = true
 
 func _in_zone() -> bool:
 	if zone.is_empty():
@@ -1141,7 +1271,7 @@ func _in_zone() -> bool:
 	return Vector2(p.x - c.x, p.z - c.z).length() < float(zone["r"])
 
 func _zone_tick(dt: float) -> void:
-	if zone.is_empty():
+	if zone.is_empty() or not intro.is_empty():
 		return
 	zone_t -= dt
 	if not _in_zone():
@@ -1232,11 +1362,10 @@ func _start_trial(id: String) -> void:
 		add_child(arch)
 		gate_nodes.append(arch)
 	var desc := "Through every gate, fast as you can!" if trial["kind"] == "time" else "Drift all the way up. Points count!"
-	ui.challenge_start(trial["name"], desc, trial["medals"], trial["kind"] == "time")
-	sfx("go", -2.0)
+	ui.chal_card.visible = true
 
 func _trial_tick(dt: float) -> void:
-	if trial.is_empty():
+	if trial.is_empty() or not intro.is_empty():
 		return
 	trial_t += dt
 	var gates: Array = trial["gates"]
@@ -1285,6 +1414,9 @@ func _finish_trial() -> void:
 func _end_challenges() -> void:
 	zone = {}
 	trial = {}
+	if not intro.is_empty():
+		intro = {}
+		car.freeze = false
 	if race != null:
 		race.cleanup()
 		race.queue_free()
@@ -1443,7 +1575,6 @@ func _start_race(id: String) -> void:
 		bb = bb.expand(q)
 	traffic.keep_out = bb.grow(14.0)
 	race_end_t = 0.0
-	ui.race_start(String(d["name"]), int(d["laps"]), race.racers.size())
 
 func _race_tick(dt: float) -> void:
 	if race == null:
@@ -1734,6 +1865,20 @@ func _snap_cam() -> void:
 
 func _cam(dt: float, snap := false) -> void:
 	var xf := car.get_global_transform_interpolated()   # where the car is drawn this frame
+	if not intro.is_empty() and float(intro["t"]) < INTRO_T:
+		# the title's up: the camera swings round from the front of the car to behind it
+		var it: float = intro["t"]
+		var cy := car.global_rotation.y
+		var a := cy + (INTRO_T - it) * 0.95
+		var c := xf.origin + Vector3(0, 1.0, 0)
+		var cp2 := c + Vector3(sin(a), 0, cos(a)) * (6.5 + it * 0.6) + Vector3(0, 1.4 + it * 0.45, 0)
+		cp2.y = maxf(cp2.y, island.height_at(cp2.x, cp2.z) + 1.0)
+		cam.position = cp2
+		cam.look_at(c, Vector3.UP)
+		cam_pos = cp2
+		cam_yaw = cy
+		cam.fov = 58.0
+		return
 	var fwd := -xf.basis.z
 	fwd.y = 0.0
 	var v := car.linear_velocity

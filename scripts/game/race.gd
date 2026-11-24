@@ -351,7 +351,7 @@ func tick(dt: float) -> void:
 		count -= dt
 		for r in racers:
 			(r["car"] as RigidBody3D).freeze = true
-		if ceili(count) != before and count > 0.0:
+		if ceili(count) != before and count > 0.0 and ceili(count) <= 3:
 			game.ui.big_count(str(ceili(count)))
 			game.sfx("checkpoint", -4.0, 0.8)
 		if count <= 0.0:

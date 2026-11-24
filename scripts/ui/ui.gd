@@ -84,6 +84,9 @@ var g_spin := 0.0
 var g_drag := 0.0
 var speed_fx: ColorRect          # streaks at the screen edges when you're flying along
 var count_lbl: Label             # the race countdown, big in the middle
+var count_ring: Control          # (and the burst of colour behind each number)
+var start_card: PanelContainer   # a challenge's card, up while you sit in its beacon
+var _start_cb := Callable()
 var speed_k := 0.0
 
 func setup(g: Node) -> void:
@@ -541,7 +544,7 @@ func route_arrow(on: bool, angle := 0.0, dist := 0.0, name := "") -> void:
 	route_box.queue_redraw()
 	var dtxt := ("%d m" % int(round(dist / 10.0) * 10.0)) if dist < 1000.0 else ("%.1f km" % (dist / 1000.0))
 	route_lbl.text = "%s · %s" % [dtxt, name]
-	route_box.position.y = 112.0 if chal_card.visible else 10.0
+	route_box.position.y = 112.0 if chal_card.visible else ((start_card.size.y + 26.0) if start_card != null and start_card.visible else 10.0)
 
 func station_open(name: String) -> void:
 	station_lbl.text = "%s gas station" % name
@@ -800,27 +803,179 @@ func race_start(name: String, laps: int, cars: int) -> void:
 	toast("%s!  %d laps, %d cars. Follow the line on the road" % [name, laps, cars], "flag", K.CORAL, Color.WHITE, 3.0)
 	toast("Gold for 1st · Silver for 2nd · Bronze for 3rd", "trophy", K.PAPER, K.INK, 3.0)
 
-## The countdown (3, 2, 1, GO!), big in the middle of the screen.
+## The countdown (3, 2, 1, GO!), big in the middle of the screen, each with a ring of colour bursting out.
 func big_count(text: String) -> void:
 	if count_lbl == null:
-		count_lbl = K.label("", 120, Color.WHITE, 800)
+		count_ring = Control.new()
+		count_ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		count_ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		count_ring.set_meta("k", 1.0)
+		count_ring.set_meta("col", Color.WHITE)
+		count_ring.draw.connect(func():
+			var k: float = count_ring.get_meta("k")
+			var cc: Color = count_ring.get_meta("col")
+			var ctr := _vs() * Vector2(0.5, 0.5) - Vector2(0, 90)
+			count_ring.draw_arc(ctr, 70.0 + k * 170.0, 0.0, TAU, 64, Color(cc, 0.8 * (1.0 - k)), 14.0 * (1.0 - k) + 2.0, true)
+			count_ring.draw_circle(ctr, 64.0 + k * 20.0, Color(cc, 0.22 * (1.0 - k))))
+		hud.add_child(count_ring)
+		count_lbl = K.label("", 140, Color.WHITE, 800)
 		count_lbl.add_theme_color_override("font_outline_color", K.INK)
-		count_lbl.add_theme_constant_override("outline_size", 18)
-		count_lbl.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+		count_lbl.add_theme_constant_override("outline_size", 22)
 		count_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hud.add_child(count_lbl)
+	var col: Color = {"3": Color("ff5a4e"), "2": Color("ffb84a"), "1": Color("ffe066"), "GO!": Color("54e08a")}.get(text, Color.WHITE)
 	count_lbl.text = text
-	count_lbl.add_theme_color_override("font_color", Color("ffd34d") if text == "GO!" else Color.WHITE)
+	count_lbl.add_theme_color_override("font_color", col)
 	count_lbl.reset_size()
 	count_lbl.position = (_vs() - count_lbl.size) * 0.5 - Vector2(0, 90)
 	count_lbl.pivot_offset = count_lbl.size * 0.5
 	count_lbl.visible = true
 	count_lbl.modulate.a = 1.0
-	count_lbl.scale = Vector2(1.5, 1.5)
+	count_lbl.scale = Vector2(1.8, 1.8)
+	count_ring.set_meta("col", col)
+	count_ring.visible = true
 	var tw := create_tween()
-	tw.tween_property(count_lbl, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.tween_interval(0.45 if text != "GO!" else 0.6)
+	tw.tween_property(count_lbl, "scale", Vector2.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(0.4 if text != "GO!" else 0.6)
 	tw.tween_property(count_lbl, "modulate:a", 0.0, 0.25)
+	var tr := create_tween()
+	tr.tween_method(func(k: float):
+		count_ring.set_meta("k", k)
+		count_ring.queue_redraw(), 0.0, 1.0, 0.7).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	game.buzz(40 if text != "GO!" else 90, 0.5)
+
+## The start card: what the challenge is, your best, and START.
+func start_card_show(info: Dictionary) -> void:
+	start_card_hide()
+	_start_cb = info["start"]
+	var col: Color = info["col"]
+	start_card = PanelContainer.new()
+	var sb := K.box(K.PAPER, 26, 8, K.LINE_DK, 0)
+	sb.shadow_color = Color(0.1, 0.1, 0.1, 0.25)
+	sb.shadow_size = 14
+	start_card.add_theme_stylebox_override("panel", sb)
+	start_card.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	hud.add_child(start_card)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 0)
+	start_card.add_child(hb)
+	# a slab of the challenge's colour down the left
+	var slab := PanelContainer.new()
+	var ss := K.box(col, 26, 0, Color.TRANSPARENT, 0)
+	ss.corner_radius_top_right = 0
+	ss.corner_radius_bottom_right = 0
+	slab.add_theme_stylebox_override("panel", ss)
+	slab.custom_minimum_size = Vector2(18, 0)
+	hb.add_child(slab)
+	var mid := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		mid.add_theme_constant_override("margin_" + side, {"left": 18, "right": 14, "top": 12, "bottom": 14}[side])
+	hb.add_child(mid)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 18)
+	mid.add_child(row)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 0)
+	row.add_child(vb)
+	var kl := K.label(" ".join(Array(String(info["kind_label"]).split(""))), 15, col.darkened(0.25), 800, HORIZONTAL_ALIGNMENT_LEFT)
+	vb.add_child(kl)
+	var nr := HBoxContainer.new()
+	nr.add_theme_constant_override("separation", 8)
+	nr.add_child(K.label(info["name"], 32, K.INK, 750, HORIZONTAL_ALIGNMENT_LEFT))
+	if int(info["medal"]) > 0:
+		nr.add_child(Icon.new("trophy", [K.LINE, Color("b98b62"), Color("b3b8bd"), Color("d4b25c")][int(info["medal"])], 28))
+	vb.add_child(nr)
+	vb.add_child(K.label(info["info"], 17, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
+	var go := K.button("START", col.darkened(0.08), col.darkened(0.35), 30, 150, 70)
+	go.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_tap(go, func():
+		var cb := _start_cb
+		start_card_hide()
+		cb.call())
+	row.add_child(go)
+	start_card.modulate.a = 0.0
+	await get_tree().process_frame
+	if start_card == null:
+		return
+	start_card.position = Vector2((_vs().x - start_card.size.x) * 0.5, -start_card.size.y)
+	var tw := create_tween()
+	tw.tween_property(start_card, "position:y", 14.0, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(start_card, "modulate:a", 1.0, 0.2)
+	game.sfx("select", -10.0, 1.3)
+
+func start_card_hide() -> void:
+	if start_card != null:
+		var c := start_card
+		start_card = null
+		var tw := create_tween()
+		tw.tween_property(c, "modulate:a", 0.0, 0.15)
+		tw.tween_callback(c.queue_free)
+
+## A challenge's title: a slanted band slides across with what it is, its name and what to do.
+func intro_banner(kind_label: String, name: String, sub: String, col: Color) -> void:
+	var vs := _vs()
+	var band := Control.new()
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	band.size = Vector2(vs.x + 240.0, 200.0)
+	band.position = Vector2(-vs.x - 240.0, vs.y * 0.2)
+	band.draw.connect(func():
+		var w := band.size.x
+		var h := band.size.y
+		band.draw_colored_polygon(PackedVector2Array([Vector2(60, 0), Vector2(w, 0), Vector2(w - 60, h), Vector2(0, h)]), Color(K.INK, 0.9))
+		band.draw_colored_polygon(PackedVector2Array([Vector2(60, 0), Vector2(w, 0), Vector2(w - 4, 14), Vector2(56, 14)]), col)
+		band.draw_colored_polygon(PackedVector2Array([Vector2(4, h - 14), Vector2(w - 56, h - 14), Vector2(w - 60, h), Vector2(0, h)]), col)
+		for k in 5:
+			var x0 := 120.0 + k * 34.0
+			band.draw_colored_polygon(PackedVector2Array([Vector2(x0 + 30, 30), Vector2(x0 + 48, 30), Vector2(x0 + 18, h - 30), Vector2(x0, h - 30)]), Color(col, 0.18 + k * 0.05)))
+	hud.add_child(band)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", -4)
+	vb.position = Vector2(340, 26)
+	band.add_child(vb)
+	vb.add_child(K.label(" ".join(Array(kind_label.split(""))), 22, col, 800, HORIZONTAL_ALIGNMENT_LEFT))
+	var nl := K.label(name.to_upper(), 66, Color.WHITE, 800, HORIZONTAL_ALIGNMENT_LEFT)
+	vb.add_child(nl)
+	vb.add_child(K.label(sub, 20, Color(1, 1, 1, 0.8), 600, HORIZONTAL_ALIGNMENT_LEFT))
+	var tw := create_tween()
+	tw.tween_property(band, "position:x", -120.0, 0.45).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(1.25)
+	tw.tween_property(band, "position:x", vs.x + 60.0, 0.4).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
+	tw.tween_callback(band.queue_free)
+	var tv := create_tween()          # (the words drift a little against the band: a touch of motion)
+	tv.tween_property(vb, "position:x", 300.0, 2.1).from(400.0)
+	game.sfx("blowoff", -8.0)
+
+## A burst of confetti from the top of the screen (in the medal's colour and a few others).
+func _confetti(col: Color, n: int) -> void:
+	var layer := Control.new()
+	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	popups.add_child(layer)
+	var vs := _vs()
+	var bits := []
+	var pal := [col, col.lightened(0.3), Color("ff5c7a"), Color("5cc8ff"), Color("ffe066"), Color("54e08a")]
+	for i in n:
+		bits.append({"p": Vector2(randf_range(0.15, 0.85) * vs.x, randf_range(-60.0, 0.0)),
+			"v": Vector2(randf_range(-160.0, 160.0), randf_range(-420.0, -120.0)), "a": randf() * TAU,
+			"w": randf_range(-9.0, 9.0), "c": pal[i % pal.size()], "s": randf_range(7.0, 13.0)})
+	layer.draw.connect(func():
+		for b in bits:
+			var xf := Transform2D(float(b["a"]), b["p"])
+			layer.draw_set_transform_matrix(xf)
+			layer.draw_rect(Rect2(-float(b["s"]) * 0.5, -float(b["s"]) * 0.3, float(b["s"]), float(b["s"]) * 0.6), b["c"]))
+	var last := [0.0]
+	var tw := create_tween()
+	tw.tween_method(func(t: float):
+		var st := clampf(t - float(last[0]), 0.0, 0.05)
+		last[0] = t
+		for b in bits:
+			b["v"] = (b["v"] as Vector2) + Vector2(0, 900.0) * st
+			b["v"] = (b["v"] as Vector2) * pow(0.4, st)
+			b["p"] = (b["p"] as Vector2) + (b["v"] as Vector2) * st
+			b["a"] = float(b["a"]) + float(b["w"]) * st
+		layer.modulate.a = clampf((2.6 - t) / 0.6, 0.0, 1.0)
+		layer.queue_redraw(), 0.0, 2.6, 2.6)
+	tw.tween_callback(layer.queue_free)
 
 func challenge_end() -> void:
 	chal_card.visible = false
@@ -834,6 +989,11 @@ func challenge_result(name: String, score: String, medal: int, pay: int, record:
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 6)
 	p.add_child(vb)
+	var head := PanelContainer.new()
+	var hs := K.box(cols[medal], 16, 0, Color.TRANSPARENT, 0)
+	head.add_theme_stylebox_override("panel", hs)
+	head.custom_minimum_size = Vector2(0, 10)
+	vb.add_child(head)
 	vb.add_child(K.label(name, 30, K.INK_SOFT, 650))
 	vb.add_child(K.label(score, 56, K.INK, 700))
 	var badge := PanelContainer.new()
@@ -845,6 +1005,16 @@ func challenge_result(name: String, score: String, medal: int, pay: int, record:
 	bh.add_child(Icon.new("trophy" if medal > 0 else "flag", Color.WHITE, 34))
 	bh.add_child(K.label(names[medal], 30, Color.WHITE, 700))
 	vb.add_child(badge)
+	# the medal stamps down a beat after the card
+	badge.pivot_offset = Vector2(90, 30)
+	badge.scale = Vector2(2.4, 2.4)
+	badge.modulate.a = 0.0
+	var tb := create_tween()
+	tb.tween_interval(0.35)
+	tb.tween_property(badge, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tb.parallel().tween_property(badge, "modulate:a", 1.0, 0.12)
+	if medal > 0:
+		tb.tween_callback(func(): _confetti(cols[medal], 24 + medal * 18))
 	if pay > 0:
 		vb.add_child(K.label("+%d coins" % pay, 30, K.INK, 700))
 	if record:
@@ -1252,7 +1422,7 @@ func open_map() -> void:
 			rinfo += " · best %d:%05.2f" % [int(rbest) / 60, fmod(rbest, 60.0)]
 		var rid: String = rc["id"]
 		list.add_child(_chal_row(rc["name"], rinfo, int(game.save.data["medals"].get("race_" + rid, 0)), Color("ff5c7a"),
-			Transform3D(Basis(), (rc["pos"] as Vector3) + Vector3(0, 1.0, 0)), rc["pos"], func(): game._start_race(rid)))
+			Transform3D(Basis(), (rc["pos"] as Vector3) + Vector3(0, 1.0, 0)), rc["pos"], func(): game.start_challenge_now("race", rid)))
 	for st in island.stations:
 		var sp: Vector3 = st["pos"]
 		var d := int(round(sp.distance_to(game.car.global_position) / 10.0) * 10.0)

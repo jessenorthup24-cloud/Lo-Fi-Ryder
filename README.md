@@ -38,12 +38,15 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   a moment of each other to keep it going. A drift banks once you're straight again, and every 120
   points of a banked drift is a coin. Drifting within a metre or so of a wall, a parked car or the
   traffic scores half as much again. Hitting something hard loses the drift you were holding.
-- Challenges, marked on the map and on the road:
+- Challenges, marked on the map and on the road by a ring with a column of light. Drive into one and
+  its card comes up (what it is, the target, your best and medal) with a START button; nothing starts
+  by driving through. START lines you up, a title band slides across while the camera swings round the
+  car, then 3-2-1-GO. Medals stamp onto the results card, with confetti for a podium.
   - Drift zones (orange rings): score as much as you can inside the zone before the clock runs out.
     The Drift Bowl, the town square, the harbour lot, the farmyard, the beach car park, the skate
     park and the Stunt Yard (where jumps, flips and the loop count too).
   - Time trials (blue): race through the gates. Drift runs (purple): drift through every gate.
-  - Street races (red ring): roll into the ring gently (or tap Race on the map) and you're lined up on
+  - Street races (red ring): press START in the ring (or tap Race on the map) and you're lined up on
     a grid with seven CPU drivers for three laps of the Downtown Loop; the streets are closed to
     traffic while it's on. A racing line is painted on the road like Forza's (blue: on the power,
     amber: the corner, red: brake now), checkpoint arches stand across it, the course is drawn on the
@@ -140,6 +143,8 @@ godot --path . -- --garage=up --fresh            # garage on the Upgrades tab, f
 godot --path . -- --drive --put=-108,284,90 --stunt=backflip   # exactly here (x,z,yaw), gas on, a trick in the air
 godot --path . -- --drive --season=3             # 0 spring, 1 summer, 2 autumn, 3 winter
 godot --path . -- --drive --race=downtown --raceauto --racelog   # straight into a race, CPU drives you too
+godot --path . -- --drive --begin=trial:main      # as if START was pressed (race:downtown, zone:bowl...)
+godot --path . -- --drive --demo=100 --aim=tree   # lined up for a run at a tree (lamp, light)
 godot --path . -- --drive --race=downtown --topcam=-170,120,190  # ...watched from straight above
 xvfb-run godot --path . -- --drive --shot=/tmp/x.png --shot_at=200 --quit_after=30
 godot --headless --path . -s res://tools/test/handling.gd -- bug,hotrod all   # handling report
