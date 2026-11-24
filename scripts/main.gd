@@ -1206,6 +1206,14 @@ func _start_info(kind: String, id: String) -> Dictionary:
 					out["medal"] = int(save.data["medals"].get("race_" + id, 0))
 	return out
 
+## xf moved down to just above the ground under it (so a car put there settles, rather than drops).
+func on_ground(xf: Transform3D) -> Transform3D:
+	var q := PhysicsRayQueryParameters3D.create(xf.origin + Vector3(0, 2.0, 0), xf.origin - Vector3(0, 6.0, 0), 1)
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return xf
+	return Transform3D(xf.basis, (hit["position"] as Vector3) + Vector3(0, 0.12, 0))
+
 ## START pressed: a wipe, then you're lined up for it, the title, the countdown and away.
 func begin_challenge(kind: String, id: String) -> void:
 	ui.start_card_hide()
@@ -1237,7 +1245,9 @@ func start_challenge_now(kind: String, id: String) -> void:
 			_start_race(id)
 			race.count = 3.0 + INTRO_T + 0.05      # (its own 3-2-1 waits for the title)
 			sub = "Follow the line. Beat seven drivers to the flag"
-	car.freeze = true
+	if kind != "race":
+		car.place(on_ground(car.global_transform))     # (just above the road: it settles onto its wheels)
+	car.hold = true
 	_snap_cam()
 	intro = {"kind": kind, "id": id, "t": 0.0, "said": 4}
 	ui.intro_banner(info["kind_label"], info["name"], sub + "  ·  " + info["info"], info["col"])
@@ -1253,7 +1263,7 @@ func _intro_tick(dt: float) -> void:
 		if race == null or race.state >= 1:
 			intro = {}
 		return
-	car.freeze = true
+	car.hold = true
 	var n := 3 - int(floor(t - INTRO_T))      # 3, 2, 1, then 0 = GO
 	if t >= INTRO_T and n < int(intro["said"]):
 		intro["said"] = n
@@ -1263,7 +1273,7 @@ func _intro_tick(dt: float) -> void:
 		else:
 			ui.big_count("GO!")
 			sfx("go", 0.0)
-			car.freeze = false
+			car.hold = false
 			intro = {}
 
 # ------------------------------------------------------------------ drift zones
@@ -1434,7 +1444,7 @@ func _end_challenges() -> void:
 	trial = {}
 	if not intro.is_empty():
 		intro = {}
-		car.freeze = false
+	car.hold = false
 	if race != null:
 		race.cleanup()
 		race.queue_free()
@@ -1498,7 +1508,7 @@ func nos_cap() -> float:
 func _nitrous(dt: float) -> void:
 	var cap := nos_cap()
 	var want: bool = held.get("nos", false) and nos_left > 0.05 and car.grounded >= 2 and car.speed > 2.0 \
-		and intro.is_empty() and not car.freeze
+		and intro.is_empty() and not car.freeze and not car.hold
 	if args.has("nos") and car.speed > 8.0 and nos_left > 0.05:
 		want = true          # (a test: fire it as soon as you're moving)
 	car.nitro = move_toward(car.nitro, 1.0 if want else 0.0, dt * 6.0)

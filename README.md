@@ -59,7 +59,9 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   - Street races (red ring): press START in the ring (or tap Race on the map) and you're lined up on
     a grid with seven CPU drivers for three laps of the Downtown Loop; the streets are closed to
     traffic while it's on. A racing line is painted on the road like Forza's (blue: on the power,
-    amber: the corner, red: brake now), checkpoint arches stand across it, the course is drawn on the
+    amber: the corner, red: brake now). It's a real racing line: out wide on the run-up to a corner, in
+    to the inside edge at the apex and back out wide on the exit. The CPU drivers drive it, leave it only
+    to pass on the straights, and tuck back in for the corners, checkpoint arches stand across it, the course is drawn on the
     minimap and the arrow up top points the way with the distance to the next checkpoint. Gold for 1st,
     silver 2nd, bronze 3rd. Lost or upside down: reset puts you back at the last checkpoint.
   - Each has bronze, silver and gold medals that pay out once.

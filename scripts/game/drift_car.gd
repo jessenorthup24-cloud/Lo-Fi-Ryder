@@ -79,6 +79,7 @@ var ride_off := 0.0          # metres the springs sit longer (+) or shorter (-)
 var grip_k := 1.0            # race grip, from the tuning
 var drift_k := 0.0           # how much easier drifting is (-0.3 .. 0.9)
 var nitro := 0.0             # nitrous going (0..1; main sets it while there's some in the bottle)
+var hold := false            # waiting on a start line: sitting on its wheels with the brake on (not frozen in the air)
 var neon_node: Node3D
 const NEON := ["", "ff3fd0", "35e7ff", "9b5cff", "4dff7a", "ff8a2a", "ffffff", "ff3344", "3a6bff"]
 const OFFROAD := [0, 3, 4, 6, 8]   # (island surfaces: grass, dirt, sand, field, forest)
@@ -266,6 +267,12 @@ func place(xf: Transform3D) -> void:
 	gear = 1
 
 func _physics_process(dt: float) -> void:
+	if hold:
+		throttle = 0.0
+		brake = 0.0
+		handbrake = 1.0
+		steer_in = 0.0
+		nitro = 0.0
 	if is_physics_interpolated_and_enabled():
 		# drawn between physics steps: the wheels move with the steps too, so they stay smooth with the body
 		_wheel_vis(dt)

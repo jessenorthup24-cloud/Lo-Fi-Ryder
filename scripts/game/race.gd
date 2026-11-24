@@ -17,8 +17,8 @@ const A_BRAKE := 7.0
 const A_ACC := 4.5
 const V_MAX := 40.0
 const CORNER_R := 8.0       # the street centre's corners are rounded this much (the racing line then uses the width)
-const LINE_W := 2.4         # how far either side of the street's centre the racing line may go
-const ROOM := 3.4           # and the furthest a car's middle goes from the centre (passing, the grid)
+const LINE_W := 3.0         # how far either side of the street's centre the racing line goes
+const ROOM := 3.5           # and the furthest a car's middle goes from the centre (passing, the grid)
 const CP_GAP := 75.0        # metres between checkpoints
 const NAMES := ["Ruby", "Dash", "Mika", "Juno", "Oz", "Pepper", "Sol", "Kit", "Remy", "Tess"]
 const AI_LAYER := 8
@@ -111,9 +111,10 @@ func _build_line(corners: Array) -> void:
 		var b2 := poly[(seg + 1) % poly.size()]
 		var l := a2.distance_to(b2)
 		dense.append(a2.lerp(b2, (want - acc) / maxf(l, 0.001)))
-	# the racing line: the street's middle, pulled tight round the bends (each point keeps moving toward
-	# the middle of its neighbours, but never further than LINE_W from the centre): wide in, clip the inside,
-	# wide out
+	# the racing line, the way a driver takes a corner: out wide on the run-up, in to the inside edge at the
+	# apex, and back out wide on the exit. Each corner pulls the line its way (inside at the apex, outside
+	# from a turn-in distance before and after); between two corners turning the same way it stays outside,
+	# between opposite ones it crosses over.
 	ctr = dense
 	var cnt0 := ctr.size()
 	var nrm := PackedVector2Array()
@@ -121,15 +122,46 @@ func _build_line(corners: Array) -> void:
 	for i in cnt0:
 		var tg := (ctr[(i + 2) % cnt0] - ctr[(i - 2 + cnt0) % cnt0]).normalized()
 		nrm[i] = Vector2(-tg.y, tg.x)
+	var cinfo := []            # [index on the street's middle, +1 right / -1 left, turn-in distance]
+	for i in n:
+		var c: Vector2 = corners[i]
+		var a: Vector2 = corners[(i - 1 + n) % n]
+		var b: Vector2 = corners[(i + 1) % n]
+		var turn := (c - a).normalized().angle_to((b - c).normalized())
+		var best := 0
+		var bd := INF
+		for j in cnt0:
+			var dd := ctr[j].distance_squared_to(c)
+			if dd < bd:
+				bd = dd
+				best = j
+		var room := minf(c.distance_to(a), c.distance_to(b))
+		cinfo.append([best, signf(turn), clampf(room * 0.42, 12.0, 26.0)])
 	offs.resize(cnt0)
-	offs.fill(0.0)
+	for i in cnt0:
+		var num := 0.0
+		var den := 0.0
+		for ci in cinfo:
+			var d := float(i - int(ci[0]))
+			if d > cnt0 * 0.5:
+				d -= cnt0
+			elif d < -cnt0 * 0.5:
+				d += cnt0
+			var x := clampf(absf(d) / float(ci[2]), 0.0, 1.0)
+			var h := float(ci[1]) * cos(PI * x)        # +inside at the apex, -outside from the turn-in point
+			var w := 1.0 / pow(absf(d) + 6.0, 2.0)
+			num += h * w
+			den += w
+		offs[i] = clampf(num / den, -1.0, 1.0) * LINE_W
 	var cur := ctr.duplicate()
-	for it in 260:
-		var win := 9 if it < 160 else 5
+	for i in cnt0:
+		cur[i] = ctr[i] + nrm[i] * offs[i]
+	# then ease out any kinks (lightly: it mustn't pull the line in off its outside-inside-outside)
+	for it in 40:
 		for i in cnt0:
-			var mid := (cur[(i - win + cnt0) % cnt0] + cur[(i + win) % cnt0]) * 0.5
+			var mid := (cur[(i - 3 + cnt0) % cnt0] + cur[(i + 3) % cnt0]) * 0.5
 			var o := clampf((mid - ctr[i]).dot(nrm[i]), -LINE_W, LINE_W)
-			offs[i] = lerpf(offs[i], o, 0.6)
+			offs[i] = lerpf(offs[i], o, 0.5)
 			cur[i] = ctr[i] + nrm[i] * offs[i]
 	# resample the line itself to a point a metre apart (it's shorter than the middle of the street)
 	var ltot := 0.0
@@ -311,7 +343,7 @@ func grid(player_car) -> void:
 		var s: float = start_s - 9.0 - row * 8.0
 		var c := at(s) + right(s) * (col - off_at(s))      # (either side of the street's middle)
 		var tg := tangent(s)
-		var xf := Transform3D(Basis(Vector3.UP, atan2(-tg.x, -tg.y)), Vector3(c.x, island.height_at(c.x, c.y) + 0.7, c.y))
+		var xf: Transform3D = game.on_ground(Transform3D(Basis(Vector3.UP, atan2(-tg.x, -tg.y)), Vector3(c.x, island.height_at(c.x, c.y) + 0.7, c.y)))
 		var r := {"name": "You", "ai": false, "s": s - start_s, "lane": 0.0, "lane_now": col - off_at(s), "skill": 1.0, "stuck": 0.0,
 			"off": 0.0, "flip": 0.0, "done": -1.0, "last_cp": -1, "off_by": 0.0}
 		if slot == your_slot:
@@ -337,10 +369,10 @@ func grid(player_car) -> void:
 			r["name"] = names[slot % names.size()]
 			# a spread of pace: the quickest a touch above the line's speeds, the slowest a little under
 			r["skill"] = [1.04, 1.0, 0.97, 0.95, 0.99, 0.93, 1.02, 0.96][slot]
-			r["lane"] = [0.0, -1.2, 1.2, -0.6, 0.6, -1.2, 1.2, 0.0][slot]
+			r["lane"] = 0.0          # (everyone drives the racing line: off it only to get past someone)
 		racers.append(r)
 	for r in racers:
-		(r["car"] as RigidBody3D).freeze = true
+		(r["car"] as Car).hold = true          # on their wheels, brakes on, till GO
 
 # ---------------------------------------------------------------- per frame
 
@@ -350,7 +382,7 @@ func tick(dt: float) -> void:
 		var before := ceili(count)
 		count -= dt
 		for r in racers:
-			(r["car"] as RigidBody3D).freeze = true
+			(r["car"] as Car).hold = true
 		if ceili(count) != before and count > 0.0 and ceili(count) <= 3:
 			game.ui.big_count(str(ceili(count)))
 			game.sfx("checkpoint", -4.0, 0.8)
@@ -359,7 +391,8 @@ func tick(dt: float) -> void:
 			game.ui.big_count("GO!")
 			game.sfx("go", 0.0)
 			for r in racers:
-				(r["car"] as RigidBody3D).freeze = false
+				(r["car"] as Car).hold = false
+				(r["car"] as Car).freeze = false
 		return
 	t += dt
 	if game.args.has("racelog") and int(t * 10.0) != int((t - dt) * 10.0) and int(t * 10.0) % 20 == 0:
@@ -423,10 +456,10 @@ func _drive(r: Dictionary, dt: float) -> void:
 				want = tl
 				follow_v = INF if block_ds > 6.0 else follow_v
 				break
-	# (tuck back towards the line through the corners)
-	var bend := speed_at(s + 10.0) < 16.0
-	if bend:
-		want *= 0.4
+	# corners are taken on the line: tuck back in behind (unless already alongside and ahead)
+	var bend := speed_at(s + 18.0) < speed_at(s) - 2.0 or speed_at(s + 6.0) < 15.0
+	if bend and not (not blocker.is_empty() and block_ds < 3.0):
+		want *= 0.2
 	r["lane_now"] = move_toward(float(r["lane_now"]), want, dt * 2.0)
 	# steer for a point ahead on the line (or beside it, but never off the street)
 	var la := 6.0 + v * 0.45
