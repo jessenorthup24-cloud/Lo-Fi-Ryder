@@ -7,7 +7,8 @@ const CARS := preload("res://scripts/game/cars.gd")
 
 const ALL := ["accel", "brake", "grip_turn", "power_turn", "hb_drift", "hb_release", "drift_exit", "lift_off",
 	"transition", "long_hold", "brake_drift", "uturn", "reverse", "wall_head", "wall_glance", "kerb", "jump", "tap_steer", "wall_drift", "hb_fast", "hb_slow",
-	"skid40", "skid60", "skid80", "power_exit", "turn_gas", "turn_coast", "turn_half", "drift_gas", "drift_brake", "drift_counter", "drift_lift"]
+	"skid40", "skid60", "skid80", "power_exit", "turn_gas", "turn_coast", "turn_half", "drift_gas", "drift_brake", "drift_counter", "drift_lift",
+	"step80", "step120", "lane80"]
 
 var car: RigidBody3D
 var cars: Array = []
@@ -241,6 +242,28 @@ func _physics_process(dt: float) -> bool:
 				m["vsum2"] = float(m.get("vsum2", 0.0)) + vh.length() * 3.6
 				m["rn"] = int(m.get("rn", 0)) + 1
 			m["lastv"] = vh
+		"step80", "step120":   # turn-in: a step of steering at speed; how quickly does the car answer it?
+			var v1 := float(name.substr(4)) / 3.6
+			if t < 0.45 and settled: _launch(v1)
+			car.throttle = clampf((v1 - car.linear_velocity.length()) * 0.6 + 0.35, 0.0, 1.0)
+			car.steer_in = (0.6 if name == "step80" else 0.5) if t > 1.0 else 0.0
+			var yr2 := absf(car.angular_velocity.y)
+			if t > 1.0:
+				var hist: Array = m.get("yr", [])
+				hist.append([t - 1.0, yr2])
+				m["yr"] = hist
+			dur = 4.0
+		"lane80":   # a quick lane change at 80: how far over in a second, and does it settle?
+			if t < 0.45 and settled: _launch(80.0 / 3.6)
+			car.throttle = clampf((80.0 / 3.6 - car.linear_velocity.length()) * 0.6 + 0.35, 0.0, 1.0)
+			car.steer_in = 0.7 if t > 1.0 and t < 1.45 else (-0.7 if t >= 1.45 and t < 1.9 else 0.0)
+			if t > 0.9 and not m.has("x0l"):
+				m["x0l"] = car.global_position.x
+			if t > 2.0 and not m.has("lat1"):
+				m["lat1"] = car.global_position.x - float(m["x0l"])
+			if t > 2.5:
+				m["wig"] = maxf(float(m.get("wig", 0.0)), absf(car.angular_velocity.y))
+			dur = 4.5
 		"power_exit":   # full lock and full throttle out of a slow corner: does the tail step out?
 			if t < 0.45 and settled: _launch(30.0 / 3.6)
 			car.steer_in = 1.0 if t > 1.0 else 0.0
@@ -293,6 +316,31 @@ func _report() -> void:
 			s += "after 3 s: radius %.0f m, angle %.0f°, %.0f km/h " % [float(m.get("rsum", 0.0)) / rn, float(m.get("asum", 0.0)) / rn, float(m.get("vsum2", 0.0)) / rn]
 		"turn_gas", "turn_coast", "turn_half":
 			s += "turned %.0f° in 2 s, at %.0f km/h " % [absf(rad_to_deg(wrapf(float(m.get("h2", 0.0)) - float(m.get("h0", 0.0)), -PI, PI))), float(m.get("v2", 0.0))]
+		"step80", "step120":
+			var hist2: Array = m.get("yr", [])
+			var ss := 0.0
+			var cnt := 0
+			for e in hist2:
+				if float(e[0]) > 2.0 and float(e[0]) < 2.6:
+					ss += float(e[1])
+					cnt += 1
+			ss /= maxf(cnt, 1)
+			var t63 := 99.0
+			var t90 := 99.0
+			var peak := 0.0
+			for e in hist2:
+				peak = maxf(peak, float(e[1]))
+				if t63 > 90.0 and float(e[1]) >= ss * 0.63: t63 = float(e[0])
+				if t90 > 90.0 and float(e[1]) >= ss * 0.9: t90 = float(e[0])
+			s += "yaw %.2f rad/s (lat %.1f m/s²)  63%% in %.2fs, 90%% in %.2fs, overshoot %.0f%% " % [ss, ss * car.linear_velocity.length(), t63, t90, (peak / maxf(ss, 0.01) - 1.0) * 100.0]
+			if log:
+				var tr := ""
+				for e in hist2:
+					if fmod(float(e[0]) + 0.0001, 0.05) < 0.017 and float(e[0]) < 1.6:
+						tr += "%.2f:%.2f " % [e[0], e[1]]
+				print("   trace " + tr)
+		"lane80":
+			s += "over %.1f m in 1 s, wobble after %.2f rad/s " % [absf(float(m.get("lat1", 0.0))), float(m.get("wig", 0.0))]
 		"skid40", "skid60", "skid80":
 			var nn: int = maxi(int(m.get("n", 0)), 1)
 			var lat: float = float(m.get("lat", 0.0)) / nn

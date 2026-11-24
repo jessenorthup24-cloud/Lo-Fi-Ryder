@@ -31,7 +31,7 @@ var top_speed := 46.0
 var mu := 1.12               # tyre grip
 var rear_grip := 0.96        # rear grip relative to the front (less: looser tail)
 var steer_lock := deg_to_rad(36.0)
-var brake_force := 11000.0
+var brake_force := 12800.0          # (firm: 100-0 in about 36 m, as a sports car stops)
 var spring_k := 42000.0
 var damper_c := 3600.0
 var drag := 0.62
@@ -315,15 +315,20 @@ func _physics_process(dt: float) -> void:
 	# ---- steering: eases toward the button, smaller at speed, front wheels follow the slide
 	# as much lock as the tyres can use at this speed (a bit more, so you can still provoke a slide)
 	var wb := absf(float((wheels[0]["home"] as Vector3).z - (wheels[2]["home"] as Vector3).z))
-	var lock_v := minf(steer_lock, atan(wb * 1.5 * mu * 9.8 / maxf(vs * vs, 1.0)) + deg_to_rad(4.0))
+	# (plus enough for the front tyres to reach their best slip angle: at speed you can always use all the grip)
+	var lock_v := minf(steer_lock, atan(wb * 1.5 * mu * 9.8 / maxf(vs * vs, 1.0)) + deg_to_rad(4.0 if drift_mode else 6.5))
 	var want := steer_in * lock_v
-	if absf(slip) > deg_to_rad(4.0) and speed > 2.0:
+	# (gripping, a few degrees of slip is just a tyre cornering hard: the hands only catch a real slide)
+	if absf(slip) > deg_to_rad(4.0 if drift_mode else 7.0) and speed > 2.0:
 		var counter := clampf(slip, -steer_lock, steer_lock) * 0.92 * assist
 		want = clampf(want + counter * (1.0 - absf(steer_in) * 0.35), -steer_lock * 1.1, steer_lock * 1.1)
 		if absf(steer_in) > 0.1:
 			# pushing into the drift opens the angle up
 			want += steer_in * deg_to_rad(10.0) * drift
-	var rate := (4.2 if absf(want) > absf(steer) else 6.5) if drift_mode else (5.5 if absf(want) > absf(steer) else 8.0)
+	# (gripping: about a tenth of a second to full lock whatever the speed, like hands on a wheel: quick, but
+	# never a jolt that makes the car dart)
+	var rate := (4.2 if absf(want) > absf(steer) else 6.5) if drift_mode else \
+		(clampf(lock_v / 0.11, 1.2, 7.0) if absf(want) > absf(steer) else clampf(lock_v / 0.08, 1.8, 9.5))
 	steer = move_toward(steer, want, rate * dt)
 	# ---- engine and gearbox
 	_gear_cd = maxf(0.0, _gear_cd - dt)
@@ -455,7 +460,7 @@ func _physics_process(dt: float) -> void:
 		# lateral force from the slip angle (peaks, then eases off as it slides)
 		var alpha := atan2(vx, absf(vz) + 1.2)
 		var aa := absf(alpha)
-		var peak := deg_to_rad(7.5)
+		var peak := deg_to_rad(7.5 if drift_mode else 5.5)     # (gripping: stiffer tyres, quicker to bite)
 		var f := aa / peak if aa < peak else lerpf(1.0, 0.78 if drift_mode else 0.93, clampf((aa - peak) / deg_to_rad(35.0), 0.0, 1.0))
 		var fy := -signf(alpha) * f * cap
 		if pv.length() < 1.5:
@@ -464,7 +469,7 @@ func _physics_process(dt: float) -> void:
 		var fx := 0.0
 		if not wd["front"]:
 			fx += drive * 0.5 * (1.0 - handbrake)   # (the clutch goes in with the handbrake)
-		var bk := braking * brake_force * (0.3 if wd["front"] else 0.2)
+		var bk := braking * brake_force * (0.3 if wd["front"] else 0.2) * (0.86 if drift_mode else 1.0)   # (drifting: the brake's for tightening the line)
 		if not wd["front"] and handbrake > 0.0:
 			bk += handbrake * cap * 0.9
 		if absf(vz) > 0.05:
@@ -507,6 +512,16 @@ func _physics_process(dt: float) -> void:
 		var yr0 := angular_velocity.dot(up)
 		if absf(steer_in) < 0.1:
 			apply_torque(-up * yr0 * (2600.0 if brake > 0.1 else 900.0))
+		# steering assist, Forza style: the car turns as fast as the wheels are pointing asks it to (up to
+		# what the tyres can hold) and gets there quickly, without the dart-then-settle of a bare car
+		if speed > 4.0 and grounded >= 3:
+			var r_lim := mu * GRIP_MU * grip_k * 9.8 * 0.85 / maxf(vs, 1.0)     # (just inside what the tyres hold)
+			# (in proportion to the wheel: half the lock asks for half the turn the grip allows; slowly,
+			# no more than the wheels' angle itself would give)
+			var r_kin := vs * tan(absf(steer)) / maxf(wb, 1.0)
+			var r_ref := -signf(steer) * minf(r_kin, absf(steer) / maxf(lock_v, 0.01) * r_lim)
+			var k_as := 7.0 if absf(steer_in) > 0.05 else 2.5
+			apply_torque(up * clampf((r_ref - yr0) * inertia.y * k_as, -7000.0, 7000.0) * assist)
 	elif grounded >= 2 and vs > 5.0:
 		# a handbrake flick with some steering swings the tail out
 		if _hb_t > 0.0 and absf(steer_in) > 0.2 and aslip < deg_to_rad(28.0):

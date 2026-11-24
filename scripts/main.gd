@@ -60,7 +60,7 @@ var look_pitch := 0.0
 var wheel_idx := -1         # the finger on the steering wheel (-1: none)
 var wheel_angle := 0.0      # how far it's turned (radians, + right)
 var wheel_grab := 0.0       # (where on the rim the finger took hold)
-const WHEEL_MAX := 1.6      # turned this far: full lock
+const WHEEL_MAX := 1.35     # turned this far: full lock (about 77°: quick, but still fine-grained near the middle)
 var look_yaw_t := 0.0       # where the finger has asked the view to go (the view eases there each frame,
 var look_pitch_t := 0.0     # so touches arriving unevenly don't make it judder)
 var look_t := 9.0           # since the last look drag
@@ -709,6 +709,10 @@ func _process(dt: float) -> void:
 			Input.parse_input_event(ev2)
 	if args.has("shot") and frames == int(args.get("shot_at", "200")):
 		get_viewport().get_texture().get_image().save_png(String(args["shot"]))
+	if args.has("shot_t") and not has_meta("shot_done") and time >= float(String(args["shot_t"]).split(":")[0]):
+		# a test: a screenshot at a game time (shot_t=seconds:file)
+		set_meta("shot_done", true)
+		get_viewport().get_texture().get_image().save_png(String(args["shot_t"]).split(":")[1])
 	if args.has("quit_after") and (time > float(args["quit_after"]) or (args.has("shot") and frames > int(args.get("shot_at", "200")) + 2)):
 		print("RESULT t=%.1f dist=%.0f drift=%.0f coins=%d max_kmh=%.0f knocks=%.0f state=%d tris=%d draws=%d" % [time, save.stat("distance"),
 			save.stat("drift_points"), int(save.data["coins"]), save.stat("max_kmh"), save.stat("knocks"), state,
@@ -749,7 +753,7 @@ func _controls(dt: float) -> void:
 		car.steer_in = clampf(wheel_angle / WHEEL_MAX, -1.0, 1.0)      # (the wheel: as far as you've turned it)
 	else:
 		# let go: the wheel springs back to the middle (keys and buttons steer as before)
-		wheel_angle = move_toward(wheel_angle, (r - l) * WHEEL_MAX, get_process_delta_time() * 9.0)
+		wheel_angle = move_toward(wheel_angle, (r - l) * WHEEL_MAX, get_process_delta_time() * 11.0)
 		car.steer_in = r - l if (l > 0.0 or r > 0.0) else clampf(wheel_angle / WHEEL_MAX, -1.0, 1.0)
 	car.throttle = 1.0 if held.get("gas", false) else 0.0
 	car.brake = 1.0 if held.get("brake", false) else 0.0
@@ -1645,30 +1649,47 @@ func chase_ok() -> bool:
 func chase_ok_or_chase() -> bool:
 	return chase_ok() or police.wanted()
 
+## They're after you: no fanfare, the stars come up under the minimap with a crackle of police radio,
+## and a line saying what for.
 func police_started(why: String) -> void:
-	ui.intro_banner("POLICE", "WANTED", why, Color("ff3b4e"))
+	ui.wanted_start(why)
+	sfx("radio_chirp", -6.0)
 	ui.start_card_hide()
 	in_marker = {}
 	rw_buf.clear()
 	route = {}
 
+func police_heat_up(h: int) -> void:
+	ui.wanted_up(h)
+	sfx("radio_chirp", -7.0, 0.95)
+
+## (they'd lost you, and someone's seen you again)
+func police_reacquired() -> void:
+	sfx("radio_chirp", -9.0, 1.05)
+
+## Busted: the picture slows and drains of colour, BUSTED across it, and the fine.
 func police_busted(fine: int) -> void:
 	save.data["coins"] = maxi(int(save.data["coins"]) - fine, 0)
 	save.add_stat("busts", 1)
-	ui.intro_banner("POLICE", "BUSTED", ("Fined %d coins" % fine) if fine > 0 else "Let off with a warning", Color("5c8dff"))
-	sfx("crash_heavy", -10.0, 0.6)
+	ui.busted_fx(fine)
+	sfx("radio_chirp", -4.0, 0.85)
+	if args.has("shot_busted"):
+		get_tree().create_timer(1.9, true, false, true).timeout.connect(func():
+			get_viewport().get_texture().get_image().save_png(String(args["shot_busted"])))
+	Engine.time_scale = 0.35
+	get_tree().create_timer(1.3, true, false, true).timeout.connect(func(): Engine.time_scale = 1.0)
 	if race != null and race.state == 1:
 		# busted in a race: you're out of it
 		race.state = 2
-		ui.popup_text("Out of the race", Color("ff5c7a"))
 		race_end_t = 3.0
 	_save_now()
 
+## Lost them: the stars fade, and the bounty.
 func police_escaped(bounty: int, heat: int) -> void:
 	save.data["coins"] = int(save.data["coins"]) + bounty
 	save.add_stat("escapes", 1)
-	ui.intro_banner("POLICE", "ESCAPED", "%d-star getaway · +%d coins" % [heat, bounty], Color("54e08a"))
-	sfx("mission")
+	ui.wanted_lost(bounty, heat)
+	sfx("radio_chirp", -9.0, 0.9)
 	_save_now()
 	ach_check()
 
@@ -2279,6 +2300,15 @@ func _cam(dt: float, snap := false) -> void:
 		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * shake * 0.18
 		shake = maxf(0.0, shake - dt * 2.5)
 	cam.look_at(look, Vector3.UP)
+	if args.has("patrolcam") and traffic:
+		# a test: beside the first patrol car in the traffic
+		for pc in traffic.cars:
+			if String(pc["model"]) == "k_car_police":
+				var px: Transform3D = (pc["body"] as Node3D).global_transform
+				cam.position = px.origin + px.basis.x * 7.0 - px.basis.z * 3.0 + Vector3(0, 2.2, 0)
+				cam.look_at(px.origin + Vector3(0, 0.8, 0), Vector3.UP)
+				cam.fov = 50.0
+				return
 	if args.has("traincam") and island.rail:
 		# a test: beside train i, a little ahead, looking back along it
 		var tb: Node3D = island.rail.trains[int(args["traincam"])]["cars"][0]["body"]
@@ -2346,7 +2376,7 @@ func _sound(dt: float) -> void:
 	sound.tick(dt, {"speed": absf(car.speed), "active": active, "grounded": car.grounded > 0, "drift": maxf(skid, car.wheelspin),
 		"air_t": car.air_t, "rpm_k": car.rpm, "throttle": car.throttle, "roll": roll, "pace": 2.6,
 		"grind": active and car.wall_t > 0.12 and car.linear_velocity.length() > 3.0,
-		"siren": 1.0 if active and police.siren_k > 0.0 else 0.0, "siren_close": police.siren_k})
+		"siren": 0.0, "siren_close": 0.0})          # (each police car has its own siren now, heard from where it is)
 
 # ------------------------------------------------------------------ input
 

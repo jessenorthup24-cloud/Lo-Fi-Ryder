@@ -8,12 +8,14 @@ extends Node3D
 const M := preload("res://scripts/core/models.gd")
 const MB := preload("res://scripts/core/mesh_builder.gd")
 const Dents := preload("res://scripts/game/dents.gd")
+const CARS := preload("res://scripts/game/cars.gd")
 
 const MODELS := ["k_car_sedan", "k_car_sedan-sports", "k_car_hatchback-sports", "k_car_suv", "k_car_suv-luxury", "k_car_taxi",
 	"k_car_van", "k_car_police", "k_car_delivery", "k_car_truck", "k_car_sedan", "k_car_police", "k_car_taxi",
 	"k_car_garbage-truck", "k_car_ambulance"]
 const SPEED := {"ring": 17.0, "main": 12.5, "road": 14.0, "street": 10.0, "lane": 7.5, "mountain": 11.0}
 const COUNT := 36
+const POLICE_SAG := 0.04    # (how far a resting police car sits down on its springs: the patrol model matches)
 const TURN_V := 5.5         # m/s round a corner
 const GREEN := 9.0          # traffic lights: seconds of green each way...
 const CLEAR := 2.5          # ...then all red while the junction empties
@@ -37,6 +39,7 @@ var heads := []             # traffic light heads {"node", "group", "red", "gree
 var stats := {"crossed": 0, "uturns": 0, "respawns": 0}
 var ignore_player := false  # tools: drive as if you weren't there
 var keep_out := Rect2()     # a street race is on here: no traffic
+var sirens: Array = []      # [[position, facing]] of police cars with their sirens going: the traffic pulls over
 
 func setup(isl: Node, material: Material) -> void:
 	island = isl
@@ -57,6 +60,13 @@ func setup(isl: Node, material: Material) -> void:
 		var mi := MeshInstance3D.new()
 		mi.mesh = M.get_mesh(nm)
 		mi.material_override = mat
+		var pd := {}
+		if nm == "k_car_police":
+			# patrol cars are the very model the police chase you in (so one that sees you just pulls out
+			# after you): the body, and its wheels standing on the road
+			var d := CARS.by_id("police")
+			pd = M.car(d)
+			mi.mesh = M.painted_body(d, 0)
 		var body := AnimatableBody3D.new()
 		body.sync_to_physics = false
 		body.collision_layer = 2
@@ -66,6 +76,16 @@ func setup(isl: Node, material: Material) -> void:
 		body.set_meta("mass", 2400.0 if heavy else (1600.0 if nm.contains("van") or nm.contains("delivery") else 1150.0))
 		var cs := CollisionShape3D.new()
 		var ab: AABB = mi.mesh.get_aabb()
+		if not pd.is_empty():
+			var lift := float(pd["r_f"]) - float((pd["wheels"][0] as Vector3).y) + POLICE_SAG
+			mi.position.y = lift
+			ab.position.y += lift
+			for wi in 4:
+				var wn := MeshInstance3D.new()
+				wn.mesh = M.wheel_mesh(pd, wi)
+				wn.material_override = mat
+				wn.position = (pd["wheels"][wi] as Vector3) + Vector3(0, lift, 0)
+				body.add_child(wn)
 		if not shapes.has(nm):
 			var b := BoxShape3D.new()
 			b.size = ab.size * Vector3(0.9, 0.8, 0.95)
@@ -395,6 +415,8 @@ func _put(c: Dictionary) -> void:
 		p = pts[i].lerp(pts[i + 1], f)
 		t = pts[i + 1] - pts[i]
 	t = t.normalized()
+	if c["mode"] == ROAD and float(c.get("pull", 0.0)) > 0.0:
+		p += Vector2(-t.y, t.x) * float(c["pull"]) * 1.7          # (pulled over for a siren)
 	var pos := Vector3(p.x, _y(p), p.y)
 	var ahead := Vector3(p.x + t.x, _y(p + t), p.y + t.y)
 	(c["body"] as Node3D).global_transform = Transform3D(Basis.looking_at((ahead - pos).normalized(), Vector3.UP), pos)
@@ -634,6 +656,16 @@ func tick(dt: float, player: Vector3, _player_vel: Vector3, view := Vector3.ZERO
 				break
 		if c["mode"] == ROAD:
 			want = _approach(c, want)
+		# a siren coming up behind it (or anywhere just behind it): over to the kerb and slow right down
+		var pull_to := 0.0
+		for sn in sirens:
+			var rel: Vector3 = pos - (sn[0] as Vector3)
+			rel.y = 0.0
+			if rel.length() < 45.0 and rel.dot(sn[1]) > 0.0:
+				pull_to = 1.0
+		c["pull"] = move_toward(float(c.get("pull", 0.0)), pull_to, dt * (1.4 if pull_to > 0.0 else 0.5) * float(every))
+		if float(c["pull"]) > 0.05 and c["mode"] == ROAD:
+			want = minf(want, lerpf(want, 2.0, float(c["pull"])))
 		if blocked:
 			want = 0.0
 		if float(c["v"]) < 0.5 and want < 0.5:

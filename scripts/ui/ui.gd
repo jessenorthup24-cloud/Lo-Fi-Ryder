@@ -94,10 +94,8 @@ var count_ring: Control          # (and the burst of colour behind each number)
 var start_card: PanelContainer   # a challenge's card, up while you sit in its beacon
 var _start_cb := Callable()
 var speed_k := 0.0
-var wanted_box: VBoxContainer    # the police: wanted stars, top middle
+var wanted_box: HBoxContainer    # the police: wanted stars, under the minimap
 var wanted_stars: Array = []
-var wanted_lbl: Label
-var wanted_bar: Control
 var limit_sign: PanelContainer   # the speed limit, by the speedo while a patrol car's about
 var limit_lbl: Label
 
@@ -366,6 +364,7 @@ func _build_hud() -> void:
 	ring.add_theme_stylebox_override("panel", rsb)
 	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(ring)
+	mini_ring = ring
 	var camb := K.round_button("eye", K.PAPER, K.LINE, 64)
 	camb.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	camb.position = Vector2(-300, 230)
@@ -558,43 +557,38 @@ func _pad(name: String, pos: Vector2, size: Vector2, left_side: bool, col: Color
 	hud.add_child(p)
 	return p
 
-## The police: five stars top middle (the lit ones flash while they've lost sight of you), with a bar under
-## them for how near you are to losing them (or, in red, to being busted). And a speed limit sign by the
-## speedo whenever a patrol car's about.
+## The police, the way GTA does it: five stars under the minimap (none lit, none shown, till they're
+## after you). The lit ones flash while they've lost sight of you and turn red as they box you in, and the
+## minimap's rim flashes red and blue while they've got you. A line under the stars says what for, for a
+## few seconds. No banners. And a speed limit sign by the speedo whenever a patrol car's about.
+var wanted_why: Label
+var _wanted_fade := 0.0      # (fading the stars out after you've lost them)
+var _wanted_shown := 0       # (stars lit last frame)
+var _why_t := 0.0
+var mini_ring: Panel
 func _build_wanted() -> void:
-	wanted_box = VBoxContainer.new()
-	wanted_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	wanted_box.position = Vector2(-160, 116)
-	wanted_box.size = Vector2(320, 90)
-	wanted_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	wanted_box.add_theme_constant_override("separation", 2)
-	wanted_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	wanted_box.visible = false
-	hud.add_child(wanted_box)
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 4)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	wanted_box.add_child(row)
+	var box := HBoxContainer.new()
+	box.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	box.position = Vector2(-214, 294)
+	box.size = Vector2(180, 34)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_theme_constant_override("separation", 3)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.visible = false
+	hud.add_child(box)
+	wanted_box = box
 	for i in 5:
-		var st := Icon.new("star", Color("ffd34d"), 44)
-		row.add_child(st)
+		var st := Icon.new("star", Color("f4efe2"), 32)
+		st.pivot_offset = Vector2(16, 16)
+		box.add_child(st)
 		wanted_stars.append(st)
-	wanted_lbl = K.outlined(K.label("", 21, Color.WHITE, 750), K.INK, 8)
-	wanted_box.add_child(wanted_lbl)
-	wanted_bar = Control.new()
-	wanted_bar.custom_minimum_size = Vector2(230, 12)
-	wanted_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	wanted_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	wanted_bar.set_meta("v", 0.0)
-	wanted_bar.set_meta("c", Color.WHITE)
-	wanted_bar.draw.connect(func():
-		var r := Rect2(Vector2.ZERO, wanted_bar.size)
-		wanted_bar.draw_rect(r.grow(3.0), K.INK)
-		wanted_bar.draw_rect(r, Color(1, 1, 1, 0.18))
-		var v := clampf(float(wanted_bar.get_meta("v")), 0.0, 1.0)
-		wanted_bar.draw_rect(Rect2(Vector2.ZERO, Vector2(r.size.x * v, r.size.y)), wanted_bar.get_meta("c")))
-	wanted_box.add_child(wanted_bar)
+	wanted_why = K.outlined(K.label("", 16, Color.WHITE, 700), K.INK, 6)
+	wanted_why.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	wanted_why.position = Vector2(-304, 330)
+	wanted_why.size = Vector2(360, 24)
+	wanted_why.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	wanted_why.visible = false
+	hud.add_child(wanted_why)
 	limit_sign = PanelContainer.new()
 	var lsb := K.box(Color.WHITE, 40, 0, Color.TRANSPARENT, 0)
 	lsb.border_color = Color("e0303e")
@@ -611,29 +605,111 @@ func _build_wanted() -> void:
 	limit_sign.add_child(limit_lbl)
 	hud.add_child(limit_sign)
 
+## They're after you: the stars come up (a quick pop), and what for underneath.
+func wanted_start(why: String) -> void:
+	_wanted_fade = 0.0
+	wanted_box.visible = true
+	wanted_box.modulate = Color.WHITE
+	for st in wanted_stars:
+		var tw := create_tween()
+		(st as Control).scale = Vector2.ONE * 1.6
+		tw.tween_property(st, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	wanted_why.text = why
+	wanted_why.visible = true
+	wanted_why.modulate.a = 1.0
+	_why_t = 3.5
+
+## A star more: it pops.
+func wanted_up(h: int) -> void:
+	if h >= 1 and h <= 5:
+		var st: Control = wanted_stars[h - 1]
+		st.scale = Vector2.ONE * 1.8
+		create_tween().tween_property(st, "scale", Vector2.ONE, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+## Lost them: the stars fade away, and a quiet note of the bounty.
+func wanted_lost(bounty: int, _heat: int) -> void:
+	_wanted_fade = 1.2
+	toast("Lost the police  ·  +%d" % bounty, "coin", Color(0.12, 0.13, 0.16, 0.85), Color.WHITE, 2.4)
+
+## Busted: the picture drains of colour, BUSTED across it, the fine under it; then it all fades back.
+func busted_fx(fine: int) -> void:
+	var lay := Control.new()
+	lay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	lay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(lay)
+	var grey := ColorRect.new()
+	grey.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	grey.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sm := ShaderMaterial.new()
+	sm.shader = preload("res://shaders/busted.gdshader")
+	sm.set_shader_parameter("k", 0.0)
+	grey.material = sm
+	lay.add_child(grey)
+	var big := K.outlined(K.label("BUSTED", 104, Color("eef0f3"), 800), Color(0.05, 0.06, 0.1), 16)
+	big.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	big.position = Vector2(-400, -110)
+	big.size = Vector2(800, 140)
+	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	big.pivot_offset = big.size * 0.5
+	lay.add_child(big)
+	var sub := K.outlined(K.label(("Fined %d coins" % fine) if fine > 0 else "Let off with a warning", 26, Color.WHITE, 700), Color(0.05, 0.06, 0.1), 8)
+	sub.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	sub.position = Vector2(-300, 34)
+	sub.size = Vector2(600, 40)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lay.add_child(sub)
+	lay.modulate.a = 0.0
+	big.scale = Vector2.ONE * 1.15
+	var tw := create_tween().set_ignore_time_scale(true)
+	tw.set_parallel(true)
+	tw.tween_property(lay, "modulate:a", 1.0, 0.45)
+	tw.tween_method(func(v: float): sm.set_shader_parameter("k", v), 0.0, 1.0, 0.6)
+	tw.tween_property(big, "scale", Vector2.ONE, 0.6).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.set_parallel(false)
+	tw.tween_interval(2.0)
+	tw.tween_property(lay, "modulate:a", 0.0, 0.8)
+	tw.tween_callback(lay.queue_free)
+	wanted_box.visible = false
+	_wanted_fade = 0.0
+
 func _wanted_update(pd: Dictionary, kmh: float) -> void:
 	var heat := int(pd.get("heat", 0))
-	wanted_box.visible = heat > 0
+	var now := Time.get_ticks_msec() * 0.001
+	var dt := get_process_delta_time()
 	if heat > 0:
-		var now := Time.get_ticks_msec() * 0.001
-		var blink := not bool(pd["seen"]) and fmod(now, 0.5) < 0.25
+		_wanted_shown = heat
+		wanted_box.visible = true
+		wanted_box.modulate.a = 1.0
+		var flash := not bool(pd["seen"]) and fmod(now, 0.6) < 0.3
+		var b := float(pd["bust"])
 		for i in 5:
 			var st: Control = wanted_stars[i]
-			st.modulate = (Color(1, 1, 1, 0.35) if blink else Color.WHITE) if i < heat else Color(0.15, 0.14, 0.13, 0.45)
-		var b := float(pd["bust"])
-		if b > 0.04:
-			wanted_lbl.text = "PULL OVER!"
-			wanted_bar.set_meta("v", b)
-			wanted_bar.set_meta("c", Color("ff3b4e"))
-		elif not bool(pd["seen"]):
-			wanted_lbl.text = "LOSING THEM"
-			wanted_bar.set_meta("v", float(pd["evade"]))
-			wanted_bar.set_meta("c", Color("54e08a"))
+			if i < heat:
+				var lit := Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.25, 0.25), clampf(b * 1.3, 0.0, 1.0))
+				st.modulate = Color(0.55, 0.55, 0.58, 0.6) if flash else lit
+			else:
+				st.modulate = Color(0.1, 0.1, 0.12, 0.35)
+		# the minimap's rim: red and blue while they've got you; grey and white while they're looking
+		var phase := fmod(now, 0.5) < 0.25
+		if bool(pd["seen"]):
+			_ring_col(Color("ff3044") if phase else Color("3a6bff"))
 		else:
-			wanted_lbl.text = "POLICE CHASE · LOSE THEM"
-			wanted_bar.set_meta("v", 0.0)
-		wanted_bar.visible = b > 0.04 or not bool(pd["seen"])
-		wanted_bar.queue_redraw()
+			_ring_col(Color("c9ccd4") if fmod(now, 0.9) < 0.45 else K.PAPER)
+	elif _wanted_fade > 0.0:
+		_wanted_fade -= dt
+		wanted_box.modulate.a = clampf(_wanted_fade / 1.2, 0.0, 1.0)
+		if _wanted_fade <= 0.0:
+			wanted_box.visible = false
+		_ring_col(K.PAPER)
+	else:
+		wanted_box.visible = false
+		_ring_col(K.PAPER)
+	if _why_t > 0.0:
+		_why_t -= dt
+		wanted_why.modulate.a = clampf(_why_t / 0.6, 0.0, 1.0)
+		if _why_t <= 0.0 or heat == 0:
+			wanted_why.visible = false
+			_why_t = 0.0
 	var lim := int(pd.get("limit", 0))
 	limit_sign.visible = heat == 0 and bool(pd.get("patrol", false)) and lim > 0
 	if limit_sign.visible:
@@ -641,6 +717,12 @@ func _wanted_update(pd: Dictionary, kmh: float) -> void:
 		var over := kmh > lim + 10.0
 		limit_sign.scale = Vector2.ONE * ((1.0 + 0.08 * sin(Time.get_ticks_msec() * 0.02)) if over else 1.0)
 		limit_lbl.add_theme_color_override("font_color", Color("e0303e") if over else K.INK)
+
+func _ring_col(col: Color) -> void:
+	if mini_ring:
+		var sb: StyleBoxFlat = mini_ring.get_theme_stylebox("panel")
+		if sb.border_color != col:
+			sb.border_color = col
 
 ## Rewinding: the picture goes blue and a REWIND banner pulses at the top.
 var _rw_fx: Control
@@ -867,7 +949,7 @@ func hud_update(d: Dictionary) -> void:
 	ctl["left"].visible = not wm
 	ctl["right"].visible = not wm
 	if wm:
-		wheel.set_meta("a", float(d.get("wheel", 0.0)) * 1.6)
+		wheel.set_meta("a", float(d.get("wheel", 0.0)) * game.WHEEL_MAX)     # (turned with the finger)
 		wheel.set_meta("on", game.wheel_idx >= 0)
 		wheel.queue_redraw()
 	_wanted_update(d.get("police", {}), float(d["kmh"]))

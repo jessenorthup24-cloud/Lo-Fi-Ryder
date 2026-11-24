@@ -42,17 +42,28 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   back too). In a street race the other racers and the race clock rewind with you. The traffic doesn't,
   so for a moment after a rewind it can't hit you. Not during a countdown, after the finish, or with the
   police after you.
-- The police: patrol cars drive about in the traffic. Go past one more than 10 km/h over the limit
-  (a limit sign comes up by the speedo while one's about: 50 in town, 70 on the main roads, 80 on the
-  ring road, 40 on lanes) or hit one, and they're after you: wanted stars top middle, sirens, flashing
-  red and blue light bars, red-blue dots on the minimap. They follow you along the roads, go straight for
-  you once they're close, plough through the traffic, and more turn up out of sight as the stars go up
-  (a star every 40 s they've had you in sight, more for ramming them or wrecking one). Get out of sight
-  and stay out of sight till the stars stop flashing to lose them (a bounty in coins); stop with one on
-  your bumper for 3 seconds and you're busted (a fine). No challenges, garage or fast travel while
-  they're after you. Half the street races get a visit: they turn up some way in, go for the racers too
-  (a racer they stop is out of the race) and the chase goes on after the finish line. Trophies for
-  losing them once and ten times, and for five stars.
+- The police, GTA style. Patrol cars drive about in the traffic, and each sees in a cone ahead of it
+  (and anything right beside it). Speed past one more than 15 km/h over the limit (a limit sign comes
+  up by the speedo while one's about: 50 in town, 70 on the main roads, 80 on the ring road, 40 on
+  lanes), hit one, or crash into someone in front of one, and the patrol car just pulls out after you
+  (it's the same model as the cars that chase you). No banners: wanted stars come up under the minimap
+  with a crackle of police radio and a line saying what for, and the minimap's rim flashes red and blue.
+  - The chase: each police car has its own siren (you hear it pass, the pitch dropping) and a flashing
+    light bar. The traffic pulls over to the kerb for them. They follow you along the roads, some head
+    you off where you're going, they weave round the traffic, sit on your tail and (from two stars) line
+    up a PIT to spin you out, and when you stop they pen you in front and back.
+  - Getting worse: a star more every minute they've had you in sight, and for ramming or wrecking them.
+    New cars come in out of sight. From three stars there are roadblocks (two cars parked across the road
+    ahead of you, set up out of sight); from four a helicopter joins in, built in code, with a
+    searchlight after dark. It watches a circle round you; hiding under the railway viaduct breaks its
+    view, and a long flat-out run gets you out of its circle.
+  - Losing them: their sight cones show on the minimap. Get out of all of them and stay out till the
+    stars stop flashing (8 s at one star, up to 16 s at five), and the stars fade away with a bounty in
+    coins. Stopped with one on your bumper for 3.5 s and you're busted: the picture slows and drains to
+    grey, BUSTED across it, and a fine. Either way they switch off their lights and drive off.
+  - No challenges, garage or fast travel while they're after you. Half the street races get a visit:
+    they turn up some way in, go for the racers too (a racer they stop is out of the race) and the chase
+    goes on after the finish line. Trophies for losing them once and ten times, and for five stars.
 - Nitrous: hold NOS (above GAS; N or E on a keyboard) for a hard shove and a higher top speed, with blue
   flames, a wider view and more speed blur. The bottle refills slowly as you drive, quicker drifting or
   in the air. The Nitrous Tank upgrade makes it bigger (3 s up to 9 s).
@@ -66,6 +77,13 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - Handling: normally the car grips like a race car (planted rear, traction control, a stability system
   that catches a slide), so you can carry speed through corners. Drifting only happens when you ask
   for it with the handbrake, and the car goes back to gripping once you've straightened up.
+  Turn-in is Forza Horizon quick: grip-mode tyres bite early, the steering reaches full lock in about a
+  tenth of a second at any speed, and a steering assist makes the car rotate as much as the wheel asks
+  (half the wheel, half the grip; it's proportional at every speed) without the dart-then-settle of a
+  bare car. The brakes stop a car from 100 km/h in 34 to 38 m. The touch wheel reaches full lock at
+  about 77° of turn. The handling report (`tools/test/handling.gd`) measures it: step80/step120 time how
+  quickly the car answers a step of steering (63% of its turn in 0.10 s, against 0.15 s before),
+  lane80 how far it moves over in a quick lane change.
 - Drifting, CarX style: pull the handbrake (DRIFT) with some steering to swing the tail out, then
   balance it. The gas holds it out (more gas, more angle) and carries your speed round a long arc;
   steering into the turn deepens the angle and tightens the arc, countersteering opens it out; the foot
@@ -191,6 +209,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `scripts/game/railway.gd` | The railway: the line (the ring road pushed out and smoothed), the viaduct, track and pillars, the trains and their sounds |
 | `scripts/game/boats.gd` | Boats and ships going round the island off the shore, their wakes, the buoys |
 | `scripts/game/raceway.gd` | The Raceway peninsula: its land, the circuit and drift course, the dressing, its challenges |
+| `scripts/game/heli.gd` | The police helicopter (built in code): flying, banking, its searchlight, what it can see |
 | `scripts/game/police.gd` | The police: patrol cars in the traffic noticing you, wanted stars, the police cars (road-following, ramming, boxing in, getting unstuck, coming in out of sight), busted and escaped, police at street races |
 | `scripts/game/race.gd` | Street races: the racing line (the streets' middle pulled tight within their width, with a speed for every metre), the CPU drivers (follow, pass, recover), checkpoints, laps and places |
 | `tools/cars/export_paints.gd` | Bakes each car's other liveries as per-vertex colour rows (`assets/cars/*_paints.res`) |
@@ -216,6 +235,9 @@ godot --headless --path . --fixed-fps 120 -- --drive --demo=8 --interp   # the c
 godot --path . -- --drive --traincam=0            # alongside a train (1, 2: the others); --boatcam=3 a boat
 godot --path . -- --drive --lookcam=-60,40,330,-60,0,560   # the camera here, looking there
 godot --path . -- --drive --begin=race:raceway --raceauto --racelog   # the Raceway Grand Prix
+godot --path . -- --drive --patrolcam             # beside a patrol car in the traffic
+godot --path . -- --drive --wanted=1 --shot_busted=busted.png   # stand still, get busted, screenshot it
+godot --path . -- --auto --wanted=4 --shot_t=14:heli.png        # a screenshot at a game time
 xvfb-run godot --path . -- --drive --shot=/tmp/x.png --shot_at=200 --quit_after=30
 godot --headless --path . -s res://tools/test/handling.gd -- bug,hotrod all   # handling report
 godot --headless --path . -s res://tools/test/road_audit.gd                  # props in the road
@@ -234,7 +256,8 @@ godot --headless --path . -s res://tools/test/traffic_soak.gd -- 300         # f
 The car sounds (engines, tyres, crashes, horns) are from heyheythere's Vehicle SFX pack
 (heyheythere.itch.io). Its licence lets the game use them but not share the files, so the repo keeps them
 encrypted (`assets/audio/pack.tar.enc`) and the build unlocks them with the `SFX_KEY` secret; without it
-the game falls back to its own synthesized sounds (`tools/audio/`). The buildings, people, pets, vehicles,
+the game falls back to its own synthesized sounds (`tools/audio/`; the train, the police radio and the
+helicopter are always synthesized). The buildings, people, pets, vehicles,
 ships and props are from Kenney's CC0 kits (kenney.nl: City Kit
 Suburban and Commercial, Modular Buildings, Retro Urban Kit, Car Kit, Mini Characters, Cube Pets,
 Mini Skate, Survival Kit, Mini Forest, Castle Kit, Holiday Kit, Mini Arena, Pirate Kit, Train Kit, Racing
