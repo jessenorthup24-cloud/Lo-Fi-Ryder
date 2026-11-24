@@ -440,8 +440,11 @@ func knock(body: Node, its_velocity: Vector3, impulse: Vector3, at: Vector3) -> 
 	cs.shape = (c["shape"] as CollisionShape3D).shape
 	cs.position = (c["shape"] as CollisionShape3D).position
 	w.add_child(cs)
+	# tumbling is physics: drawn smoothly between the steps (the traffic itself moves every frame)
+	w.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
 	add_child(w)
 	w.global_transform = anim.global_transform
+	w.reset_physics_interpolation()
 	# the bodywork goes with it (dented where you hit)
 	if not c.has("dents"):
 		c["dents"] = Dents.own(M.get_mesh(c["model"]))
@@ -504,7 +507,8 @@ func _wreck_tick(c: Dictionary, dt: float, player: Vector3, view: Vector3) -> vo
 			c["dir"] = dirn
 			c["mode"] = RECOVER
 			c["rec_t"] = 0.0
-			c["rec_from"] = w.global_transform
+			c["rec_from"] = w.get_global_transform_interpolated()
+			rb.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # eased back by hand, every frame
 			rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
 			rb.freeze = true
 		elif w.global_position.distance_to(player) > 60.0 or float(c["knock_t"]) > 30.0:

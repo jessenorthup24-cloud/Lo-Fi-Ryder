@@ -30,6 +30,7 @@ var rng := RandomNumberGenerator.new()
 var heights := PackedFloat32Array()
 var surf := PackedByteArray()
 var blocked := PackedByteArray()   # roads, lots and buildings: no scattering here
+var _field_masks := {}             # field centre -> which bits of it are on the field's own side of any road
 var roads: Array = []
 ## Where roads meet. Each node: {"c": centre, "arms": [{"r", "s" (sample at the mouth), "dir" (+1: away from the
 ## node towards higher samples), "stop" (distance from the centre to the mouth), "walk"}], "members": [[r, s]]}
@@ -438,7 +439,13 @@ func _surfaces() -> void:
 	for l in lots:
 		_paint_rect(l["c"], l["hs"], l.get("yaw", 0.0), l["surf"], true)
 	for f in Districts.fields(self):
-		_paint_rect(f["c"], f["hs"], f.get("yaw", 0.0), S_FIELD, false)
+		var fc: Vector2 = f["c"]
+		var fh: Vector2 = f["hs"]
+		for j in range(maxi(int((fc.y - fh.y + HALF) / CELL), 0), mini(int((fc.y + fh.y + HALF) / CELL) + 2, N)):
+			for i in range(maxi(int((fc.x - fh.x + HALF) / CELL), 0), mini(int((fc.x + fh.x + HALF) / CELL) + 2, N)):
+				var q := Vector2(-HALF + i * CELL, -HALF + j * CELL)
+				if absf(q.x - fc.x) <= fh.x and absf(q.y - fc.y) <= fh.y and field_keep(f, q):
+					surf[j * N + i] = S_FIELD
 	for r in roads:
 		var pts: PackedVector2Array = r["pts"]
 		var hw: float = r["w"] * 0.5
@@ -908,6 +915,59 @@ func _network() -> void:
 				node["arms"].append({"r": ri, "s": sm, "dir": dirn, "stop": stop, "walk": walk, "hw": float(r["w"]) * 0.5,
 					"at": float(m[1]), "minor": minor})
 		nodes.append(node)
+
+## Is p part of field f: inside its rectangle and not cut off from the middle of it by a road?
+## (A road clipping a corner leaves that corner as plain verge.)
+func field_keep(f: Dictionary, p: Vector2) -> bool:
+	var c: Vector2 = f["c"]
+	var hs: Vector2 = f["hs"]
+	if absf(p.x - c.x) > hs.x or absf(p.y - c.y) > hs.y:
+		return false
+	var key := str(c)
+	if not _field_masks.has(key):
+		var cs := 2.0
+		var nx := int(ceil(hs.x * 2.0 / cs))
+		var nz := int(ceil(hs.y * 2.0 / cs))
+		var o := c - hs
+		var wall := PackedByteArray()
+		wall.resize(nx * nz)
+		# stamp the roads that cross the field onto it (they're sampled every couple of metres)
+		var fr := Rect2(o, hs * 2.0)
+		for r in roads:
+			var rr: float = float(r["w"]) * 0.5 + 1.2
+			for q in (r["pts"] as PackedVector2Array):
+				if not fr.grow(rr).has_point(q):
+					continue
+				for j in range(maxi(int((q.y - rr - o.y) / cs), 0), mini(int((q.y + rr - o.y) / cs) + 1, nz)):
+					for i in range(maxi(int((q.x - rr - o.x) / cs), 0), mini(int((q.x + rr - o.x) / cs) + 1, nx)):
+						if (o + Vector2((i + 0.5) * cs, (j + 0.5) * cs)).distance_to(q) <= rr:
+							wall[j * nx + i] = 1
+		var keep := PackedByteArray()
+		keep.resize(nx * nz)
+		var start := clampi(int(hs.y / cs), 0, nz - 1) * nx + clampi(int(hs.x / cs), 0, nx - 1)
+		var todo: Array[int] = []
+		if wall[start] == 0:
+			todo.append(start)
+			keep[start] = 1
+		while not todo.is_empty():
+			var k: int = todo.pop_back()
+			var ki := k % nx
+			var kj := k / nx
+			for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				var ni: int = ki + d.x
+				var nj: int = kj + d.y
+				if ni < 0 or nj < 0 or ni >= nx or nj >= nz:
+					continue
+				var nk := nj * nx + ni
+				if keep[nk] == 0 and wall[nk] == 0:
+					keep[nk] = 1
+					todo.append(nk)
+		_field_masks[key] = {"o": o, "nx": nx, "nz": nz, "cs": cs, "keep": keep}
+	var m: Dictionary = _field_masks[key]
+	var cs2: float = m["cs"]
+	var mi := clampi(int((p.x - (m["o"] as Vector2).x) / cs2), 0, int(m["nx"]) - 1)
+	var mj := clampi(int((p.y - (m["o"] as Vector2).y) / cs2), 0, int(m["nz"]) - 1)
+	return (m["keep"] as PackedByteArray)[mj * int(m["nx"]) + mi] == 1
 
 ## Is p on the carriageway of any road other than skip (and how far in)?
 func on_carriageway(p: Vector2, skip := -1, margin := 0.0) -> bool:

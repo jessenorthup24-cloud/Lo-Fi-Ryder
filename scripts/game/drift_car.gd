@@ -219,6 +219,7 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 
 func place(xf: Transform3D) -> void:
 	global_transform = xf
+	reset_physics_interpolation()
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
 	_last_v = Vector3.ZERO
@@ -228,6 +229,9 @@ func place(xf: Transform3D) -> void:
 	gear = 1
 
 func _physics_process(dt: float) -> void:
+	if is_physics_interpolated_and_enabled():
+		# drawn between physics steps: the wheels move with the steps too, so they stay smooth with the body
+		_wheel_vis(dt)
 	if wheels.is_empty() or freeze:
 		return
 	var xf := global_transform
@@ -524,6 +528,10 @@ func _physics_process(dt: float) -> void:
 			apply_torque(tilt2 * 14000.0)
 
 func _process(dt: float) -> void:
+	if not is_physics_interpolated_and_enabled():
+		_wheel_vis(dt)
+
+func _wheel_vis(dt: float) -> void:
 	if wheels.is_empty():
 		return
 	# in a drift the front wheels visibly point the way the car is going

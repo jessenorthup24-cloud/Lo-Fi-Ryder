@@ -82,6 +82,8 @@ var g_paint := -1            # the paint job being tried on in the showroom (-1:
 const PAINT_PRICE := 250
 var g_spin := 0.0
 var g_drag := 0.0
+var speed_fx: ColorRect          # streaks at the screen edges when you're flying along
+var speed_k := 0.0
 
 func setup(g: Node) -> void:
 	game = g
@@ -90,8 +92,17 @@ func setup(g: Node) -> void:
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
+	speed_fx = ColorRect.new()
+	speed_fx.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	speed_fx.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sm := ShaderMaterial.new()
+	sm.shader = load("res://shaders/speed.gdshader")
+	speed_fx.material = sm
+	speed_fx.visible = false
 	popups = _full(Control.MOUSE_FILTER_IGNORE)
 	_build_hud()
+	hud.add_child(speed_fx)          # under everything on the HUD, and hidden with it
+	hud.move_child(speed_fx, 0)
 	_build_title()
 	_build_garage()
 	overlay = _full(Control.MOUSE_FILTER_STOP)
@@ -581,6 +592,16 @@ func show_hud() -> void:
 func hud_update(d: Dictionary) -> void:
 	_hud_data = d
 	speed_lbl.text = str(int(round(d["kmh"])))
+	# a sense of speed without blurring anything: faint streaks out at the edges, from about 90 km/h
+	var want := clampf((float(d["kmh"]) - 90.0) / 80.0, 0.0, 1.0) if bool(game.save.setting("speedfx")) else 0.0
+	if game.args.has("speedfx"):
+		want = float(game.args["speedfx"])      # test: show them at this strength
+	speed_k = move_toward(speed_k, want, get_process_delta_time() * 1.5)
+	speed_fx.visible = speed_k > 0.01
+	if speed_fx.visible:
+		var vs := get_viewport().get_visible_rect().size
+		(speed_fx.material as ShaderMaterial).set_shader_parameter("amount", speed_k)
+		(speed_fx.material as ShaderMaterial).set_shader_parameter("aspect", vs.x / maxf(vs.y, 1.0))
 	gear_lbl.text = "R" if game.car.speed < -0.5 and game.car.grounded > 0 else str(int(d["gear"]))
 	rpm_bar.value = d["rpm"]
 	clock_lbl.text = d["clock"] if bool(game.save.setting("clock")) else ""
@@ -904,6 +925,7 @@ func open_settings(from_pause := false) -> void:
 	g.add_child(_setting_toggle("vibe", "Vibration", st["haptics"], func(v): game.set_setting("haptics", v)))
 	g.add_child(_setting_toggle("shadow", "Shadows", st["shadows"], func(v): game.set_setting("shadows", v)))
 	g.add_child(_setting_toggle("sun", "Show clock", st["clock"], func(v): game.set_setting("clock", v)))
+	g.add_child(_setting_toggle("wind", "Speed lines", st.get("speedfx", true), func(v): game.set_setting("speedfx", v)))
 	var reset := K.button("Reset progress", K.PAPER, K.LINE, 24, 0, 60)
 	reset.add_theme_color_override("font_color", K.CORAL_DK)
 	var armed := [false]

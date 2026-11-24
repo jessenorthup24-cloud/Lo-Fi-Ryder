@@ -183,6 +183,10 @@ func _build_world() -> void:
 	traffic.setup(island, toon)
 	car = Car.new()
 	car.name = "Car"
+	# the car moves in physics steps (60 a second) but the screen may show more frames than that:
+	# it's drawn smoothly in between. Everything else here moves every frame already.
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	car.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
 	add_child(car)
 	car.bumped.connect(_on_bump)
 	car.shifted.connect(func(_g): sound.rev(0.82); sound.shift())
@@ -671,7 +675,7 @@ func _drive(dt: float) -> void:
 	ui.hud_update({"kmh": kmh, "gear": car.gear, "rpm": car.rpm, "drift": drift_pts, "combo": combo, "combo_t": combo_t,
 		"drifting": drift_on, "coins": int(save.data["coins"]), "place": place_now, "clock": atmos.clock_text(),
 		"zone": zone, "zone_t": zone_t, "zone_pts": zone_pts, "trial": trial, "trial_t": trial_t, "trial_gate": trial_gate,
-		"trial_pts": trial_pts, "car_pos": p, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip)),
+		"trial_pts": trial_pts, "car_pos": car.get_global_transform_interpolated().origin, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip)),
 		"close": drift_on and close < 1.6 and car.drift > 0.2, "damage": car.damage, "fuel": fuel})
 
 # ------------------------------------------------------------------ drifting
@@ -1556,7 +1560,7 @@ func _snap_cam() -> void:
 	_cam(1.0, true)
 
 func _cam(dt: float, snap := false) -> void:
-	var xf := car.global_transform
+	var xf := car.get_global_transform_interpolated()   # where the car is drawn this frame
 	var fwd := -xf.basis.z
 	fwd.y = 0.0
 	var v := car.linear_velocity

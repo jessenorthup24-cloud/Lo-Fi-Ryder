@@ -25,7 +25,7 @@ static func defaults() -> Dictionary:
 		"owned": ["bug"],
 		"car": "bug",
 		"up": {"engine": 0, "turbo": 0, "tyres": 0, "steering": 0},
-		"settings": {"music": 0.75, "sfx": 0.9, "haptics": true, "shadows": true, "assist": true, "cam": 0, "clock": true},
+		"settings": {"music": 0.75, "sfx": 0.9, "haptics": true, "shadows": true, "assist": true, "cam": 0, "clock": true, "speedfx": true},
 		"stats": {},
 		"zones": {},          # zone id -> best score
 		"trials": {},         # trial id -> best (time or points)

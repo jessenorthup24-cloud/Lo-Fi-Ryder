@@ -17,6 +17,9 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - Landscape, third-person chase camera. The camera button cycles near, far and a close, low view. Drag a
   finger anywhere off the buttons to swing the view round the car (it settles back behind after a moment)
   and pinch to zoom (the zoom is kept).
+- The car is drawn smoothly between physics steps (physics interpolation), so it stays sharp on 90/120 Hz
+  screens. Above about 90 km/h faint speed lines streak past the edges of the screen (never over the
+  car); Settings → Speed lines turns them off.
 - Controls: steer left and right on the left; brake, gas and the handbrake (DRIFT) on the right.
   Hold brake when stopped to reverse.
 - Drifting: at speed, tap the handbrake (DRIFT) while steering to kick the rear out, then hold the gas
@@ -83,7 +86,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - Seasons: autumn colours from September, snow and decorations in winter, blossom in spring. Windows
   and lamps light up after dusk.
 - Farm fields are ploughed in ridges with crops growing along them (wheat, cabbages, corn, sunflowers,
-  potatoes), coloured with the seasons. Dirt tracks stop at the edge of the paved roads they join.
+  potatoes), coloured with the seasons. Dirt tracks stop at the edge of the paved roads they join, and a
+  field stops at any road that runs through it (a corner cut off by a road is left as plain verge).
 
 ## Project layout
 

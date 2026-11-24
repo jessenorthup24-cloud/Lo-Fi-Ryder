@@ -792,7 +792,10 @@ static func _crops(I, rr: RandomNumberGenerator) -> void:
 				var t2 := minf(t + step, ext - 0.8)
 				var a0: Vector2 = c + dir * t + side * o
 				var a1: Vector2 = c + dir * t2 + side * o
-				_ridge(I, ridges, a0, a1, side)
+				# no ploughing across a road (or the farm track): the rows stop at its verge
+				if I.field_keep(f, a0) and I.field_keep(f, a1) \
+						and not (I.on_carriageway(a0, -1, 1.4) or I.on_carriageway(a1, -1, 1.4) or I.on_carriageway((a0 + a1) * 0.5, -1, 1.4)):
+					_ridge(I, ridges, a0, a1, side)
 				t = t2
 			# the crop along it
 			t = -ext + 1.2
@@ -804,7 +807,7 @@ static func _crops(I, rr: RandomNumberGenerator) -> void:
 				for k in keep_out:
 					if p.distance_to(k) < (7.0 if k == keep_out[0] else 2.0):
 						clear = false
-				if clear and not I.is_blocked(p.x, p.y):
+				if clear and I.field_keep(f, p) and not I.is_blocked(p.x, p.y) and not I.on_carriageway(p, -1, 2.2 if crop in ["corn", "sunflower"] else 1.6):
 					var y: float = I.height_at(p.x, p.y) + 0.2
 					_plant(plants, crop, Vector3(p.x, y, p.y), Vector3(dir.x, 0, dir.y), spacing, rr)
 				t += spacing * rr.randf_range(0.9, 1.1) if crop in ["cabbage", "corn", "sunflower"] else spacing
