@@ -135,8 +135,48 @@ func _full(filter: int) -> Control:
 
 func _tap(b: BaseButton, f: Callable) -> void:
 	b.pressed.connect(func():
+		if _drag_dist > 18.0:
+			return          # (that was a finger scrolling a list, not a tap)
 		game.ui_tap()
 		f.call())
+
+## How far the finger has moved since it touched down (so scrolling a list doesn't press what it started on).
+var _drag_dist := 0.0
+
+func _input(e: InputEvent) -> void:
+	if (e is InputEventScreenTouch and e.pressed) or (e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT):
+		_drag_dist = 0.0
+	elif e is InputEventScreenDrag:
+		_drag_dist += (e as InputEventScreenDrag).relative.length()
+	elif e is InputEventMouseMotion and ((e as InputEventMouseMotion).button_mask & MOUSE_BUTTON_MASK_LEFT) != 0 and not DisplayServer.is_touchscreen_available():
+		_drag_dist += (e as InputEventMouseMotion).relative.length()
+
+## A list you scroll by dragging anywhere on it (rows and buttons included), with a bar you can grab too.
+func _drag_scroll(sc: ScrollContainer) -> void:
+	sc.scroll_deadzone = 100000          # (our own dragging below, the same on every phone)
+	var bar := sc.get_v_scroll_bar()
+	bar.custom_minimum_size.x = 16
+	bar.add_theme_stylebox_override("scroll", K.box(Color(0, 0, 0, 0.06), 8, 0, Color.TRANSPARENT, 0))
+	bar.add_theme_stylebox_override("grabber", K.box(Color(0, 0, 0, 0.28), 8, 0, Color.TRANSPARENT, 0))
+	bar.add_theme_stylebox_override("grabber_highlight", K.box(Color(0, 0, 0, 0.36), 8, 0, Color.TRANSPARENT, 0))
+	bar.add_theme_stylebox_override("grabber_pressed", K.box(Color(0, 0, 0, 0.42), 8, 0, Color.TRANSPARENT, 0))
+	sc.gui_input.connect(func(e: InputEvent):
+		var rel := Vector2.ZERO
+		if e is InputEventScreenDrag:
+			rel = (e as InputEventScreenDrag).relative
+		elif e is InputEventMouseMotion and ((e as InputEventMouseMotion).button_mask & MOUSE_BUTTON_MASK_LEFT) != 0 and not DisplayServer.is_touchscreen_available():
+			rel = (e as InputEventMouseMotion).relative
+		if rel.y != 0.0:
+			sc.scroll_vertical -= int(round(rel.y)))
+	_pass_touches.call_deferred(sc)
+
+func _pass_touches(n: Node) -> void:
+	for c in n.get_children():
+		if c is ScrollBar:
+			continue
+		if c is Control:
+			(c as Control).mouse_filter = Control.MOUSE_FILTER_PASS
+		_pass_touches(c)
 
 func _vs() -> Vector2:
 	return root.get_viewport_rect().size
@@ -1030,6 +1070,7 @@ func open_achievements(from_pause := false) -> void:
 	sc.custom_minimum_size = Vector2(780, minf(440.0, _vs().y - 260.0))
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	vb.add_child(sc)
+	_drag_scroll(sc)
 	var list := GridContainer.new()
 	list.columns = 2
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1169,6 +1210,7 @@ func open_map() -> void:
 	sc.custom_minimum_size = Vector2(560, sz - 40.0)
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	right.add_child(sc)
+	_drag_scroll(sc)
 	var list := VBoxContainer.new()
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	list.add_theme_constant_override("separation", 8)

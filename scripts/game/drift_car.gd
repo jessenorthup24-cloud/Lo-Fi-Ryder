@@ -4,6 +4,9 @@ extends RigidBody3D
 ## with an automatic gearbox, brakes, and a handbrake that locks the rear and lets it swing out.
 ## Touch controls are on/off buttons, so steering eases in, the front wheels follow the slide when you
 ## let go (counter-steer), and a light hand keeps a drift from becoming a spin.
+## Two ways of driving: normally it grips like a race car (planted rear, traction control, a stability
+## system that catches a slide); pull the handbrake and it's in drift mode (loose tail, drift help) until
+## you've straightened up again. Linked drifts (swinging from one side to the other) stay in drift mode.
 
 const M := preload("res://scripts/core/models.gd")
 const Dents := preload("res://scripts/game/dents.gd")
@@ -65,8 +68,11 @@ var dent_data := {}
 var _vh: Array = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]   # the last few velocities, for knocks
 var _ram_cd := 0.0
 var _clock := 0.0
+var drift_mode := false      # pulled the handbrake: drifting physics until you straighten up
+var _straight_t := 0.0
 var _swing_dir := 0.0        # the side the last drift went (+1 right), for swinging into the next one
 var _swing_t := 0.0         # what the front wheels show (they point into the slide when drifting)
+const GRIP_MU := 1.15        # grip mode holds the road this much harder than drift mode
 const DRIFT_PACE := 19.0     # m/s (about 68 km/h): a held drift settles around here
 # in the air: how fast each control turns the car (rad/s) and how hard it gets there (rad/s²)
 const AIR_PITCH := 3.4
@@ -249,7 +255,18 @@ func _physics_process(dt: float) -> void:
 			slip = 0.0
 	else:
 		slip = 0.0
+	# drift mode: in with a pull of the handbrake, out once it's been running straight for a moment
+	if handbrake > 0.5 and vs > 6.0:
+		drift_mode = true
+		_straight_t = 0.0
+	elif drift_mode:
+		var straight := absf(slip) < deg_to_rad(5.0) and absf(angular_velocity.dot(up)) < 0.45
+		_straight_t = _straight_t + dt if straight else 0.0
+		if _straight_t > 0.35 or vs < 3.0:
+			drift_mode = false
 	drift = clampf((absf(slip) - deg_to_rad(9.0)) / deg_to_rad(25.0), 0.0, 1.0) * clampf((vs - 4.0) / 6.0, 0.0, 1.0)
+	if not drift_mode:
+		drift = 0.0          # (a slide in grip mode isn't a drift: it doesn't score)
 	if handbrake > 0.5 and vs > 6.0:
 		_hb_t = 0.45
 	else:
@@ -266,7 +283,7 @@ func _physics_process(dt: float) -> void:
 		if absf(steer_in) > 0.1:
 			# pushing into the drift opens the angle up
 			want += steer_in * deg_to_rad(10.0) * drift
-	var rate := 4.2 if absf(want) > absf(steer) else 6.5
+	var rate := (4.2 if absf(want) > absf(steer) else 6.5) if drift_mode else (5.5 if absf(want) > absf(steer) else 8.0)
 	steer = move_toward(steer, want, rate * dt)
 	# ---- engine and gearbox
 	_gear_cd = maxf(0.0, _gear_cd - dt)
@@ -371,20 +388,23 @@ func _physics_process(dt: float) -> void:
 		var pv := v + angular_velocity.cross(hp - com)
 		var vx := pv.dot(wr)
 		var vz := pv.dot(wf)
-		var cap := mu * g * minf(fz, mass * 9.8 * 0.45) * (1.0 if wd["front"] else rear_grip)
+		# (gripping, the rear holds on a little better than the front: it turns in, it doesn't spin)
+		var cap := mu * g * minf(fz, mass * 9.8 * 0.45) * (1.0 if wd["front"] else (rear_grip if drift_mode else maxf(rear_grip, 1.04)))
+		if not drift_mode:
+			cap *= GRIP_MU        # race tyres, as it were: drifting keeps its own feel
 		# handbrake: rear wheels lock and let go sideways
 		if not wd["front"] and handbrake > 0.0:
 			cap *= lerpf(1.0, 0.45, handbrake)
 		# once it's sideways, keeping your foot in keeps the tail light (lift off and it grips again);
 		# and just after a handbrake tap the rear stays loose for a moment
-		if not wd["front"]:
+		if not wd["front"] and drift_mode:
 			cap *= 1.0 - 0.3 * _slide * throttle
 			cap *= lerpf(1.0, 0.6, clampf(_hb_t / 0.45, 0.0, 1.0))
 		# lateral force from the slip angle (peaks, then eases off as it slides)
 		var alpha := atan2(vx, absf(vz) + 1.2)
 		var aa := absf(alpha)
 		var peak := deg_to_rad(7.5)
-		var f := aa / peak if aa < peak else lerpf(1.0, 0.78, clampf((aa - peak) / deg_to_rad(35.0), 0.0, 1.0))
+		var f := aa / peak if aa < peak else lerpf(1.0, 0.78 if drift_mode else 0.93, clampf((aa - peak) / deg_to_rad(35.0), 0.0, 1.0))
 		var fy := -signf(alpha) * f * cap
 		if pv.length() < 1.5:
 			fy = clampf(-vx * fz * 0.6, -cap, cap)
@@ -400,6 +420,9 @@ func _physics_process(dt: float) -> void:
 		elif bk > 0.0 and absf(drive) < 1.0:
 			fx -= vz * mass * 0.2
 		fx -= vz * 4.0
+		# gripping: traction control keeps the drive wheels just short of spinning up
+		if not wd["front"] and not drift_mode and fx > cap * 0.8:
+			fx = cap * 0.8
 		# friction circle: the drive wheels spinning up steal sideways grip
 		if absf(fx) > cap:
 			if not wd["front"] and drive > 0.0:
@@ -419,7 +442,16 @@ func _physics_process(dt: float) -> void:
 	var aslip := absf(slip)
 	var slip_rate := (aslip - _last_slip) / dt
 	_last_slip = aslip
-	if grounded >= 2 and vs > 5.0:
+	if grounded >= 2 and vs > 5.0 and not drift_mode:
+		# gripping: a stability system catches any slide before it gets going
+		# (a few degrees is just how a tyre corners at the limit: it only steps in past that)
+		if aslip > deg_to_rad(6.0) and speed > 3.0:
+			var d0 := -signf(slip)
+			apply_torque(-up * d0 * (-(aslip - deg_to_rad(6.0)) * 15000.0 - slip_rate * 4500.0))
+		var yr0 := angular_velocity.dot(up)
+		if absf(steer_in) < 0.1:
+			apply_torque(-up * yr0 * (2600.0 if brake > 0.1 else 900.0))
+	elif grounded >= 2 and vs > 5.0:
 		# a handbrake flick with some steering swings the tail out
 		if _hb_t > 0.0 and absf(steer_in) > 0.2 and aslip < deg_to_rad(28.0):
 			apply_torque(up * -steer_in * 3600.0 * clampf(_hb_t / 0.45, 0.0, 1.0) * clampf(vs / 12.0, 0.3, 1.0))

@@ -12,7 +12,7 @@ const CARS := preload("res://scripts/game/cars.gd")
 const M := preload("res://scripts/core/models.gd")
 const MB := preload("res://scripts/core/mesh_builder.gd")
 
-const A_LAT := 6.5          # m/s² round a corner (what these cars' tyres really hold)
+const A_LAT := 8.0          # m/s² round a corner (what these cars hold, gripping)
 const A_BRAKE := 7.0
 const A_ACC := 4.5
 const V_MAX := 40.0

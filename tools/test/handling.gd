@@ -6,7 +6,8 @@ const Car := preload("res://scripts/game/drift_car.gd")
 const CARS := preload("res://scripts/game/cars.gd")
 
 const ALL := ["accel", "brake", "grip_turn", "power_turn", "hb_drift", "hb_release", "drift_exit", "lift_off",
-	"transition", "long_hold", "brake_drift", "uturn", "reverse", "wall_head", "wall_glance", "kerb", "jump", "tap_steer", "wall_drift", "hb_fast", "hb_slow"]
+	"transition", "long_hold", "brake_drift", "uturn", "reverse", "wall_head", "wall_glance", "kerb", "jump", "tap_steer", "wall_drift", "hb_fast", "hb_slow",
+	"skid40", "skid60", "skid80", "power_exit"]
 
 var car: RigidBody3D
 var cars: Array = []
@@ -191,6 +192,21 @@ func _physics_process(dt: float) -> bool:
 			car.throttle = 1.0
 			if car.grounded == 0 and t > 1.0: m["air"] = m.get("air", 0.0) + dt
 			dur = 7.0
+		"skid40", "skid60", "skid80":   # a steady circle at this speed, full lock: how much sideways grip
+			var v0 := float(name.substr(4)) / 3.6
+			if t < 0.45 and settled: _launch(v0)
+			car.steer_in = 1.0 if t > 1.0 else 0.0
+			car.throttle = clampf((v0 - car.linear_velocity.length()) * 0.6 + 0.35, 0.0, 1.0)
+			car.brake = clampf((car.linear_velocity.length() - v0 - 1.5) * 0.3, 0.0, 1.0)
+			if t > 3.0:
+				var yr := absf(car.angular_velocity.y)
+				m["lat"] = float(m.get("lat", 0.0)) + car.linear_velocity.length() * yr
+				m["vsum"] = float(m.get("vsum", 0.0)) + car.linear_velocity.length()
+				m["n"] = int(m.get("n", 0)) + 1
+		"power_exit":   # full lock and full throttle out of a slow corner: does the tail step out?
+			if t < 0.45 and settled: _launch(30.0 / 3.6)
+			car.steer_in = 1.0 if t > 1.0 else 0.0
+			car.throttle = 1.0 if t > 1.0 else 0.3
 		"tap_steer":   # quick taps at speed, the way you'd nudge through a curve
 			if t < 0.45 and settled: _launch(90.0 / 3.6)
 			car.throttle = 1.0
@@ -234,6 +250,11 @@ func _report() -> void:
 			s += "exit %.0f km/h" % m.get("exit_v", 0.0)
 		"jump":
 			s += "air %.2fs" % m.get("air", 0.0)
+		"skid40", "skid60", "skid80":
+			var nn: int = maxi(int(m.get("n", 0)), 1)
+			var lat: float = float(m.get("lat", 0.0)) / nn
+			var vv: float = float(m.get("vsum", 0.0)) / nn
+			s += "lat %.1f m/s² at %.0f km/h, radius %.0f m " % [lat, vv * 3.6, vv * vv / maxf(lat, 0.1)]
 		_:
 			pass
 	var sl: Array = m["slips"]

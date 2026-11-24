@@ -23,6 +23,9 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   car); Settings → Speed lines turns them off.
 - Controls: steer left and right on the left; brake, gas and the handbrake (DRIFT) on the right.
   Hold brake when stopped to reverse.
+- Handling: normally the car grips like a race car (planted rear, traction control, a stability system
+  that catches a slide), so you can carry speed through corners. Drifting only happens when you ask
+  for it with the handbrake, and the car goes back to gripping once you've straightened up.
 - Drifting: at speed, tap the handbrake (DRIFT) while steering to kick the rear out, then hold the gas
   and keep steering into the turn to hold the angle. Steer the other way with the gas down to swing
   into a drift the other way. Let go of steering, or ease off the gas, to straighten up. Drift assist
