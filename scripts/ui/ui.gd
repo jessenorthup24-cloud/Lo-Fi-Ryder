@@ -1239,6 +1239,8 @@ func start_card_show(info: Dictionary, animate := true) -> void:
 		nr.add_child(Icon.new("trophy", [K.LINE, Color("b98b62"), Color("b3b8bd"), Color("d4b25c")][int(info["medal"])], 28))
 	vb.add_child(nr)
 	vb.add_child(K.label(info["info"], 17, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
+	if String(info.get("warn", "")) != "":
+		vb.add_child(K.label(info["warn"], 17, Color("d0503a"), 700, HORIZONTAL_ALIGNMENT_LEFT))
 	if info.has("diff"):
 		var dr := HBoxContainer.new()
 		dr.add_theme_constant_override("separation", 8)
@@ -1358,7 +1360,7 @@ func _confetti(col: Color, n: int) -> void:
 func challenge_end() -> void:
 	chal_card.visible = false
 
-func challenge_result(name: String, score: String, medal: int, pay: int, record: bool) -> void:
+func challenge_result(name: String, score: String, medal: int, pay: int, record: bool, again := Callable()) -> void:
 	var cols := [Color("c9c3bb"), Color("b98b62"), Color("b3b8bd"), Color("d4b25c")]
 	var names := ["No medal", "Bronze", "Silver", "Gold"]
 	var p := K.card(K.PAPER, 36)
@@ -1397,6 +1399,23 @@ func challenge_result(name: String, score: String, medal: int, pay: int, record:
 		vb.add_child(K.label("+%d coins" % pay, 30, K.INK, 700))
 	if record:
 		vb.add_child(K.label("New personal best!", 26, K.INK_SOFT, 700))
+	# a quick way to have another go (the card stays up a little longer for it)
+	var stay := 3.2
+	if again.is_valid():
+		stay = 5.5
+		var ab := K.button("Try again", K.CORAL, K.CORAL_DK, 26, 240, 60, "play")
+		ab.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		ab.mouse_filter = Control.MOUSE_FILTER_STOP
+		_tap(ab, func():
+			p.queue_free()
+			again.call())
+		vb.add_child(ab)
+		if game.args.has("againtest"):
+			# a test: Try again pressed a moment after the card comes up
+			get_tree().create_timer(1.2).timeout.connect(func():
+				print("AGAIN pressed")
+				if is_instance_valid(ab):
+					ab.pressed.emit())
 	popups.add_child(p)
 	await get_tree().process_frame
 	p.position = (_vs() - p.size) * 0.5 - Vector2(0, 60)
@@ -1404,7 +1423,7 @@ func challenge_result(name: String, score: String, medal: int, pay: int, record:
 	p.scale = Vector2(0.6, 0.6)
 	var t := create_tween()
 	t.tween_property(p, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.tween_interval(3.2)
+	t.tween_interval(stay)
 	t.tween_property(p, "modulate:a", 0.0, 0.4)
 	t.tween_callback(p.queue_free)
 	game.sfx("finish", -3.0)
@@ -1536,6 +1555,12 @@ func open_pause() -> void:
 		["Trophies", "trophy", K.LILAC, K.LILAC_DK, func(): open_achievements(true)],
 		["Settings", "gear", K.PAPER, K.LINE, func(): open_settings(true)],
 	])
+	if game.challenge_on():
+		var is_race: bool = game.race != null
+		_row_buttons(vb, [
+			["Restart race" if is_race else "Restart", "back", K.CORAL, K.CORAL_DK, func(): game.restart_challenge()],
+			["Leave race" if is_race else "Stop challenge", "flag", K.PAPER, K.LINE, func(): game.quit_challenge()],
+		])
 	var q := K.button("Title screen", K.PAPER, K.LINE, 26, 0, 64)
 	_tap(q, func():
 		close_sheet()
@@ -1549,25 +1574,44 @@ func _back_from(from_pause: bool) -> void:
 		close_sheet()
 
 func open_settings(from_pause := false) -> void:
-	var vb: VBoxContainer = await _sheet("Settings", "gear", K.LILAC, 700.0)
+	var vb: VBoxContainer = await _sheet("Settings", "gear", K.LILAC, 1160.0)
 	var st = game.save.data["settings"]
-	vb.add_child(_setting_slider("music", "Music", st["music"], func(v): game.set_setting("music", v)))
-	vb.add_child(_setting_slider("sound", "Sounds", st["sfx"], func(v): game.set_setting("sfx", v)))
+	# (everything between the title and Done scrolls, so Done is always on screen, however short the screen)
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vb.add_child(sc)
+	_drag_scroll(sc)
+	var pad := MarginContainer.new()
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_theme_constant_override("margin_right", 26)        # (clear of the scroll bar)
+	sc.add_child(pad)
+	var inner := VBoxContainer.new()
+	inner.add_theme_constant_override("separation", 12)
+	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_child(inner)
+	var sl := HBoxContainer.new()
+	sl.add_theme_constant_override("separation", 40)
+	inner.add_child(sl)
+	var ms := _setting_slider("music", "Music", st["music"], func(v): game.set_setting("music", v))
+	var ss := _setting_slider("sound", "Sounds", st["sfx"], func(v): game.set_setting("sfx", v))
+	for x in [ms, ss]:
+		x.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		sl.add_child(x)
 	var g := GridContainer.new()
-	g.columns = 2
+	g.columns = 3
 	g.add_theme_constant_override("h_separation", 26)
 	g.add_theme_constant_override("v_separation", 8)
-	vb.add_child(g)
+	inner.add_child(g)
 	g.add_child(_setting_toggle("tire", "Drift help", st["assist"], func(v): game.set_setting("assist", v)))
+	g.add_child(_setting_toggle("car", "Steering wheel", st.get("wheel", true), func(v): game.set_setting("wheel", v)))
 	g.add_child(_setting_toggle("vibe", "Vibration", st["haptics"], func(v): game.set_setting("haptics", v)))
 	g.add_child(_setting_toggle("shadow", "Shadows", st["shadows"], func(v): game.set_setting("shadows", v)))
-	g.add_child(_setting_toggle("sun", "Show clock", st["clock"], func(v): game.set_setting("clock", v)))
-	g.add_child(_setting_toggle("wind", "Speed blur", st.get("speedfx", true), func(v): game.set_setting("speedfx", v)))
-	g.add_child(_setting_toggle("tire", "Steering wheel", st.get("wheel", true), func(v): game.set_setting("wheel", v)))
 	g.add_child(_setting_toggle("sun", "Bloom", st.get("bloom", true), func(v): game.set_setting("bloom", v)))
+	g.add_child(_setting_toggle("wind", "Speed blur", st.get("speedfx", true), func(v): game.set_setting("speedfx", v)))
 	g.add_child(_setting_toggle("leaf", "Ambient particles", st.get("motes", true), func(v): game.set_setting("motes", v)))
+	g.add_child(_setting_toggle("calendar", "Show clock", st["clock"], func(v): game.set_setting("clock", v)))
 	g.add_child(_setting_toggle("eye", "Show FPS", st.get("fps", false), func(v): game.set_setting("fps", v)))
-	g.add_child(_setting_toggle("vibe", "Cap at 60 fps", st.get("fps60", false), func(v): game.set_setting("fps60", v)))
+	g.add_child(_setting_toggle("gear", "Cap at 60 fps", st.get("fps60", false), func(v): game.set_setting("fps60", v)))
 	var reset := K.button("Reset progress", K.PAPER, K.LINE, 24, 0, 60)
 	reset.add_theme_color_override("font_color", K.CORAL_DK)
 	var armed := [false]
@@ -1578,17 +1622,22 @@ func open_settings(from_pause := false) -> void:
 			reset.text = "Tap again to erase everything"
 		else:
 			game.reset_progress())
-	vb.add_child(reset)
+	inner.add_child(reset)
 	var credit: String = game.sound.credit_line()
 	var cl := K.label(("Music by %s (CC0) · " % credit if credit != "" else "") + "Models: Kenney (CC0), Tiny Car Pack, stunt ramps by Klyo Games (CC BY 4.0) · " + build_label(), 18, K.INK_SOFT, 500)
 	cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(cl)
+	inner.add_child(cl)
 	var kl := K.label("Stunt Yard: \"Stunt arena 3D models: ramps, hoop, barriers (GLB)\" and \"Stunt arena 3D expansion: loop, half-pipe, tunnel, obstacles\" by Klyo Games (https://games.klyo.pl/free-game-assets/), CC BY 4.0 (creativecommons.org/licenses/by/4.0), recoloured for the game.", 15, K.INK_SOFT, 500)
 	kl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(kl)
+	inner.add_child(kl)
 	var done := K.button("Done", K.LILAC, K.LILAC_DK, 32, 0, 76)
 	_tap(done, func(): _back_from(from_pause))
 	vb.add_child(done)
+	# as tall as what's in it, or as the screen leaves room for
+	sc.custom_minimum_size = Vector2(0, minf(560.0, _vs().y - 250.0))
+	await get_tree().process_frame
+	if is_instance_valid(sc) and is_instance_valid(pad):
+		sc.custom_minimum_size.y = minf(pad.size.y, _vs().y - 250.0)
 
 func _setting_slider(icon: String, text: String, value: float, cb: Callable) -> Control:
 	var hb := HBoxContainer.new()
@@ -1696,13 +1745,13 @@ func _ach_row(a: Dictionary, got: bool, prog: float) -> Control:
 func show_help() -> void:
 	var vb: VBoxContainer = await _sheet("How to drive", "car", K.TEAL, 1040.0)
 	for line in [
-		["left", "Steer with the arrows on the left. Drag anywhere else on the screen to look around the car, pinch to zoom."],
+		["left", "Steer with the wheel on the left (or arrow buttons: turn the wheel off in Settings). Drag anywhere else on the screen to look around the car, pinch to zoom."],
 		["play", "GAS and BRAKE on the right. Hold BRAKE when stopped to reverse."],
 		["tire", "Tap DRIFT (the handbrake) while steering to swing the tail out. Keep the gas down and hold the steering into the turn to hold the slide."],
 		["right", "Steer the other way with the gas down to swing into a drift the other way. Let go of steering, or ease off the gas, to straighten up."],
 		["star", "Drifts score points and coins. Chain them for a bigger multiplier, and skim walls and cars for a close bonus. Don't crash mid-drift!"],
 		["wind", "In the air, GAS tips the nose down and BRAKE lifts it (hold to flip), steering spins you round, and DRIFT + steering barrel-rolls. Land on your wheels! The Stunt Yard is just south of town."],
-		["flag", "Orange rings are drift zones, blue time trials, purple drift runs. Open the map to set a route to any of them (or a gas station: fuel runs down, and they fix dents too)."],
+		["flag", "Orange rings are drift zones, blue time trials, purple drift runs and red ones races. Open the map to set a route to any of them (or a gas station: fuel runs down, and they fix dents too)."],
 	]:
 		var hb := HBoxContainer.new()
 		hb.add_theme_constant_override("separation", 14)
@@ -1717,6 +1766,8 @@ func show_help() -> void:
 	vb.add_child(ok)
 
 # ------------------------------------------------------------------ the map
+
+const MAP_SPAN := 1200.0     # metres across the big map (the island and the circuits off its coasts)
 
 func open_map() -> void:
 	var vb: VBoxContainer = await _sheet("Island map", "map", K.TEAL, 1120.0)
@@ -1740,7 +1791,7 @@ func open_map() -> void:
 	var mc := Camera3D.new()
 	mc.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # moved every frame by hand
 	mc.projection = Camera3D.PROJECTION_ORTHOGONAL
-	mc.size = 1000.0
+	mc.size = MAP_SPAN
 	mc.near = 1.0
 	mc.far = 900.0
 	mc.cull_mask = island.MAP_LAYER
@@ -1757,7 +1808,7 @@ func open_map() -> void:
 	var cp: Vector3 = game.car.global_position
 	var cy: float = game.car.global_rotation.y
 	me.draw.connect(func():
-		var c := Vector2((cp.x / 1000.0 + 0.5) * sz, (cp.z / 1000.0 + 0.5) * sz)
+		var c := Vector2((cp.x / MAP_SPAN + 0.5) * sz, (cp.z / MAP_SPAN + 0.5) * sz)
 		var f := Vector2(-sin(cy), -cos(cy))
 		var r := Vector2(-f.y, f.x)
 		var pts := PackedVector2Array([c + f * 14.0, c - f * 9.0 + r * 9.0, c - f * 4.0, c - f * 9.0 - r * 9.0])
@@ -1970,14 +2021,15 @@ func _garage_refresh() -> void:
 	for c in g_panel.get_children():
 		c.queue_free()
 	var tabs := HBoxContainer.new()
-	tabs.add_theme_constant_override("separation", 10)
+	tabs.add_theme_constant_override("separation", 8)
 	g_panel.add_child(tabs)
 	for tdef in [["cars", "Cars", "car"], ["paint", "Paint", "star"], ["tune", "Tune", "tire"], ["up", "Upgrades", "gear"]]:
 		var on: bool = g_tab == tdef[0]
-		var b := K.button(tdef[1], K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 19, 0, 62, tdef[2])
+		var b := K.button(tdef[1], K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 18, 0, 62, tdef[2])
 		if not on:
 			b.add_theme_color_override("font_color", K.INK)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.size_flags_stretch_ratio = float(String(tdef[1]).length()) + 4.0     # (a longer name, a wider tab)
 		var id: String = tdef[0]
 		_tap(b, func():
 			g_tab = id

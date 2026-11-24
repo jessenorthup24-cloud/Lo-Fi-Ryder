@@ -155,6 +155,7 @@ const RW_HZ := 20.0
 var nos_on := false
 var nos_fx_t := 0.0
 var intro := {}             # a challenge getting going: {kind, id, t, said}: the title, then 3-2-1-GO
+var cur_challenge: Array = []     # [kind, id] of the challenge on (or just finished): for Restart and Try again
 const INTRO_T := 2.4        # (how long the title shows before the countdown)
 const KIND_INFO := {"zone": ["DRIFT ZONE", "ff8a5c"], "time": ["TIME TRIAL", "5cc8ff"], "drift": ["DRIFT RUN", "c38bff"],
 	"race": ["STREET RACE", "ff5c7a"]}
@@ -217,6 +218,8 @@ func _build_world() -> void:
 	atmos.add_material(island.road_mat)        # (roads: night, the lamps' light, the season)
 
 	Ach.coin_total = island.coin_spots.size()
+	Ach.totals = {"places": island.places.size(), "zone_golds": island.zones.size(), "trial_golds": island.trials.size(), "race_golds": island.races.size()}
+	_medal_stats()          # (medals won before a stat was kept for them count too)
 	fx = Fx.new()
 	add_child(fx)
 	fx.setup(toon)
@@ -368,6 +371,8 @@ func _build_world() -> void:
 				ui.show_help()
 			"map":
 				ui.open_map()
+			"trophies":
+				ui.open_achievements()
 	elif args.has("garage"):
 		open_garage()
 		if String(args["garage"]) in ["up", "paint", "tune"]:
@@ -724,6 +729,16 @@ func _process(dt: float) -> void:
 			if float(c["v"]) > 1.0:
 				moving += 1
 		print("traffic near=%d moving=%d first=%s" % [near, moving, str((traffic.cars[0]["body"] as Node3D).global_position)])
+	if args.has("pauseat") and state == DRIVE and time - dt < float(args["pauseat"]) and time >= float(args["pauseat"]):
+		pause()             # (a test: the pause menu, for a screenshot)
+	if args.has("restartat") and state == DRIVE and time - dt < float(args["restartat"]) and time >= float(args["restartat"]):
+		# a test: the pause menu's Restart, this far in (and --quitat: its Leave)
+		print("RESTART at t=%.1f challenge=%s on=%s" % [time, str(cur_challenge), challenge_on()])
+		restart_challenge()
+	if args.has("quitat") and state == DRIVE and time - dt < float(args["quitat"]) and time >= float(args["quitat"]):
+		print("QUIT at t=%.1f on=%s" % [time, challenge_on()])
+		quit_challenge()
+		print("QUIT done on=%s race=%s" % [challenge_on(), race != null])
 	if args.has("buytest") and state == DRIVE and frames == 150:
 		# a test: what a fill-up and a repair cost and do
 		save.data["coins"] = int(args["buytest"])
@@ -1211,7 +1226,7 @@ func _on_bump(strength: float) -> void:
 			damage_told = true
 			ui.toast("Battered! Any gas station fixes you up: follow the arrow", "gear", K.PAPER, K.INK, 3.0)
 		if ewas < 60.0 and car.engine_dmg >= 60.0 and car.engine_dmg < 99.5:
-			ui.toast("The engine's hurt: it's losing power", "gear", Color("f2b84b"), K.INK, 2.6)
+			ui.toast("The engine's hurt: it's losing power. A gas station fixes it: follow the arrow", "gear", Color("f2b84b"), K.INK, 3.0)
 		if ewas < 99.5 and car.engine_dmg >= 99.5:
 			ui.toast("Engine's gone! Limp to a gas station", "gear", Color("ef6a55"), Color.WHITE, 3.2)
 			sfx("backfire", 0.0, 0.8)
@@ -1568,6 +1583,11 @@ func _markers_tick(_dt: float) -> void:
 ## What a challenge's start card says: {kind_label, name, info, col, medal, start}.
 func _start_info(kind: String, id: String) -> Dictionary:
 	var out := {"kind_label": "", "name": "", "info": "", "col": Color.WHITE, "medal": 0, "start": func(): begin_challenge(kind, id)}
+	# (going in with the engine wrecked or the tank near empty is no way to win: say so first)
+	if car.engine_dmg >= 60.0:
+		out["warn"] = "Your engine's hurt and down on power: a gas station fixes it"
+	elif fuel < 15.0:
+		out["warn"] = "Low on fuel: fill up at a gas station first"
 	match kind:
 		"zone":
 			for z in island.zones:
@@ -1599,7 +1619,9 @@ func _start_info(kind: String, id: String) -> Dictionary:
 					out["kind_label"] = KIND_INFO["race"][0] if not rc.get("track", false) else "CIRCUIT RACE"
 					out["col"] = Color(KIND_INFO["race"][1])
 					out["name"] = rc["name"]
-					out["info"] = "%d laps · 8 cars%s" % [int(rc["laps"]), (" · best %d:%05.2f" % [int(rb) / 60, fmod(rb, 60.0)]) if rb > 0.0 else ""]
+					var dpay: float = DIFF_PAY[race_diff()]
+					out["info"] = "%d laps · 8 cars%s%s" % [int(rc["laps"]), (" · medals pay ×%s" % str(dpay)) if dpay > 1.0 else "",
+						(" · best %d:%05.2f" % [int(rb) / 60, fmod(rb, 60.0)]) if rb > 0.0 else ""]
 					out["medal"] = int(save.data["medals"].get("race_" + dk, 0))
 					out["diff"] = race_diff()
 					out["set_diff"] = func(k: int):
@@ -1621,8 +1643,34 @@ func begin_challenge(kind: String, id: String) -> void:
 	in_marker = {}
 	ui.transition(func(): start_challenge_now(kind, id))
 
+## Is a challenge (a zone, a trial, a race, or one getting going) on?
+func challenge_on() -> bool:
+	return not zone.is_empty() or not trial.is_empty() or race != null or not intro.is_empty()
+
+## From the pause menu or the results card: the same challenge again, from the start.
+func restart_challenge() -> void:
+	if cur_challenge.is_empty():
+		return
+	if police.wanted():
+		ui.toast("Lose the police first", "eye", Color("ff5c7a"), Color.WHITE)
+		return
+	if state == PAUSED:
+		resume()
+	if state != DRIVE:
+		return
+	rw_buf.clear()
+	begin_challenge(String(cur_challenge[0]), String(cur_challenge[1]))
+
+## From the pause menu: give up on this one and just drive.
+func quit_challenge() -> void:
+	resume()
+	if challenge_on():
+		_end_challenges()
+		ui.toast("Challenge over: free roam", "flag", K.PAPER, K.INK, 1.6)
+
 func start_challenge_now(kind: String, id: String) -> void:
 	_end_challenges()
+	cur_challenge = [kind, id]
 	jump = {}
 	loop_on = -1
 	_break_drift(false)
@@ -1731,7 +1779,7 @@ func _finish_zone() -> void:
 		save.data["medals"][z["id"]] = medal
 		save.data["coins"] = int(save.data["coins"]) + pay
 	_medal_stats()
-	ui.challenge_result(z["name"], "%s pts" % K.fmt(score), medal, pay, score > best and best > 0)
+	ui.challenge_result(z["name"], "%s pts" % K.fmt(score), medal, pay, score > best and best > 0, restart_challenge)
 	_save_now()
 	ach_check()
 
@@ -1764,6 +1812,14 @@ func _medal_stats() -> void:
 	save.data["stats"]["zone_golds"] = zg
 	save.data["stats"]["trial_medals"] = tm
 	save.data["stats"]["trial_golds"] = tg
+	# races: won at any difficulty
+	var rg := 0
+	for rd in island.races:
+		for df in 3:
+			if int(save.data["medals"].get("race_" + race_key(String(rd["id"]), df), 0)) == 3:
+				rg += 1
+				break
+	save.data["stats"]["race_golds"] = rg
 
 # ------------------------------------------------------------------ trials and drift runs
 
@@ -1836,7 +1892,7 @@ func _finish_trial() -> void:
 		save.data["coins"] = int(save.data["coins"]) + pay
 	_medal_stats()
 	var txt := ("%.2f s" % score) if timed else ("%s pts" % K.fmt(int(score)))
-	ui.challenge_result(t["name"], txt, medal, pay, better and best > 0.0)
+	ui.challenge_result(t["name"], txt, medal, pay, better and best > 0.0, restart_challenge)
 	_save_now()
 	ach_check()
 
@@ -2292,11 +2348,13 @@ func race_done(place: int, t: float) -> void:
 		save.data["coins"] = int(save.data["coins"]) + pay
 	if place == 1:
 		save.add_stat("race_wins", 1)
+		if race.diff == 2:
+			save.add_stat("hard_wins", 1)
 	save.add_stat("races", 1)
+	_medal_stats()
 	var nth: String = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"][clampi(place - 1, 0, 7)]
 	var mins := int(t) / 60
-	ui.challenge_result(String(d["name"]), "%s · %s · %d:%05.2f" % [String(Race.DIFF[race.diff]["name"]), nth, mins, t - mins * 60.0], medal, pay, better and best > 0.0)
-	sfx("finish", -2.0)
+	ui.challenge_result(String(d["name"]), "%s · %s · %d:%05.2f" % [String(Race.DIFF[race.diff]["name"]), nth, mins, t - mins * 60.0], medal, pay, better and best > 0.0, restart_challenge)
 	race_end_t = 4.0
 	_save_now()
 	ach_check()
@@ -2329,7 +2387,7 @@ func _route_target() -> Dictionary:
 			return {"pos": (gates[trial_gate] as Transform3D).origin, "name": "Gate %d" % trial_gate, "kind": "trial"}
 	if not zone.is_empty():
 		return {} if _in_zone() else {"pos": zone["pos"], "name": zone["name"], "kind": "zone"}
-	if (fuel < 15.0 or car.damage >= 50.0) and at_station.is_empty():
+	if (fuel < 15.0 or car.damage >= 50.0 or car.engine_dmg >= 60.0) and at_station.is_empty():
 		var st := nearest_station()
 		if not st.is_empty():
 			return {"pos": st["pos"], "name": "Gas station", "kind": "station"}
@@ -2839,6 +2897,28 @@ func _notification(what: int) -> void:
 # ------------------------------------------------------------------ autopilot (testing)
 
 ## Follows the roads: aims at a point ahead on the nearest road, lifts for bends, now and then drifts.
+## What's within a few metres of a body (testing: what's it stuck on?).
+static func touching(body: CollisionObject3D, r := 3.5) -> Array:
+	var q := PhysicsShapeQueryParameters3D.new()
+	var sph := SphereShape3D.new()
+	sph.radius = r
+	q.shape = sph
+	q.transform = Transform3D(Basis(), body.global_position)
+	q.exclude = [body.get_rid()]
+	q.collision_mask = 0xFFFFFFFF
+	var out := []
+	for hit in body.get_world_3d().direct_space_state.intersect_shape(q, 10):
+		var o: Object = hit["collider"]
+		if o != null:
+			out.append("%s:%s@%s" % [o.get_class(), (o as Node).name if o is Node else "", ((o as Node3D).global_position.round() if o is Node3D else Vector3.ZERO)])
+		else:
+			var rid: RID = hit["rid"]
+			var si := int(hit["shape"])
+			var sh := PhysicsServer3D.body_get_shape(rid, si)
+			var xf: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM) * PhysicsServer3D.body_get_shape_transform(rid, si)
+			out.append("server type=%d @%s" % [PhysicsServer3D.shape_get_type(sh), xf.origin.round()])
+	return out
+
 func _autopilot(dt: float) -> void:
 	var p := car.global_position
 	var fwd := -car.global_transform.basis.z
@@ -2846,8 +2926,8 @@ func _autopilot(dt: float) -> void:
 		var bd := 1e18
 		for ri in island.roads.size():
 			var r: Dictionary = island.roads[ri]
-			if (r["kind"] == "dirt" and ri % 2 == 0) or r["kind"] == "yard":
-				continue
+			if (r["kind"] == "dirt" and ri % 2 == 0) or r["kind"] in ["yard", "track", "drift"]:
+				continue         # (and not round and round a race track, nosing into its walls)
 			var pts: PackedVector2Array = r["pts"]
 			for k in range(0, pts.size(), 2):
 				var d := pts[k].distance_squared_to(Vector2(p.x, p.z))
@@ -2895,3 +2975,5 @@ func _autopilot(dt: float) -> void:
 	if args.has("autodebug") and frames % 60 == 0:
 		print("auto t=%.0f p=(%.0f,%.0f) v=%.0f slip=%.0f road=%s steer=%.2f thr=%.0f br=%.0f hb=%.0f gr=%d" % [time, p.x, p.z, car.speed * 3.6,
 			rad_to_deg(car.slip), r2["name"], car.steer_in, car.throttle, car.brake, car.handbrake, car.grounded])
+		if absf(car.speed) < 1.0 and time > 3.0:
+			print("   stopped: eng=%.0f dmg=%.0f fuel=%.1f state=%d frz=%s touching %s" % [car.engine_dmg, car.damage, fuel, state, car.freeze, touching(car)])

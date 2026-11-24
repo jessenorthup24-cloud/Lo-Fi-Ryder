@@ -33,7 +33,7 @@ const SITES := [
 		"loop": [Vector3(-400, 405, 16), Vector3(-150, 405, 18), Vector3(-150, 480, 14), Vector3(-215, 480, 12),
 			Vector3(-215, 565, 14), Vector3(-300, 565, 12), Vector3(-300, 500, 10), Vector3(-340, 500, 10),
 			Vector3(-340, 565, 14), Vector3(-400, 565, 16)],
-		"start": Vector2(-260, 405), "way_in": [Vector2(-300, 330), Vector2(-330, 385), Vector2(-330, 405)], "stands": -1.0, "laps": 3},
+		"start": Vector2(-260, 405), "way_in": [Vector2(-224, 342), Vector2(-224, 382), Vector2(-224, 405)], "stands": -1.0, "laps": 3},
 ]
 
 ## How far inland a point is of the headlands alone (negative: out at sea), the nearest of them.
@@ -141,10 +141,15 @@ static func _dress(I, s: Dictionary, rr: RandomNumberGenerator) -> void:
 	var face := -out
 	var stand_yaw := atan2(-face.x, -face.y)
 	var built: Array = [c]           # (where stands and such went: the trees keep clear of them)
+	var wi0: Array = s["way_in"]
 	for k in 6:
 		var along := (float(k) - 2.5) * 8.4
 		var q := c + t * (along + 14.0) + out * (hw + 4.0 + 7.5)
-		if _clear(I, ri, q, hw + 9.0):
+		# (not across the way in)
+		var gap := INF
+		for m in wi0.size() - 1:
+			gap = minf(gap, q.distance_to(Geometry2D.get_closest_point_to_segment(q, wi0[m], wi0[m + 1])))
+		if _clear(I, ri, q, hw + 9.0) and gap > 10.0:
 			I.put("k_race_grandStandCovered" if k % 3 != 1 else "k_race_grandStand", q.x, q.y, stand_yaw, 1.0, "box", y)
 			built.append(q)
 	# lamp posts down the other side of the straight

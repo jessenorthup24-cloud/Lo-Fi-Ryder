@@ -57,6 +57,8 @@ const VIEWS := {
 	"c_east": [Vector3(470, 330, 85.1), Vector3(470, 0, 85), 62.0],
 	"c_south": [Vector3(-270, 330, 440.1), Vector3(-270, 0, 440), 62.0],
 	"c_westlow": [Vector3(-380, 30, 20), Vector3(-470, 2, -40), 62.0],
+	"ss_access": [Vector3(-300, 150, 395), Vector3(-300, 0, 345), 62.0],
+	"ne_stuck": [Vector3(371, 60, -5), Vector3(371, 2, -47), 62.0],
 	"nl_end": [Vector3(-262, 70, 120), Vector3(-262, 2, 66), 62.0],
 	"nl_endlow": [Vector3(-310, 14, 40), Vector3(-262, 2, 66), 62.0],
 	"c_eastlow": [Vector3(400, 30, 170), Vector3(500, 2, 100), 62.0],

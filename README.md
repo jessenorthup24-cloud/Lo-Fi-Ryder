@@ -65,7 +65,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
     stars stop flashing (8 s at one star, up to 16 s at five), and the stars fade away with a bounty in
     coins. Stopped with one on your bumper for 3.5 s and you're busted: the picture slows and drains to
     grey, BUSTED across it, and a fine. Either way they switch off their lights and drive off.
-  - No challenges, garage or fast travel while they're after you. Half the street races get a visit:
+  - No challenges, garage or fast travel while they're after you. Half the street races (never a race on
+    a circuit) get a visit:
     they turn up some way in, go for the racers too (a racer they stop is out of the race) and the chase
     goes on after the finish line. Trophies for losing them once and ten times, and for five stars.
 - Nitrous: hold NOS (above GAS; N or E on a keyboard) for a hard shove and a higher top speed, with blue
@@ -101,7 +102,10 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - Challenges, marked on the map and on the road by a ring with a column of light. Drive into one and
   its card comes up (what it is, the target, your best and medal) with a START button; nothing starts
   by driving through. START lines you up, a title band slides across while the camera swings round the
-  car, then 3-2-1-GO. Medals stamp onto the results card, with confetti for a podium.
+  car, then 3-2-1-GO. Medals stamp onto the results card, with confetti for a podium, and a Try again
+  button for another go from the start. The card warns you first if the engine's hurt or the tank's
+  nearly empty. While one's on, the pause menu has Restart (or Restart race) and Stop challenge (Leave
+  race).
   - Drift zones (orange rings): score as much as you can inside the zone before the clock runs out.
     The Drift Bowl, the town square, the harbour lot, the farmyard, the beach car park, the skate
     park and the Stunt Yard (where jumps, flips and the loop count too).
@@ -143,7 +147,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   jump, cones and a tunnel. Crash in there and you're put back at the start of the nearest run.
 - The garage: 18 cars (each with its own power, top speed, grip and drift), plus four upgrades that
   work on every car you own (engine, turbo, tyres, steering angle).
-- 39 trophies, each paying coins once.
+- 41 trophies, each paying coins once (among them winning a race on Hard and winning every race; the
+  "every zone / trial / place / race" ones count however many there are on the island).
 - The drift meter is a slim readout in the top left, with call-outs ("Close!", stunts) stacked beside it,
   so the middle of the screen stays clear.
 - If you flip, land in the water or get stuck, the car is put back on the road.
@@ -153,7 +158,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   stop on the pad by the pumps and buy fuel (1 coin a percent) and repairs (2 coins a percent; dents and
   scuffs go, and the lamps light again). Run out with no coins and they give you enough to get going.
 - The GPS: during a trial it points to the next gate, out of a zone back into it, and when you're low on
-  fuel or battered to a station. On the map, every challenge and gas station has a Route button. The route
+  fuel, battered or with a hurt engine to a station. On the map (the whole island and the circuits off its
+  coasts), every challenge and gas station has a Route button. The route
   shows on the minimap and an arrow at the top of the screen points along it, with the distance.
 - Paint jobs: every car comes in the pack's other liveries too (Garage, Paint tab; 250 coins each, kept
   per car).
@@ -283,6 +289,9 @@ godot --path . -- --drive --lookcam=-60,40,330,-60,0,560   # the camera here, lo
 godot --path . -- --drive --begin=race:raceway --raceauto --racelog   # the Raceway Grand Prix
 godot --path . -- --drive --race=northloop --diff=2 --raceauto --racelog   # on Hard (0 easy, 1 medium); ringroad, beachloop, cliffside, eastpoint, southshore
 godot --path . -- --drive --race=northloop --racelog --linedump=1640:1740 --quit_after=3   # the line and its speeds, every 4 m
+godot --path . -- --drive --begin=race:cliffside --raceauto --restartat=14 --quitat=40   # the pause menu's Restart, then Leave
+godot --path . -- --drive --auto --begin=zone:square --againtest   # the results card's Try again, pressed for you
+godot --path . -- --drive --begin=race:downtown --pauseat=6        # the pause menu (--sheet=settings, help, map, trophies too)
 godot --path . -- --drive --patrolcam             # beside a patrol car in the traffic
 godot --path . -- --drive --wanted=1 --shot_busted=busted.png   # stand still, get busted, screenshot it
 godot --path . -- --auto --wanted=4 --shot_t=14:heli.png        # a screenshot at a game time

@@ -19,7 +19,9 @@ const LIST := [
 	{"id": "loop", "name": "Loop The Loop", "desc": "Go all the way round the loop", "icon": "star", "stat": "loops", "target": 1, "reward": 150},
 	{"id": "hoop", "name": "Golden Ticket", "desc": "Fly through the gold hoop", "icon": "star", "stat": "hoops", "target": 1, "reward": 200},
 	{"id": "s5k", "name": "Showboat", "desc": "Land a 5,000 point stunt", "icon": "trophy", "stat": "max_stunt", "target": 5000, "reward": 400},
-	{"id": "win1", "name": "Street King", "desc": "Win a street race", "icon": "trophy", "stat": "race_wins", "target": 1, "reward": 400},
+	{"id": "win1", "name": "Street King", "desc": "Win a race", "icon": "trophy", "stat": "race_wins", "target": 1, "reward": 400},
+	{"id": "hard1", "name": "Hardcore", "desc": "Win a race on Hard", "icon": "trophy", "stat": "hard_wins", "target": 1, "reward": 800},
+	{"id": "race_gold", "name": "Grand Champion", "desc": "Win every race (any difficulty)", "icon": "trophy", "stat": "race_golds", "target": -1, "reward": 2500},
 	{"id": "esc1", "name": "Clean Getaway", "desc": "Lose the police", "icon": "eye", "stat": "escapes", "target": 1, "reward": 250},
 	{"id": "esc10", "name": "Ghost Of The Streets", "desc": "Lose the police 10 times", "icon": "eye", "stat": "escapes", "target": 10, "reward": 900},
 	{"id": "heat5", "name": "Most Wanted", "desc": "Reach five wanted stars", "icon": "star", "stat": "max_heat", "target": 5, "reward": 600},
@@ -29,13 +31,13 @@ const LIST := [
 	{"id": "air2", "name": "Frequent Flyer", "desc": "Spend 2 seconds in the air", "icon": "star", "stat": "max_air", "target": 2.0, "reward": 300},
 	{"id": "km10", "name": "Sunday Drive", "desc": "Drive 10 km", "icon": "car", "stat": "distance", "target": 10000, "reward": 100},
 	{"id": "km100", "name": "Island Regular", "desc": "Drive 100 km", "icon": "car", "stat": "distance", "target": 100000, "reward": 800},
-	{"id": "places", "name": "Tourist", "desc": "Find every place on the island", "icon": "map", "stat": "places", "target": 13, "reward": 400},
+	{"id": "places", "name": "Tourist", "desc": "Find every place on the island", "icon": "map", "stat": "places", "target": -1, "reward": 400},
 	{"id": "coins10", "name": "Treasure Hunter", "desc": "Find 10 hidden coins", "icon": "coin", "stat": "coins_found", "target": 10, "reward": 100},
 	{"id": "coins_all", "name": "Every Last One", "desc": "Find every hidden coin", "icon": "coin", "stat": "coins_found", "target": -1, "reward": 1500},
 	{"id": "zone1", "name": "In The Zone", "desc": "Earn a medal in a drift zone", "icon": "flag", "stat": "zone_medals", "target": 1, "reward": 100},
-	{"id": "zone_gold", "name": "Zone Master", "desc": "Gold in every zone", "icon": "trophy", "stat": "zone_golds", "target": 7, "reward": 1500},
+	{"id": "zone_gold", "name": "Zone Master", "desc": "Gold in every zone", "icon": "trophy", "stat": "zone_golds", "target": -1, "reward": 1500},
 	{"id": "trial1", "name": "On The Clock", "desc": "Finish a trial", "icon": "flag", "stat": "trial_medals", "target": 1, "reward": 100},
-	{"id": "trial_gold", "name": "Trial Ace", "desc": "Gold in every trial", "icon": "trophy", "stat": "trial_golds", "target": 4, "reward": 1500},
+	{"id": "trial_gold", "name": "Trial Ace", "desc": "Gold in every trial", "icon": "trophy", "stat": "trial_golds", "target": -1, "reward": 1500},
 	{"id": "close10", "name": "Paint Trader", "desc": "Drift close to a wall or car 10 times", "icon": "tire", "stat": "close_calls", "target": 10, "reward": 150},
 	{"id": "close100", "name": "Wall Kisser", "desc": "Drift close to a wall or car 100 times", "icon": "trophy", "stat": "close_calls", "target": 100, "reward": 700},
 	{"id": "knock50", "name": "Bull In A China Shop", "desc": "Knock over 50 things", "icon": "leaf", "stat": "knocks", "target": 50, "reward": 80},
@@ -46,10 +48,17 @@ const LIST := [
 ]
 
 static var coin_total := 60
+static var totals := {"places": 13, "zone_golds": 7, "trial_golds": 6, "race_golds": 8}   # (set from the island when it's built)
 
+## "Every one" trophies count however many there are on the island.
 static func target(a: Dictionary) -> float:
 	if int(a["target"]) < 0:
-		return float(CARS.LIST.size()) if a["stat"] == "owned" else float(coin_total)
+		match String(a["stat"]):
+			"owned":
+				return float(CARS.LIST.size())
+			"coins_found":
+				return float(coin_total)
+		return float(totals.get(a["stat"], 1))
 	return float(a["target"])
 
 static func value(a: Dictionary, data: Dictionary) -> float:

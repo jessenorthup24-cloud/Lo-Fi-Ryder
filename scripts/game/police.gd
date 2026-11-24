@@ -554,7 +554,7 @@ func _heli_tick(dt: float, cp: Vector3) -> void:
 
 # ------------------------------------------------------------------ street races
 
-## Half the races (decided when one starts) get a visit: some way into it, police cars turn up after
+## Half the street races (decided when one starts; never one on a circuit) get a visit: some way into it, police cars turn up after
 ## everyone in it, and the chase goes on after the finish.
 func _race_watch() -> void:
 	var r = game.race
@@ -565,6 +565,8 @@ func _race_watch() -> void:
 	if r.get_instance_id() != _race_id:
 		_race_id = r.get_instance_id()
 		var go := randf() < 0.5 if _force < 0 else _force == 1
+		if bool((r.def as Dictionary).get("track", false)) and _force < 0:
+			go = false        # (a race on a closed circuit is all above board: no visit)
 		_race_at = randf_range(18.0, 45.0) if go else -1.0
 		if go and game.args.has("copsat"):
 			_race_at = float(game.args["copsat"])
