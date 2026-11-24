@@ -17,7 +17,11 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - Landscape, third-person chase camera. The camera button cycles near, far and a close, low view. Drag a
   finger anywhere off the buttons to swing the view round the car (it settles back behind after a moment)
   and pinch to zoom (the zoom is kept).
-- Street lamps hang out over the road and throw a warm pool of light on it after dusk.
+- After dusk the street lamps nearest you really light things (road, pavements, walls, cars) with a warm
+  soft falloff, and your headlights light the road ahead (point lights in the toon shader: 16 at a time,
+  the furthest fading out so nothing pops). Bloom gives lit windows, lamps and neon a soft glow.
+- A few things in the air round you: pollen on spring and summer days, leaves in autumn, snow in winter,
+  fireflies at night. Settings → Bloom and Ambient particles turn them off (for slower phones).
 - The car is drawn smoothly between physics steps (physics interpolation, with the physics jitter fix
   off as Godot needs), so it stays sharp on 90/120 Hz screens. From about 70 km/h the surroundings blur
   outward from the road ahead and light streaks rush past the edges; an oval round your car is kept

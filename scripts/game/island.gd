@@ -52,6 +52,7 @@ var pools := {}
 var breakables: Array = []         # {pool, slot, pos, yaw, sc, r, kind, home, state, t}
 var lamp_heads: Array = []         # the ground under each street lamp's head (where its light falls)
 var lamp_on := PackedByteArray()   # (a knocked-down lamp's light goes out)
+var lamp_src: Array = []           # where each lamp's light comes from (its head), lighting things in the toon shader
 # ---- things that fall over when you hit them hard enough: trees (merged into the chunk meshes) and posts
 var topples: Array = []            # {kind: tree/post, name, xf, key, shape, pos, r, h, state 0 up / 1 down, t, knock, restore}
 var tgrid := {}                    # 10 m cell -> the topples in it
@@ -60,8 +61,6 @@ var chunk_mi := {}                 # chunk -> its merged props mesh
 var chunk_props := {}              # chunk -> {model: [transforms]} it's built from (rebuilt without a fallen tree)
 var fallers: Array = []            # falling over right now {node, xf0, axis, th, om, h, t, landed}
 const TOPPLE_V := 4.5              # m/s: slower than this a tree or a post just stops you
-var lamp_mi: MeshInstance3D        # those pools of light, all in one mesh
-var lamp_mat: ShaderMaterial
 var bgrid := {}                    # Vector2i (10 m) -> [breakable]
 var anims: Array = []
 var people: People
@@ -94,7 +93,7 @@ func build(material: ShaderMaterial, s: int) -> void:
 	var steps := [["water", _water], ["coast", _coast], ["plan", func(): Districts.plan(self)], ["heights", _heights],
 		["roads", _road_levels], ["network", func(): _network(); _level_junctions()], ["cut", _cut_terrain], ["surfaces", _surfaces], ["terrain", _terrain], ["road meshes", _road_meshes], ["lots", _lot_meshes],
 		["bodies", _bodies], ["map", _map_meshes], ["populate", func(): Districts.populate(self)], ["scatter", func(): Districts.scatter(self)],
-		["merge", _merge_statics], ["decals", _decal_mesh], ["lamps", _lamp_glow]]
+		["merge", _merge_statics], ["decals", _decal_mesh]]
 	for st in steps:
 		var t0 := Time.get_ticks_usec()
 		(st[1] as Callable).call()
@@ -1301,6 +1300,8 @@ func put_breakable(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, r :=
 		for hz in ([reach + 2.2] if name.ends_with("single") else [reach, -reach]):
 			b["heads"].append(lamp_heads.size())
 			lamp_heads.append(pos + Basis(Vector3.UP, yaw) * Vector3(0, 0, float(hz)))
+			var hz2: float = reach if name.ends_with("single") else float(hz)
+			lamp_src.append(pos + Basis(Vector3.UP, yaw) * Vector3(0, 4.1 * sc, hz2 + (0.6 if name.ends_with("single") else 0.0)))
 			lamp_on.append(1)
 	var g := Vector2i(int(floor(x / 10.0)), int(floor(z / 10.0)))
 	if not bgrid.has(g):
@@ -1402,7 +1403,6 @@ func _lamp_light(b: Dictionary, on: bool) -> void:
 		return
 	for hi in b["heads"]:
 		lamp_on[int(hi)] = 1 if on else 0
-	_lamp_glow()
 
 func _tick_breakables(dt: float, car_pos: Vector3) -> void:
 	for b in breakables:
@@ -1432,49 +1432,6 @@ func _tick_breakables(dt: float, car_pos: Vector3) -> void:
 				b["pos"] = b["home"]
 				b["basis"] = Basis(Vector3.UP, b["yaw"]).scaled(Vector3.ONE * float(b["sc"]))
 				pools[b["pool"]].put(b["slot"], Transform3D(b["basis"], b["pos"]))
-
-## A soft pool of lamplight on the ground under every street lamp, draped over the ground; lit after dusk.
-func _lamp_glow() -> void:
-	if lamp_heads.is_empty():
-		return
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var rad := 6.0
-	var n := 4
-	for hi in lamp_heads.size():
-		if lamp_on[hi] == 0:
-			continue
-		var c: Vector3 = lamp_heads[hi]
-		var idx0 := 0
-		var grid := []
-		for j in n + 1:
-			for i in n + 1:
-				var u := float(i) / n
-				var v := float(j) / n
-				var x := c.x + (u - 0.5) * rad * 2.0
-				var z := c.z + (v - 0.5) * rad * 2.0
-				grid.append([Vector3(x, height_at(x, z) + 0.25, z), Vector2(u, v)])
-		for j in n:
-			for i in n:
-				var a: Array = grid[j * (n + 1) + i]
-				var b: Array = grid[j * (n + 1) + i + 1]
-				var c2: Array = grid[(j + 1) * (n + 1) + i + 1]
-				var d: Array = grid[(j + 1) * (n + 1) + i]
-				for q in [a, b, c2, a, c2, d]:
-					st.set_uv(q[1])
-					st.add_vertex(q[0])
-	if lamp_mi != null:
-		lamp_mi.mesh = st.commit()       # (rebuilt: a lamp went down or came back)
-		return
-	lamp_mat = ShaderMaterial.new()
-	lamp_mat.shader = load("res://shaders/lamp_glow.gdshader")
-	lamp_mi = MeshInstance3D.new()
-	lamp_mi.name = "LampLight"
-	lamp_mi.mesh = st.commit()
-	lamp_mi.material_override = lamp_mat
-	lamp_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	lamp_mi.visible = false
-	add_child(lamp_mi)
 
 ## Merge every static model into one mesh per chunk (plus one for the landmarks).
 func _merge_statics() -> void:

@@ -16,6 +16,11 @@ uniform float shade_soft = 0.05;
 uniform float flash = 0.0;           // white flash (e.g. pickups)
 uniform vec3 rim_color : source_color = vec3(0.75, 0.85, 1.0);   // sky light catching the edges
 uniform float depth_bias = 0.0;        // roads and lots: drawn a hair toward the camera so they never flicker (fraction of distance)
+// after dark, lights near the camera light things up: street lamps (warm) and your headlights (cool). xyz: where,
+// w: reach in metres (negative: a headlight), 0: none
+uniform vec4 lamps[16];
+uniform vec3 lamp_col : source_color = vec3(1.0, 0.76, 0.44);
+uniform vec3 head_col : source_color = vec3(0.85, 0.92, 1.0);
 
 varying vec3 v_col;
 varying float v_glow;
@@ -91,6 +96,25 @@ void fragment() {
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
 	EMISSION = mix(col, rim_color, 0.55) * rim * rim_strength * 1.5 + col * v_glow * night * 1.4 + col * v_glow * 0.25
 		+ vec3(1.0, 0.78, 0.42) * v_win * night * 1.2 + vec3(flash);
+	if (night > 0.02) {
+		vec3 lit = vec3(0.0);
+		for (int i = 0; i < 16; i++) {
+			vec4 L = lamps[i];
+			float reach = abs(L.w);
+			if (reach < 0.01) {
+				continue;
+			}
+			vec3 d = L.xyz - v_world;
+			float dist = length(d);
+			float q = dist / reach;
+			float att = clamp(1.0 - q * q, 0.0, 1.0);
+			att *= att;
+			float ndl = clamp(dot(v_nrm, d / max(dist, 0.001)), 0.0, 1.0) * 0.85 + 0.15;
+			lit += (L.w < 0.0 ? head_col : lamp_col) * att * ndl;
+		}
+		// (plus a touch of the light's own colour, so a pool of light shows even on dark asphalt)
+		EMISSION += (col * 1.9 + vec3(0.035)) * lit * night;
+	}
 }
 
 void light() {

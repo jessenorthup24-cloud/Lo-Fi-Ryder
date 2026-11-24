@@ -46,6 +46,16 @@ func setup(parent: Node, toon: ShaderMaterial) -> void:
 	env.fog_sky_affect = 0.0
 	env.fog_aerial_perspective = 0.0
 	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	# bloom: bright things (lit windows, lamps, the sun on white walls, neon) bleed a soft glow
+	env.glow_enabled = true
+	env.glow_intensity = 0.55
+	env.glow_strength = 1.0
+	env.glow_bloom = 0.04
+	env.glow_hdr_threshold = 0.82
+	env.glow_hdr_scale = 1.4
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
+	for lv in 7:
+		env.set_glow_level(lv, lv in [1, 2, 3, 4])
 	we.environment = env
 	parent.add_child(we)
 	sun = DirectionalLight3D.new()
@@ -75,6 +85,126 @@ func set_season(s: int) -> void:
 	season = s
 	for m in mats:
 		m.set_shader_parameter("season", float(s) + 0.5)
+
+# ---- a few things in the air round the camera: pollen by day, leaves in autumn, snow in winter, fireflies at night
+var motes: CPUParticles3D
+var mote_mode := ""
+
+func _make_motes(mode: String) -> void:
+	if motes:
+		motes.queue_free()
+	mote_mode = mode
+	motes = CPUParticles3D.new()
+	motes.name = "Motes"
+	motes.local_coords = false
+	motes.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	var m := StandardMaterial3D.new()
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.vertex_color_use_as_albedo = true
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.disable_receive_shadows = true
+	var q := QuadMesh.new()
+	var ramp := Gradient.new()
+	match mode:
+		"pollen":
+			motes.amount = 70
+			motes.lifetime = 8.0
+			motes.emission_box_extents = Vector3(26, 5, 26)
+			motes.direction = Vector3(1, 0.2, 0.3)
+			motes.spread = 180.0
+			motes.gravity = Vector3(0, 0.02, 0)
+			motes.initial_velocity_min = 0.1
+			motes.initial_velocity_max = 0.5
+			q.size = Vector2(0.06, 0.06)
+			motes.color = Color(1.0, 0.97, 0.85)
+			ramp.set_color(0, Color(1, 1, 1, 0))
+			ramp.add_point(0.2, Color(1, 1, 1, 0.75))
+			ramp.add_point(0.8, Color(1, 1, 1, 0.75))
+			ramp.set_color(ramp.get_point_count() - 1, Color(1, 1, 1, 0))
+		"leaves":
+			motes.amount = 50
+			motes.lifetime = 7.0
+			motes.emission_box_extents = Vector3(26, 2, 26)
+			motes.direction = Vector3(0.4, -1, 0.2)
+			motes.spread = 25.0
+			motes.gravity = Vector3(0.3, -0.25, 0.1)
+			motes.initial_velocity_min = 0.6
+			motes.initial_velocity_max = 1.2
+			motes.angular_velocity_min = -160.0
+			motes.angular_velocity_max = 160.0
+			motes.angle_max = 360.0
+			q.size = Vector2(0.2, 0.13)
+			var cr := Gradient.new()
+			cr.set_color(0, Color("e8742c"))
+			cr.add_point(0.5, Color("d84a2a"))
+			cr.set_color(cr.get_point_count() - 1, Color("e6b13a"))
+			motes.color_initial_ramp = cr
+			ramp.set_color(0, Color(1, 1, 1, 0))
+			ramp.add_point(0.1, Color(1, 1, 1, 1))
+			ramp.add_point(0.85, Color(1, 1, 1, 1))
+			ramp.set_color(ramp.get_point_count() - 1, Color(1, 1, 1, 0))
+		"snow":
+			motes.amount = 160
+			motes.lifetime = 5.0
+			motes.emission_box_extents = Vector3(24, 1, 24)
+			motes.direction = Vector3(0.2, -1, 0.1)
+			motes.spread = 12.0
+			motes.gravity = Vector3(0, -0.4, 0)
+			motes.initial_velocity_min = 1.0
+			motes.initial_velocity_max = 1.8
+			q.size = Vector2(0.08, 0.08)
+			motes.color = Color(1, 1, 1)
+			ramp.set_color(0, Color(1, 1, 1, 0))
+			ramp.add_point(0.1, Color(1, 1, 1, 0.9))
+			ramp.set_color(ramp.get_point_count() - 1, Color(1, 1, 1, 0.9))
+		"fireflies":
+			motes.amount = 60
+			motes.lifetime = 6.0
+			motes.emission_box_extents = Vector3(24, 1.2, 24)
+			motes.direction = Vector3(0, 1, 0)
+			motes.spread = 180.0
+			motes.gravity = Vector3.ZERO
+			motes.initial_velocity_min = 0.1
+			motes.initial_velocity_max = 0.4
+			q.size = Vector2(0.15, 0.15)
+			m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+			motes.color = Color(0.85, 1.0, 0.45)
+			# (blinking on and off as they drift)
+			ramp.set_color(0, Color(1, 1, 1, 0))
+			for k in range(1, 6):
+				ramp.add_point(k / 6.0 - 0.06, Color(1, 1, 1, 0.05))
+				ramp.add_point(k / 6.0, Color(1, 1, 1, 1))
+			ramp.set_color(ramp.get_point_count() - 1, Color(1, 1, 1, 0))
+	motes.color_ramp = ramp
+	q.material = m
+	motes.mesh = q
+	motes.preprocess = motes.lifetime
+	add_child(motes)
+
+## Keep the things in the air round the camera (and the right ones for the time and the season).
+func motes_tick(cam_pos: Vector3, cam_fwd: Vector3, on: bool) -> void:
+	var want := ""
+	if on:
+		if season == 3:
+			want = "snow"
+		elif night > 0.6:
+			want = "fireflies"
+		elif night < 0.3:
+			want = "leaves" if season == 2 else "pollen"
+		else:
+			want = mote_mode if mote_mode != "" else "pollen"
+	if want != mote_mode:
+		if want == "":
+			if motes:
+				motes.queue_free()
+				motes = null
+			mote_mode = ""
+		else:
+			_make_motes(want)
+	if motes:
+		var c := cam_pos + Vector3(cam_fwd.x, 0, cam_fwd.z).normalized() * 14.0
+		motes.global_position = c + Vector3(0, 2.5 if mote_mode != "snow" else 9.0, 0) - (Vector3(0, 1.3, 0) if mote_mode == "fireflies" else Vector3.ZERO)
 
 func add_material(m: ShaderMaterial) -> void:
 	mats.append(m)

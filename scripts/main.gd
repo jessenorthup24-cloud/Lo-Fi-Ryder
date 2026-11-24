@@ -187,8 +187,8 @@ func _build_world() -> void:
 	add_child(island)
 	island.build(toon, atmos.season)
 	atmos.sea = island.water_mat
-	if island.lamp_mat:
-		atmos.add_material(island.lamp_mat)
+	atmos.add_material(island.road_mat)        # (roads: night, the lamps' light, the season)
+
 	Ach.coin_total = island.coin_spots.size()
 	fx = Fx.new()
 	add_child(fx)
@@ -523,6 +523,7 @@ func _apply_settings() -> void:
 	var st = save.data["settings"]
 	sound.set_volumes(float(st["music"]), float(st["sfx"]))
 	atmos.sun.shadow_enabled = bool(st["shadows"])
+	atmos.env.glow_enabled = bool(st.get("bloom", true))
 	cam_mode = clampi(int(st.get("cam", 0)), 0, 2)
 	cam_zoom = clampf(float(st.get("zoom", 1.0)), 0.55, 1.7)
 	if car:
@@ -576,8 +577,10 @@ func _process(dt: float) -> void:
 	dt = minf(dt, 0.05)
 	time += dt
 	atmos.tick(dt)
-	if island and island.lamp_mi:
-		island.lamp_mi.visible = atmos.night > 0.02     # the street lamps' light on the road, after dusk
+	if state == DRIVE or state == TITLE:
+		atmos.motes_tick(cam.global_position, -cam.global_transform.basis.z, bool(save.setting("motes")))
+	if island and state != LOADING:
+		_lamp_lights(dt)
 	if car and car.neon_node:
 		(car.neon_node.get_meta("pool_mat") as ShaderMaterial).set_shader_parameter("night", atmos.night)
 		car.neon_tick(car.get_global_transform_interpolated())
@@ -1498,6 +1501,40 @@ func _coins_tick(_dt: float) -> void:
 			ach_check()
 
 # ------------------------------------------------------------------ fuel and gas stations
+
+## After dark: your headlights and the street lamps nearest the camera light up what's round them (the toon
+## shader adds their light). Lamps a little further off fade out first, so swapping them in and out doesn't pop.
+var _lamp_t := 0.0
+var _lamp_buf := PackedVector4Array()
+
+func _lamp_lights(dt: float) -> void:
+	_lamp_t -= dt
+	if _lamp_t > 0.0:
+		return
+	_lamp_t = 0.1
+	_lamp_buf.resize(16)
+	_lamp_buf.fill(Vector4.ZERO)
+	if atmos.night > 0.02:
+		# your headlights: a pool of light on the road ahead
+		var hx := car.get_global_transform_interpolated()
+		var ahead := hx.origin - hx.basis.z * 7.0 + Vector3(0, 1.2, 0)
+		_lamp_buf[0] = Vector4(ahead.x, ahead.y, ahead.z, -11.0)
+		var cp := cam.global_position
+		var near := []
+		for i in island.lamp_src.size():
+			if island.lamp_on[i] == 0:
+				continue
+			var lp: Vector3 = island.lamp_src[i]
+			var d2 := Vector2(lp.x - cp.x, lp.z - cp.z).length_squared()
+			if d2 < 75.0 * 75.0:
+				near.append([d2, i])
+		near.sort_custom(func(a, b): return a[0] < b[0])
+		for k in mini(near.size(), 15):
+			var lp2: Vector3 = island.lamp_src[near[k][1]]
+			var fade := clampf((75.0 - sqrt(float(near[k][0]))) / 25.0, 0.0, 1.0)
+			_lamp_buf[k + 1] = Vector4(lp2.x, lp2.y, lp2.z, 13.0 * fade)
+	for m in [toon, island.road_mat]:
+		(m as ShaderMaterial).set_shader_parameter("lamps", _lamp_buf)
 
 ## Seconds of nitrous a full bottle holds (the Nitrous Tank upgrade makes it bigger).
 func nos_cap() -> float:
