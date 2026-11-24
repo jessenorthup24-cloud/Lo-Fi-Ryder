@@ -22,6 +22,13 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   off as Godot needs), so it stays sharp on 90/120 Hz screens. From about 70 km/h the surroundings blur
   outward from the road ahead and light streaks rush past the edges; an oval round your car is kept
   sharp. Settings → Speed blur turns it off.
+- Tuning (garage, Tune tab, per car): camber (0-10°) and ride height (slammed to lifted) change the look
+  and the handling. More camber and lower: drifts more easily but less race grip and worse off-road.
+  Less camber and higher: harder to drift, more grip, better on grass, dirt and sand. Bars show the
+  trade-off as you go. Neon underglow (a one-off kit for all cars) in eight colours, brighter at night.
+- Nitrous: hold NOS (above GAS; N or E on a keyboard) for a hard shove and a higher top speed, with blue
+  flames, a wider view and more speed blur. The bottle refills slowly as you drive, quicker drifting or
+  in the air. The Nitrous Tank upgrade makes it bigger (3 s up to 9 s).
 - Knock things over: hit a tree, a street lamp, a signpost or a traffic light at more than about
   16 km/h and it falls over the way you were going (you lose some speed and take a little damage);
   slower than that it just stops you. They're back about 40 s later once you're well away.

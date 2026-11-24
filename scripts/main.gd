@@ -122,6 +122,9 @@ var route_pts := PackedVector3Array()
 var route_t := 0.0
 var race: Race = null       # the street race on now
 var in_marker := {}         # the beacon you're sitting in (its start card is up)
+var nos_left := 3.0         # seconds of nitrous in the bottle
+var nos_on := false
+var nos_fx_t := 0.0
 var intro := {}             # a challenge getting going: {kind, id, t, said}: the title, then 3-2-1-GO
 const INTRO_T := 2.4        # (how long the title shows before the countdown)
 const KIND_INFO := {"zone": ["DRIFT ZONE", "ff8a5c"], "time": ["TIME TRIAL", "5cc8ff"], "drift": ["DRIFT RUN", "c38bff"],
@@ -204,6 +207,7 @@ func _build_world() -> void:
 	car.rammed.connect(func(b, v, j, at): traffic.knock(b, v, j, at))
 	car_changed()
 	fuel = clampf(float(save.data.get("fuel", 100.0)), 0.0, 100.0)
+	nos_left = nos_cap()
 	car.damage = clampf(float(save.data.get("damage", 0.0)), 0.0, 100.0)
 	router = Route.new()
 	router.build(island)
@@ -306,8 +310,14 @@ func _build_world() -> void:
 			"map":
 				ui.open_map()
 	elif args.has("garage"):
+		if args.has("tunetest"):
+			# a test: this tuning on the car you drive (camber,height,neon), with the neon kit
+			var tq := String(args["tunetest"]).split(",")
+			save.data["neon_kit"] = true
+			save.data["tune"][String(save.data["car"])] = {"camber": int(tq[0]), "height": int(tq[1]), "neon": int(tq[2])}
+			car_changed()
 		open_garage()
-		if String(args["garage"]) in ["up", "paint"]:
+		if String(args["garage"]) in ["up", "paint", "tune"]:
 			ui.g_tab = String(args["garage"])
 			ui.g_paint = int(args.get("paintprev", "-1"))
 			ui._garage_refresh()
@@ -443,7 +453,7 @@ func car_changed() -> void:
 	var dmg := car.damage
 	car.setup(d, toon, island, int(save.data["paint"].get(String(d["id"]), 0)))
 	car.damage = dmg          # (a different car doesn't mean a repaired one)
-	car.tune(d, save.data["up"])
+	car.tune(d, save.data["up"], save.data["tune"].get(String(d["id"]), {}))
 	car.assist = 1.0 if bool(save.setting("assist")) else 0.35
 	if xf != Transform3D():
 		car.place(Transform3D(Basis(Vector3.UP, xf.basis.get_euler().y), xf.origin + Vector3(0, 0.6, 0)))
@@ -565,6 +575,8 @@ func _process(dt: float) -> void:
 	atmos.tick(dt)
 	if island and island.lamp_mi:
 		island.lamp_mi.visible = atmos.night > 0.02     # the street lamps' light on the road, after dusk
+	if car and car.neon_node:
+		(car.neon_node.get_meta("pool_mat") as ShaderMaterial).set_shader_parameter("night", atmos.night)
 	var cp := car.global_position
 	island.tick(dt, cp, car.linear_velocity)
 	traffic.tick(dt, cp, car.linear_velocity, -cam.global_transform.basis.z)
@@ -732,6 +744,7 @@ func _drive(dt: float) -> void:
 	if car.air_t > 0.0:
 		save.max_stat("max_air", car.air_t)
 	_drift(dt)
+	_nitrous(dt)
 	_fuel(dt)
 	_stations_tick()
 	_route_tick(dt)
@@ -757,7 +770,8 @@ func _drive(dt: float) -> void:
 		"drifting": drift_on, "coins": int(save.data["coins"]), "place": place_now, "clock": atmos.clock_text(),
 		"zone": zone, "zone_t": zone_t, "zone_pts": zone_pts, "trial": trial, "trial_t": trial_t, "trial_gate": trial_gate,
 		"trial_pts": trial_pts, "race": {} if race == null else race.hud(), "car_pos": car.get_global_transform_interpolated().origin, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip)),
-		"close": drift_on and close < 1.6 and car.drift > 0.2, "damage": car.damage, "fuel": fuel})
+		"close": drift_on and close < 1.6 and car.drift > 0.2, "damage": car.damage, "fuel": fuel,
+		"nos": nos_left / nos_cap(), "nos_on": car.nitro})
 
 # ------------------------------------------------------------------ drifting
 
@@ -1471,6 +1485,43 @@ func _coins_tick(_dt: float) -> void:
 
 # ------------------------------------------------------------------ fuel and gas stations
 
+## Seconds of nitrous a full bottle holds (the Nitrous Tank upgrade makes it bigger).
+func nos_cap() -> float:
+	return 3.0 + 1.2 * save.level("nitrous")
+
+## Hold NOS: a shove and a higher top speed while the bottle lasts. It fills back up slowly as you drive,
+## quicker when you're drifting or in the air.
+func _nitrous(dt: float) -> void:
+	var cap := nos_cap()
+	var want: bool = held.get("nos", false) and nos_left > 0.05 and car.grounded >= 2 and car.speed > 2.0 \
+		and intro.is_empty() and not car.freeze
+	if args.has("nos") and car.speed > 8.0 and nos_left > 0.05:
+		want = true          # (a test: fire it as soon as you're moving)
+	car.nitro = move_toward(car.nitro, 1.0 if want else 0.0, dt * 6.0)
+	if want:
+		nos_left = maxf(0.0, nos_left - dt)
+		if not nos_on:
+			sfx("blowoff", -4.0, 0.8)
+			sound.rev(1.0)
+			buzz(30, 0.5)
+		# blue flames out of the back
+		nos_fx_t += dt
+		if nos_fx_t > 0.03:
+			nos_fx_t = 0.0
+			var back := car.global_transform.basis.z
+			for sd in [-1.0, 1.0]:
+				var ep := car.to_global(Vector3(sd * 0.3, float(car.info["height"]) * 0.22, float(car.info["back"]) + 0.15))
+				fx.puff(ep, Color(0.45, 0.7, 1.0).lerp(Color(1, 1, 1), randf() * 0.4), randf_range(0.22, 0.38),
+					back * randf_range(5.0, 8.0) + car.linear_velocity * 0.9, 0.18, 0.0)
+	else:
+		var fill := 0.12
+		if car.drift > 0.3:
+			fill += 0.5
+		if car.grounded == 0 and car.air_t > 0.3:
+			fill += 0.4
+		nos_left = minf(cap, nos_left + fill * dt)
+	nos_on = want
+
 func _fuel(dt: float) -> void:
 	if race != null:
 		return          # (a race doesn't use up your tank: nobody wants to run dry on the last lap)
@@ -1947,7 +1998,7 @@ func _cam(dt: float, snap := false) -> void:
 		cam.far = 2000.0
 		cam.fov = 60.0
 		return
-	cam.fov = lerpf(cam.fov, 62.0 + clampf(absf(car.speed) * 3.6 * 0.09, 0.0, 16.0), 1.0 - exp(-dt * 3.0))
+	cam.fov = lerpf(cam.fov, 62.0 + clampf(absf(car.speed) * 3.6 * 0.09, 0.0, 16.0) + car.nitro * 9.0, 1.0 - exp(-dt * 3.0))
 
 func _title_cam(dt: float) -> void:
 	title_t += dt
@@ -1997,6 +2048,8 @@ func _unhandled_input(e: InputEvent) -> void:
 				held["brake"] = on
 			KEY_SPACE, KEY_SHIFT:
 				held["hand"] = on
+			KEY_N, KEY_E:
+				held["nos"] = on
 			KEY_R:
 				if on and state == DRIVE:
 					reset_car()
@@ -2053,7 +2106,7 @@ func _look_drag(idx: int, pos: Vector2) -> void:
 	look_t = 0.0
 
 func _touch_held() -> void:
-	for k in ["left", "right", "gas", "brake", "hand"]:
+	for k in ["left", "right", "gas", "brake", "hand", "nos"]:
 		var on := false
 		for t in touches.values():
 			if t == k:

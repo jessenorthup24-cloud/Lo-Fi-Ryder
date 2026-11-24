@@ -2,13 +2,15 @@ extends RefCounted
 ## Everything that persists, in user://save.json.
 
 const PATH := "user://save.json"
-const UPGRADES := ["engine", "turbo", "tyres", "steering"]
+const UPGRADES := ["engine", "turbo", "tyres", "steering", "nitrous"]
 const UPGRADE_INFO := {
 	"engine": {"name": "Engine Tune", "desc": "More pull out of corners and drifts", "icon": "gear"},
 	"turbo": {"name": "Turbo", "desc": "A higher top speed", "icon": "wind"},
 	"tyres": {"name": "Sport Tyres", "desc": "More grip when you want it", "icon": "tire"},
 	"steering": {"name": "Angle Kit", "desc": "More steering lock for deeper drifts", "icon": "star"},
+	"nitrous": {"name": "Nitrous Tank", "desc": "A bigger bottle: longer boosts", "icon": "wind"},
 }
+const NEON_KIT := 400
 const UPGRADE_COST := [250, 600, 1200, 2200, 3600]
 const MAX_LEVEL := 5
 const OLD_UPGRADE_COST := [120, 300, 600, 1000, 1600]
@@ -24,7 +26,9 @@ static func defaults() -> Dictionary:
 		"coins": 0,
 		"owned": ["bug"],
 		"car": "bug",
-		"up": {"engine": 0, "turbo": 0, "tyres": 0, "steering": 0},
+		"up": {"engine": 0, "turbo": 0, "tyres": 0, "steering": 0, "nitrous": 0},
+		"tune": {},           # car id -> {"camber": 0..5, "height": -2..2, "neon": 0 (off) or a colour}
+		"neon_kit": false,    # bought the underglow (all cars)
 		"settings": {"music": 0.75, "sfx": 0.9, "haptics": true, "shadows": true, "assist": true, "cam": 0, "clock": true, "speedfx": true},
 		"stats": {},
 		"zones": {},          # zone id -> best score

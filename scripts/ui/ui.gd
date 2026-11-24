@@ -11,6 +11,7 @@ const PAL := preload("res://scripts/core/palette.gd")
 const MB := preload("res://scripts/core/mesh_builder.gd")
 const Ach := preload("res://scripts/game/achievements.gd")
 const SaveData := preload("res://scripts/game/save.gd")
+const CarScript := preload("res://scripts/game/drift_car.gd")
 
 var game: Node
 var island: Node
@@ -447,6 +448,7 @@ func _build_hud() -> void:
 	ctl["brake"] = _pad("brake", Vector2(-420, -210), Vector2(130, 170), false, K.PAPER)
 	ctl["gas"] = _pad("gas", Vector2(-270, -250), Vector2(150, 210), false, K.PAPER)
 	ctl["hand"] = _pad("hand", Vector2(-420, -360), Vector2(130, 120), false, K.PAPER)
+	ctl["nos"] = _pad("nos", Vector2(-270, -380), Vector2(150, 116), false, Color("cfe9ff"))
 	reset_hint = K.button("Stuck? Reset car", K.SUN, K.SUN_DK, 28, 0, 72, "home")
 	reset_hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	reset_hint.position = Vector2(-160, 60)
@@ -491,6 +493,20 @@ func _pad(name: String, pos: Vector2, size: Vector2, left_side: bool, col: Color
 		"hand":
 			vb.add_child(K.label("DRIFT", 26, K.INK, 700))
 			vb.add_child(K.label("handbrake", 16, K.INK_SOFT, 600))
+		"nos":
+			vb.add_child(K.label("NOS", 30, Color("1f4f7a"), 800))
+			# how much is in the bottle
+			var fill := Control.new()
+			fill.custom_minimum_size = Vector2(104, 12)
+			fill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			fill.set_meta("v", 1.0)
+			fill.draw.connect(func():
+				var v: float = fill.get_meta("v")
+				fill.draw_rect(Rect2(Vector2.ZERO, fill.size), Color(0.1, 0.2, 0.3, 0.35))
+				fill.draw_rect(Rect2(Vector2.ZERO, Vector2(fill.size.x * clampf(v, 0.0, 1.0), fill.size.y)), Color("3aa0ff") if v > 0.2 else Color("ef6a55")))
+			vb.add_child(fill)
+			p.set_meta("fill", fill)
 	hud.add_child(p)
 	return p
 
@@ -498,9 +514,9 @@ func _pad(name: String, pos: Vector2, size: Vector2, left_side: bool, col: Color
 func control_at(pos: Vector2) -> String:
 	if not hud.visible or overlay.visible:
 		return ""
-	for k in ["hand", "gas", "brake", "left", "right"]:
+	for k in ["nos", "hand", "gas", "brake", "left", "right"]:
 		var c: Control = ctl[k]
-		if c.get_global_rect().grow(22).has_point(pos):
+		if c.get_global_rect().grow(14 if k == "nos" else 22).has_point(pos):
 			return k
 	return ""
 
@@ -636,8 +652,11 @@ func show_hud() -> void:
 func hud_update(d: Dictionary) -> void:
 	_hud_data = d
 	speed_lbl.text = str(int(round(d["kmh"])))
+	var nf: Control = ctl["nos"].get_meta("fill")
+	nf.set_meta("v", float(d.get("nos", 1.0)))
+	nf.queue_redraw()
 	# a sense of speed: the surroundings blur outward (never your car) and streaks rush past, from about 70 km/h
-	var want := clampf((float(d["kmh"]) - 70.0) / 90.0, 0.0, 1.0) if bool(game.save.setting("speedfx")) else 0.0
+	var want := clampf((float(d["kmh"]) - 70.0) / 90.0 + float(d.get("nos_on", 0.0)) * 0.35, 0.0, 1.0) if bool(game.save.setting("speedfx")) else 0.0
 	if game.args.has("speedfx"):
 		want = float(game.args["speedfx"])      # test: show them at this strength
 	speed_k = move_toward(speed_k, want, get_process_delta_time() * 1.5)
@@ -1587,9 +1606,9 @@ func _garage_refresh() -> void:
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 10)
 	g_panel.add_child(tabs)
-	for tdef in [["cars", "Cars", "car"], ["paint", "Paint", "star"], ["up", "Upgrades", "gear"]]:
+	for tdef in [["cars", "Cars", "car"], ["paint", "Paint", "star"], ["tune", "Tune", "tire"], ["up", "Upgrades", "gear"]]:
 		var on: bool = g_tab == tdef[0]
-		var b := K.button(tdef[1], K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 24, 0, 62, tdef[2])
+		var b := K.button(tdef[1], K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 19, 0, 62, tdef[2])
 		if not on:
 			b.add_theme_color_override("font_color", K.INK)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1604,6 +1623,8 @@ func _garage_refresh() -> void:
 		_cars_tab()
 	elif g_tab == "paint":
 		_paint_tab()
+	elif g_tab == "tune":
+		_tune_tab()
 	else:
 		_upgrades_tab()
 
@@ -1704,16 +1725,29 @@ func _show_car(d: Dictionary) -> void:
 	for c in g_car.get_children():
 		c.queue_free()
 	var c := M.car(d)
+	var tn: Dictionary = game.save.data["tune"].get(String(d["id"]), {})
+	var cam_k := clampf(float(tn.get("camber", 0)) / 5.0, 0.0, 1.0)
+	var rh := clampf(float(tn.get("height", 0)) / 2.0, -1.0, 1.0)
 	var body := MeshInstance3D.new()
 	body.mesh = M.painted_body(d, (_worn_paint(d["id"]) if g_paint < 0 else g_paint) if g_tab == "paint" else _worn_paint(d["id"]))
 	body.material_override = g_mat
+	body.position.y = rh * (0.08 if rh < 0.0 else 0.1)       # (the ride height: the body up or down over its wheels)
 	g_car.add_child(body)
+	var low := 1e9
 	for i in 4:
 		var w := MeshInstance3D.new()
 		w.mesh = M.wheel_mesh(c, i)
 		w.material_override = g_mat
 		w.position = c["wheels"][i]
+		w.basis = CarScript.camber_basis((c["wheels"][i] as Vector3).x < 0.0, cam_k)
 		g_car.add_child(w)
+		low = minf(low, (c["wheels"][i] as Vector3).y - float(c["r_f"] if i < 2 else c["r_r"]))
+	var ni := int(tn.get("neon", 0))
+	if ni > 0 and ni < CarScript.NEON.size():
+		var nn := CarScript.make_neon(c, CarScript.NEON[ni], g_mat)
+		nn.position.y = low + 0.03
+		(nn.get_meta("pool_mat") as ShaderMaterial).set_shader_parameter("night", 0.6)
+		g_car.add_child(nn)
 
 func _cars_tab() -> void:
 	var s = game.save.data
@@ -1790,10 +1824,122 @@ func _garage_action() -> void:
 		game.ach_check()
 	_garage_refresh()
 
+## Tuning for the car on show: camber, ride height, and neon underglow. They change how it handles.
+func _tune_tab() -> void:
+	var s = game.save
+	var d: Dictionary = CARS.LIST[g_index]
+	var id := String(d["id"])
+	g_panel.add_child(K.label(d["name"], 30, K.INK, 700))
+	if not s.owns(id):
+		g_panel.add_child(K.label("Buy this car to tune it.", 22, K.INK_SOFT, 600))
+		return
+	var tn: Dictionary = s.data["tune"].get(id, {})
+	var set_tn := func(k: String, v):
+		var t2: Dictionary = (s.data["tune"].get(id, {}) as Dictionary).duplicate()
+		t2[k] = v
+		s.data["tune"][id] = t2
+		s.save()
+		if String(s.data["car"]) == id:
+			game.car_changed()
+		game.sfx("upgrade", -6.0, 1.2)
+		_garage_refresh()
+	var cam := int(tn.get("camber", 0))
+	var hgt := int(tn.get("height", 0))
+	g_panel.add_child(_tune_row("Camber", "%d°" % (cam * 2), cam, 0, 5, K.LILAC, func(v): set_tn.call("camber", v)))
+	g_panel.add_child(_tune_row("Ride height", ["Slammed", "Low", "Stock", "High", "Lifted"][hgt + 2], hgt, -2, 2, K.SKY, func(v): set_tn.call("height", v)))
+	# what that does to the handling
+	var ck := cam / 5.0
+	var rk := hgt / 2.0
+	var grip := 1.0 - 0.09 * ck + 0.04 * rk
+	var ease := clampf(0.6 * ck - 0.3 * rk, -0.3, 0.9)
+	var off := 1.0 + 0.12 * rk - 0.08 * ck - 0.1 * maxf(-rk, 0.0)
+	var eg := GridContainer.new()
+	eg.columns = 2
+	eg.add_theme_constant_override("h_separation", 12)
+	eg.add_theme_constant_override("v_separation", 4)
+	g_panel.add_child(eg)
+	for e in [["Race grip", (grip - 0.87) / 0.17], ["Drift ease", (ease + 0.3) / 1.2], ["Off-road", (off - 0.82) / 0.3]]:
+		eg.add_child(K.label(e[0], 18, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
+		var bar := Control.new()
+		bar.custom_minimum_size = Vector2(250, 14)
+		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var fv := clampf(float(e[1]), 0.05, 1.0)
+		bar.draw.connect(func():
+			bar.draw_rect(Rect2(Vector2.ZERO, bar.size), K.LINE)
+			bar.draw_rect(Rect2(Vector2.ZERO, Vector2(bar.size.x * fv, bar.size.y)), K.TEAL_DK))
+		eg.add_child(bar)
+	# neon
+	if not bool(s.data.get("neon_kit", false)):
+		var nb := K.button("Neon underglow kit · %s" % K.fmt(SaveData.NEON_KIT), K.CORAL, K.CORAL_DK, 22, 0, 58, "coin")
+		nb.disabled = int(s.data["coins"]) < SaveData.NEON_KIT
+		_tap(nb, func():
+			if int(s.data["coins"]) < SaveData.NEON_KIT:
+				return
+			s.data["coins"] = int(s.data["coins"]) - SaveData.NEON_KIT
+			s.data["neon_kit"] = true
+			s.save()
+			game.sfx("upgrade")
+			_garage_refresh())
+		g_panel.add_child(nb)
+	else:
+		var nr := HBoxContainer.new()
+		nr.add_theme_constant_override("separation", 6)
+		nr.add_child(K.label("Neon", 20, K.INK_SOFT, 650))
+		var cur := int(tn.get("neon", 0))
+		for ni in CarScript.NEON.size():
+			var sw := Button.new()
+			sw.focus_mode = Control.FOCUS_NONE
+			sw.custom_minimum_size = Vector2(40, 40)
+			var sc: Color = K.LINE if ni == 0 else Color(CarScript.NEON[ni])
+			var sb := K.box(sc, 20, 0, Color.TRANSPARENT, 0)
+			if ni == cur:
+				sb.border_color = K.INK
+				sb.set_border_width_all(4)
+			for st in ["normal", "hover", "pressed", "hover_pressed"]:
+				sw.add_theme_stylebox_override(st, sb)
+			if ni == 0:
+				sw.text = "off"
+				sw.add_theme_font_size_override("font_size", 13)
+				sw.add_theme_color_override("font_color", K.INK)
+			var nv := ni
+			_tap(sw, func(): set_tn.call("neon", nv))
+			nr.add_child(sw)
+		g_panel.add_child(nr)
+
+## A tuning setting with - and + either side of where it's set.
+func _tune_row(label: String, value: String, v: int, lo: int, hi: int, col: Color, on_set: Callable) -> Control:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", K.box(K.CREAM, 22, 0, Color.TRANSPARENT, 10))
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 10)
+	p.add_child(hb)
+	var vb := VBoxContainer.new()
+	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_theme_constant_override("separation", 2)
+	hb.add_child(vb)
+	vb.add_child(K.label("%s  ·  %s" % [label, value], 22, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT))
+	var pips := HBoxContainer.new()
+	pips.add_theme_constant_override("separation", 5)
+	for k in range(lo, hi + 1):
+		var pip := Panel.new()
+		pip.custom_minimum_size = Vector2(30, 12)
+		pip.add_theme_stylebox_override("panel", K.box(col if k <= v else K.LINE, 6, 0, Color.TRANSPARENT, 0))
+		pips.add_child(pip)
+	vb.add_child(pips)
+	var minus := K.round_button("left", K.PAPER, K.LINE, 56)
+	minus.disabled = v <= lo
+	_tap(minus, func(): on_set.call(v - 1))
+	hb.add_child(minus)
+	var plus := K.round_button("right", K.PAPER, K.LINE, 56)
+	plus.disabled = v >= hi
+	_tap(plus, func(): on_set.call(v + 1))
+	hb.add_child(plus)
+	return p
+
 func _upgrades_tab() -> void:
 	var s = game.save
 	g_panel.add_child(K.label("Upgrades work on every car you own.", 20, K.INK_SOFT, 600))
-	var cols := {"engine": K.CORAL, "turbo": K.SKY, "tyres": K.TEAL, "steering": K.LILAC}
+	var cols := {"engine": K.CORAL, "turbo": K.SKY, "tyres": K.TEAL, "steering": K.LILAC, "nitrous": Color("3aa0ff")}
 	for u in SaveData.UPGRADES:
 		var info: Dictionary = SaveData.UPGRADE_INFO[u]
 		var p := PanelContainer.new()

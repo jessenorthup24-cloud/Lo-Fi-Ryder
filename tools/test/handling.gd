@@ -62,6 +62,10 @@ func _start() -> void:
 	car = Car.new()
 	get_root().add_child(car)
 	car.setup(CARS.by_id(cars[ci]), StandardMaterial3D.new(), null)
+	# garage tuning to try: TUNE=camber,height (0..5, -2..2)
+	if OS.get_environment("TUNE") != "":
+		var tq := OS.get_environment("TUNE").split(",")
+		car.tune(CARS.by_id(cars[ci]), {}, {"camber": int(tq[0]), "height": int(tq[1])})
 	var name: String = scen[si]
 	var x := 0.0
 	var yaw := 0.0

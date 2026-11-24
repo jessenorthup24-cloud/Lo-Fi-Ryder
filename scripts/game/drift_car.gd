@@ -10,6 +10,7 @@ extends RigidBody3D
 
 const M := preload("res://scripts/core/models.gd")
 const Dents := preload("res://scripts/game/dents.gd")
+const MB := preload("res://scripts/core/mesh_builder.gd")
 
 signal shifted(gear: int)
 signal bumped(strength: float)
@@ -69,6 +70,19 @@ var _vh: Array = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]   # the last few vel
 var _ram_cd := 0.0
 var _clock := 0.0
 var drift_mode := false      # pulled the handbrake: drifting physics until you straighten up
+# ---- the garage tuning: camber 0..1, ride -1 (slammed) .. 1 (lifted). More camber and lower: drifts
+# easier, grips less on the road, worse off it. Less camber and higher: harder to drift, more grip, better
+# off-road.
+var camber := 0.0
+var ride := 0.0
+var ride_off := 0.0          # metres the springs sit longer (+) or shorter (-)
+var grip_k := 1.0            # race grip, from the tuning
+var drift_k := 0.0           # how much easier drifting is (-0.3 .. 0.9)
+var nitro := 0.0             # nitrous going (0..1; main sets it while there's some in the bottle)
+var neon_node: Node3D
+const NEON := ["", "ff3fd0", "35e7ff", "9b5cff", "4dff7a", "ff8a2a", "ffffff", "ff3344", "3a6bff"]
+const OFFROAD := [0, 3, 4, 6, 8]   # (island surfaces: grass, dirt, sand, field, forest)
+const CAMBER_MAX := 10.0     # degrees
 var _straight_t := 0.0
 var _swing_dir := 0.0        # the side the last drift went (+1 right), for swinging into the next one
 var _swing_t := 0.0         # what the front wheels show (they point into the slide when drifting)
@@ -93,6 +107,7 @@ func setup(def: Dictionary, mat: Material, isl: Node, paint := 0) -> void:
 	info = M.car(def)
 	for c in get_children():
 		c.queue_free()
+	neon_node = null
 	wheels.clear()
 	wheel_nodes.clear()
 	body_node = MeshInstance3D.new()
@@ -145,8 +160,21 @@ func setup(def: Dictionary, mat: Material, isl: Node, paint := 0) -> void:
 	collision_mask = 1 | 2
 	tune(def, {})
 
-## Car personality and garage upgrades. up: {engine, turbo, tyres, steering} levels 0..5
-func tune(def: Dictionary, up: Dictionary) -> void:
+## Car personality and garage upgrades. up: {engine, turbo, tyres, steering} levels 0..5;
+## tun: the garage tuning {camber 0..5, height -2..2, neon 0 off / colour index}.
+func tune(def: Dictionary, up: Dictionary, tun := {}) -> void:
+	camber = clampf(float(tun.get("camber", 0)) / 5.0, 0.0, 1.0)
+	ride = clampf(float(tun.get("height", 0)) / 2.0, -1.0, 1.0)
+	ride_off = ride * (0.08 if ride < 0.0 else 0.1)
+	grip_k = 1.0 - 0.09 * camber + 0.04 * ride
+	drift_k = clampf(0.6 * camber - 0.3 * ride, -0.3, 0.9)
+	if neon_node:
+		neon_node.queue_free()
+		neon_node = null
+	var ni := int(tun.get("neon", 0))
+	if ni > 0 and ni < NEON.size() and not info.is_empty():
+		neon_node = make_neon(info, NEON[ni], body_node.material_override if body_node else null)
+		add_child(neon_node)
 	var pw: float = def.get("power", 1.0) * (1.0 + 0.08 * int(up.get("engine", 0)))
 	engine_force = 7600.0 * pw
 	power_speed = 13.0 * (1.0 + 0.05 * int(up.get("turbo", 0)))
@@ -350,7 +378,7 @@ func _physics_process(dt: float) -> void:
 		var n: Vector3 = hit["normal"]
 		var length := maxf((origin - hp).dot(up) - r, 0.0)
 		wd["len"] = length
-		var comp := REST + 0.1 - length
+		var comp := REST + 0.1 + ride_off - length     # (the ride height sets where the springs sit)
 		var comp_v: float = (float(wd["last"]) - length) / dt
 		var fz := maxf(0.0, spring_k * comp + damper_c * comp_v)
 		if length < 0.02:
@@ -376,6 +404,9 @@ func _physics_process(dt: float) -> void:
 			if hit.get("collider") != island.body or absf(hp.y - island.height_at(hp.x, hp.z)) > 0.3:
 				s = 1
 				g = 1.0
+		var offroad := s in OFFROAD
+		if offroad:
+			g *= 1.0 + 0.12 * ride - 0.08 * camber     # lifted bites in the dirt; slammed with camber slips
 		wd["surf"] = s
 		if not wd["front"]:
 			rear_surf = s
@@ -391,7 +422,9 @@ func _physics_process(dt: float) -> void:
 		# (gripping, the rear holds on a little better than the front: it turns in, it doesn't spin)
 		var cap := mu * g * minf(fz, mass * 9.8 * 0.45) * (1.0 if wd["front"] else (rear_grip if drift_mode else maxf(rear_grip, 1.04)))
 		if not drift_mode:
-			cap *= GRIP_MU        # race tyres, as it were: drifting keeps its own feel
+			cap *= GRIP_MU * grip_k        # race tyres, as it were (less with camber): drifting keeps its own feel
+		elif not wd["front"]:
+			cap *= 1.0 - 0.08 * drift_k    # (camber and a low car: the tail lets go more easily)
 		# handbrake: rear wheels lock and let go sideways
 		if not wd["front"] and handbrake > 0.0:
 			cap *= lerpf(1.0, 0.45, handbrake)
@@ -420,6 +453,8 @@ func _physics_process(dt: float) -> void:
 		elif bk > 0.0 and absf(drive) < 1.0:
 			fx -= vz * mass * 0.2
 		fx -= vz * 4.0
+		if offroad:
+			fx -= vz * (8.0 + 30.0 * maxf(-ride, 0.0))   # rough ground drags, a low car more
 		# gripping: traction control keeps the drive wheels just short of spinning up
 		if not wd["front"] and not drift_mode and fx > cap * 0.8:
 			fx = cap * 0.8
@@ -454,7 +489,7 @@ func _physics_process(dt: float) -> void:
 	elif grounded >= 2 and vs > 5.0:
 		# a handbrake flick with some steering swings the tail out
 		if _hb_t > 0.0 and absf(steer_in) > 0.2 and aslip < deg_to_rad(28.0):
-			apply_torque(up * -steer_in * 3600.0 * clampf(_hb_t / 0.45, 0.0, 1.0) * clampf(vs / 12.0, 0.3, 1.0))
+			apply_torque(up * -steer_in * 3600.0 * (1.0 + 0.3 * drift_k) * clampf(_hb_t / 0.45, 0.0, 1.0) * clampf(vs / 12.0, 0.3, 1.0))
 		var holding := (drift > 0.15 or aslip > deg_to_rad(14.0)) and throttle > 0.15 and speed > 3.0
 		# a transition: steer the other way with your foot down and, as the car swings through
 		# straight, the tail lets go again so it carries on into a drift the other way
@@ -473,11 +508,11 @@ func _physics_process(dt: float) -> void:
 			if press < -0.5:
 				target = deg_to_rad(4.0)
 			var err := target - aslip
-			apply_torque(-up * dir * (err * 16000.0 - slip_rate * 5200.0) * assist)
+			apply_torque(-up * dir * (err * 16000.0 - slip_rate * 5200.0) * assist * (1.0 + 0.35 * drift_k))
 		elif aslip > deg_to_rad(8.0) and speed > 3.0 and (throttle < 0.15 or brake > 0.1):
 			# off the gas or on the brakes: the tyres bite again and it straightens up
 			var dir2 := -signf(slip)
-			apply_torque(-up * dir2 * ((deg_to_rad(1.0) - aslip) * 10000.0 - slip_rate * 4200.0) * assist)
+			apply_torque(-up * dir2 * ((deg_to_rad(1.0) - aslip) * 10000.0 - slip_rate * 4200.0) * assist * (1.0 - 0.25 * drift_k))
 		if aslip > deg_to_rad(58.0) and speed > 2.0:
 			apply_torque(-up * signf(slip) * (aslip - deg_to_rad(58.0)) * 30000.0 * assist)
 		# a drift with your foot down doesn't bleed all its speed (but settles at a pace that fits
@@ -535,6 +570,10 @@ func _physics_process(dt: float) -> void:
 		if vh.length() > 0.3:
 			apply_central_force(-vh.normalized() * mass * 9.8 * 0.55 - vh * mass * 0.6)
 		apply_torque(-angular_velocity * 900.0)
+	# ---- nitrous: a hard shove along the nose while it lasts (the drag lets it run a good deal faster)
+	if nitro > 0.0 and grounded >= 2 and speed > -1.0:
+		var nf := Vector3(fwd.x, 0.0, fwd.z).normalized()
+		apply_central_force(nf * engine_force * 0.55 * nitro)
 	# ---- air resistance and a bit of downforce
 	apply_central_force(-v * v.length() * drag)
 	if grounded > 0:
@@ -577,8 +616,48 @@ func _wheel_vis(dt: float) -> void:
 		var b := Basis()
 		if wd["front"]:
 			b = Basis(Vector3.UP, -vis_steer)
-		b = b * Basis(Vector3.RIGHT, -float(wd["spin"]))
+		b = b * camber_basis(bool(wd["left"]), camber) * Basis(Vector3.RIGHT, -float(wd["spin"]))
 		wn.transform = Transform3D(b, home - Vector3(0, drop, 0))
+	if neon_node:
+		var gy := 0.0
+		for wd2 in wheels:
+			gy += float((wd2["home"] as Vector3).y) - clampf(float(wd2["len"]) - REST, -0.2, TRAVEL) - float(wd2["r"])
+		neon_node.position.y = gy / 4.0 + 0.04
+
+## A wheel leaning in at the top by camber (0..1 of CAMBER_MAX).
+static func camber_basis(left: bool, cam: float) -> Basis:
+	return Basis(Vector3(0, 0, 1), deg_to_rad(CAMBER_MAX) * cam * (-1.0 if left else 1.0))
+
+## Underglow for a car: a pool of light on the ground and glowing tubes along the sills.
+static func make_neon(car_info: Dictionary, col: String, mat: Material) -> Node3D:
+	var root := Node3D.new()
+	root.name = "Neon"
+	var w: float = car_info["width"]
+	var l: float = car_info["length"]
+	var pool := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(w * 1.7, l * 1.3)
+	pool.mesh = pm
+	var sm := ShaderMaterial.new()
+	sm.shader = load("res://shaders/neon.gdshader")
+	sm.set_shader_parameter("col", Color(col))
+	pool.material_override = sm
+	pool.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pool.position = Vector3(0, 0.02, (float(car_info["front"]) + float(car_info["back"])) * 0.5)
+	root.add_child(pool)
+	var tubes := MeshInstance3D.new()
+	var mb := MB.new()
+	var zc: float = (float(car_info["front"]) + float(car_info["back"])) * 0.5
+	for sd in [-1.0, 1.0]:
+		mb.box(Vector3(sd * w * 0.4, 0.16, zc), Vector3(0.05, 0.04, l * 0.62), MB.glow(col))
+	mb.box(Vector3(0, 0.16, zc + l * 0.36), Vector3(w * 0.7, 0.04, 0.05), MB.glow(col))
+	tubes.mesh = mb.commit()
+	tubes.material_override = mat
+	tubes.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	tubes.name = "Tubes"
+	root.add_child(tubes)
+	root.set_meta("pool_mat", sm)
+	return root
 
 ## A dent where you hit (global point and the direction into the car), sized by how hard.
 func dent(at: Vector3, into: Vector3, strength: float) -> void:
