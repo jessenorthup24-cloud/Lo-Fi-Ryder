@@ -8,6 +8,7 @@ const MB := preload("res://scripts/core/mesh_builder.gd")
 const P := preload("res://scripts/core/palette.gd")
 const CARS := preload("res://scripts/game/cars.gd")
 const Raceway := preload("res://scripts/game/raceway.gd")
+const Circuits := preload("res://scripts/game/circuits.gd")
 
 const CASTLE := Vector2(-30, -362)
 const SQUARE := Vector2(-110, 30)
@@ -115,6 +116,7 @@ static func plan(I) -> void:
 	I.add_lot(Vector2(246, -246), Vector2(14, 10), I.S_DIRT)              # campsite
 	I.add_lot(STUNT, STUNT_HS, I.S_CONCRETE)                              # the stunt yard
 	Raceway.plan(I)                                                       # the Raceway, on its peninsula
+	Circuits.plan(I)                                                      # three more circuits on headlands
 	for st in STATIONS:
 		if st["lot"]:
 			var sp: Vector2 = st["pad"]
@@ -148,6 +150,19 @@ static func fields(_I) -> Array:
 	]
 
 ## Drift zones, runs, time trials and coins (after the roads exist).
+## The point on a road nearest to p.
+static func _on_road(I, road: String, p: Vector2) -> Vector2:
+	for r in I.roads:
+		if r["name"] == road:
+			var best := p
+			var bd := INF
+			for q: Vector2 in r["pts"]:
+				if q.distance_squared_to(p) < bd:
+					bd = q.distance_squared_to(p)
+					best = q
+			return best
+	return p
+
 static func challenges(I) -> void:
 	I.zones = [
 		{"id": "bowl", "name": "The Drift Bowl", "pos": Vector3(175, 0, 205), "r": 56.0, "time": 60.0, "medals": [6000, 15000, 30000]},
@@ -166,6 +181,19 @@ static func challenges(I) -> void:
 		{"id": "downtown", "name": "Downtown Loop", "laps": 3, "start": Vector2(-200, 60),
 			"corners": [Vector2(-260, 60), Vector2(-80, 60), Vector2(-80, 120), Vector2(-140, 120), Vector2(-140, 180), Vector2(-260, 180)]},
 	]
+	# street races along the winding roads: places to pass through in turn (joined up along the roads)
+	var ring := func(x: float, z: float) -> Vector2: return _on_road(I, "Ring Road", Vector2(x, z))
+	I.races.append({"id": "ringroad", "name": "Ring Road Classic", "laps": 2, "start": ring.call(-60.0, 420.0),
+		"route": [ring.call(-60.0, 420.0), ring.call(250.0, 330.0), ring.call(400.0, 60.0), ring.call(330.0, -260.0), ring.call(60.0, -470.0),
+			ring.call(-250.0, -330.0), ring.call(-340.0, 0.0), ring.call(-300.0, 290.0)],
+		"line_w": 3.6, "room": 4.4})
+	I.races.append({"id": "northloop", "name": "Northern Loop", "laps": 2, "start": Vector2(-170, 61),
+		"route": [Vector2(-170, 61), Vector2(110, 57), Vector2(330, 38), ring.call(400.0, -40.0), ring.call(330.0, -260.0), ring.call(60.0, -470.0),
+			ring.call(-250.0, -330.0), ring.call(-340.0, -60.0)],
+		"line_w": 3.0, "room": 3.6})
+	I.races.append({"id": "beachloop", "name": "Beach Loop", "laps": 3, "start": Vector2(-80, 158),
+		"route": [Vector2(-80, 158), Vector2(-80, 265), ring.call(-200.0, 380.0), ring.call(-320.0, 230.0), Vector2(-230, 61), Vector2(-80, 92)],
+		"line_w": 2.9, "room": 3.4})
 	# time trials and drift runs follow a road through gates
 	I.trials = [
 		_trial(I, "coast", "Coast Run", "Ring Road", Vector2(-316, 196), Vector2(300, 250), 6, "time", [42.0, 50.0, 62.0]),
@@ -174,6 +202,7 @@ static func challenges(I) -> void:
 		_trial(I, "main", "Main Street Sprint", "Main Street", Vector2(-290, 62), Vector2(380, 30), 6, "time", [26.0, 31.0, 38.0]),
 	]
 	Raceway.challenges(I)
+	Circuits.challenges(I)
 	# coins hidden around the island
 	var spots := []
 	var rr := RandomNumberGenerator.new()
@@ -347,6 +376,7 @@ static func _pet(I, animal: String, x: float, z: float) -> void:
 static func populate(I) -> void:
 	var rr := RandomNumberGenerator.new()
 	rr.seed = 1234
+	Circuits.reserve(I)
 	_town(I, rr)
 	_suburbs(I, rr)
 	_castle(I, rr)
@@ -357,6 +387,9 @@ static func populate(I) -> void:
 	_beach(I, rr)
 	_stunt_yard(I, rr)
 	Raceway.populate(I, rr)
+	var rc := RandomNumberGenerator.new()
+	rc.seed = 4242             # (their own seed: the rest of the island comes out as it always has)
+	Circuits.populate(I, rc)
 	_roadside(I, rr)
 	challenges(I)
 

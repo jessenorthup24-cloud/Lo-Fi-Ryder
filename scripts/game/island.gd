@@ -12,6 +12,7 @@ const People := preload("res://scripts/game/people.gd")
 const Districts := preload("res://scripts/game/districts.gd")
 const Railway := preload("res://scripts/game/railway.gd")
 const Raceway := preload("res://scripts/game/raceway.gd")
+const Circuits := preload("res://scripts/game/circuits.gd")
 
 const HALF := 600.0          # the world spans -HALF..HALF on x and z
 const CELL := 2.5
@@ -158,11 +159,14 @@ func inland(x: float, z: float) -> float:
 	var i := int(f)
 	var r := lerpf(coast_r[i], coast_r[(i + 1) % 360], f - i)
 	var main := r - sqrt(x * x + z * z)
-	# the Raceway's peninsula, joined on smoothly
+	# the Raceway's peninsula, joined on smoothly (and the other circuits' headlands)
 	var pen := Raceway.inland(x, z)
 	var k := 40.0
 	var hk := maxf(k - absf(main - pen), 0.0) / k
-	return maxf(main, pen) + hk * hk * k * 0.25
+	var land := maxf(main, pen) + hk * hk * k * 0.25
+	var cir := Circuits.inland(x, z)
+	var hc := maxf(k - absf(land - cir), 0.0) / k
+	return maxf(land, cir) + hc * hc * k * 0.25
 
 ## The raw land height before roads cut in.
 func h0(x: float, z: float) -> float:
@@ -1702,14 +1706,14 @@ func _map_meshes() -> void:
 		var b := poly[tris[t + 1]]
 		var c := poly[tris[t + 2]]
 		mb.tri(Vector3(a.x, -5, a.y), Vector3(c.x, -5, c.y), Vector3(b.x, -5, b.y), Vector3.UP, Vector3.UP, Vector3.UP, land)
-	# (and the Raceway's peninsula)
-	var pen := Raceway.outline()
-	var ptr := Geometry2D.triangulate_polygon(pen)
-	for t in range(0, ptr.size(), 3):
-		var a := pen[ptr[t]]
-		var b := pen[ptr[t + 1]]
-		var c := pen[ptr[t + 2]]
-		mb.tri(Vector3(a.x, -5, a.y), Vector3(c.x, -5, c.y), Vector3(b.x, -5, b.y), Vector3.UP, Vector3.UP, Vector3.UP, land)
+	# (and the Raceway's peninsula, the circuits' headlands)
+	for pen: PackedVector2Array in [Raceway.outline()] + Circuits.outlines():
+		var ptr := Geometry2D.triangulate_polygon(pen)
+		for t in range(0, ptr.size(), 3):
+			var a := pen[ptr[t]]
+			var b := pen[ptr[t + 1]]
+			var c := pen[ptr[t + 2]]
+			mb.tri(Vector3(a.x, -5, a.y), Vector3(c.x, -5, c.y), Vector3(b.x, -5, b.y), Vector3.UP, Vector3.UP, Vector3.UP, land)
 	_map_mesh(mb, "MapLand")
 	# roads, drawn fat so they read on the little map
 	var rb := MB.new()

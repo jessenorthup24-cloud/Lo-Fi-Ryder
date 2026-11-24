@@ -114,6 +114,20 @@ on cars and upgrades. The day runs in real time on the island and the season fol
     to pass on the straights, and tuck back in for the corners, checkpoint arches stand across it, the course is drawn on the
     minimap and the arrow up top points the way with the distance to the next checkpoint. Gold for 1st,
     silver 2nd, bronze 3rd. Lost or upside down: reset puts you back at the last checkpoint.
+  - Eight races in all. Street races: the Downtown Loop (3 laps round the town blocks), Ring Road
+    Classic (2 laps of the whole ring road, about 2.2 km a lap), the Northern Loop (2 laps: Main Street
+    out east, then the ring road round the north) and the Beach Loop (3 laps: down Beach Road, along the
+    south of the ring and back up Main Street). Circuit races, on their own tracks: the Raceway Grand
+    Prix, Cliffside Circuit (on a headland off the west coast), Eastpoint Speedway (off the east coast,
+    with a chicane) and Southshore Circuit (on the south shore, with a hairpin notch); each circuit has
+    kerbs, barrier walls, a start gantry, grandstands, banner towers, a paddock and its own access road.
+  - Difficulty: the race card has Easy, Medium and Hard chips (remembered between races). Easy is the
+    old pace on stock cars. Medium: faster drivers that brake later and corner harder, in the quicker
+    cars with upgrades. Hard: the quickest cars, well upgraded, driven close to the limit, and they
+    don't wait for you. Bests and medals are kept per difficulty, and medals pay more (Medium 1.6×,
+    Hard 2.4×).
+  - CPU drivers ease off over crests (fast enough to keep the wheels on the road), back off and go
+    round a post or wall they've nosed into, and are put back on the line if they're stuck or off.
   - Each has bronze, silver and gold medals that pay out once.
   - Hidden coins are tucked around the island (a few hang in the Stunt Yard's air), and finding all 13
     places counts toward trophies.
@@ -238,9 +252,10 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `scripts/game/railway.gd` | The railway: the line (the ring road pushed out and smoothed), the viaduct, track and pillars, the trains and their sounds |
 | `scripts/game/boats.gd` | Boats and ships going round the island off the shore, their wakes, the buoys |
 | `scripts/game/raceway.gd` | The Raceway peninsula: its land, the circuit and drift course, the dressing, its challenges |
+| `scripts/game/circuits.gd` | The three other circuits (Cliffside, Eastpoint, Southshore): their headlands, tracks, access roads, dressing and races |
 | `scripts/game/heli.gd` | The police helicopter (built in code): flying, banking, its searchlight, what it can see |
 | `scripts/game/police.gd` | The police: patrol cars in the traffic noticing you, wanted stars, the police cars (road-following, ramming, boxing in, getting unstuck, coming in out of sight), busted and escaped, police at street races |
-| `scripts/game/race.gd` | Street races: the racing line (the streets' middle pulled tight within their width, with a speed for every metre), the CPU drivers (follow, pass, recover), checkpoints, laps and places |
+| `scripts/game/race.gd` | Races: the racing line (the streets' middle, or a route along the roads, pulled tight within their width, with a speed for every metre and crests capped), the difficulty levels, the CPU drivers (follow, pass, back off, recover), checkpoints, laps and places |
 | `tools/cars/export_paints.gd` | Bakes each car's other liveries as per-vertex colour rows (`assets/cars/*_paints.res`) |
 
 There are no autoloads and no `class_name`s, so an update pack can replace any script before it loads.
@@ -266,6 +281,8 @@ godot --headless --path . --fixed-fps 120 -- --drive --demo=8 --interp   # the c
 godot --path . -- --drive --traincam=0            # alongside a train (1, 2: the others); --boatcam=3 a boat
 godot --path . -- --drive --lookcam=-60,40,330,-60,0,560   # the camera here, looking there
 godot --path . -- --drive --begin=race:raceway --raceauto --racelog   # the Raceway Grand Prix
+godot --path . -- --drive --race=northloop --diff=2 --raceauto --racelog   # on Hard (0 easy, 1 medium); ringroad, beachloop, cliffside, eastpoint, southshore
+godot --path . -- --drive --race=northloop --racelog --linedump=1640:1740 --quit_after=3   # the line and its speeds, every 4 m
 godot --path . -- --drive --patrolcam             # beside a patrol car in the traffic
 godot --path . -- --drive --wanted=1 --shot_busted=busted.png   # stand still, get busted, screenshot it
 godot --path . -- --auto --wanted=4 --shot_t=14:heli.png        # a screenshot at a game time

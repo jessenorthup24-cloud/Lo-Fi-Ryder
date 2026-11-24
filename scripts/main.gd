@@ -26,6 +26,7 @@ const Boats := preload("res://scripts/game/boats.gd")
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
 
 const MEDAL_PAY := [0, 150, 350, 700]
+const DIFF_PAY := [1.0, 1.6, 2.4]          # a race's medal pay, by difficulty (easy, medium, hard)
 const FUEL_PRICE := 1.0        # coins per percent of a tank
 const REPAIR_PRICE := 2.0      # coins per percent of damage
 const COIN_PICKUP := 25
@@ -376,6 +377,8 @@ func _build_world() -> void:
 	elif args.has("auto") or args.has("drive"):
 		autopilot = args.has("auto")
 		start_drive()
+		if args.has("diff"):
+			save.data["settings"]["race_diff"] = clampi(int(args["diff"]), 0, 2)
 		if args.has("race"):
 			# a test: straight into a street race (--raceauto: and the CPU drives your car too)
 			_start_race(String(args["race"]))
@@ -1591,12 +1594,17 @@ func _start_info(kind: String, id: String) -> Dictionary:
 		"race":
 			for rc in island.races:
 				if rc["id"] == id:
-					var rb := float(save.data["races"].get(id, 0.0))
-					out["kind_label"] = KIND_INFO["race"][0]
+					var dk := race_key(id, race_diff())
+					var rb := float(save.data["races"].get(dk, 0.0))
+					out["kind_label"] = KIND_INFO["race"][0] if not rc.get("track", false) else "CIRCUIT RACE"
 					out["col"] = Color(KIND_INFO["race"][1])
 					out["name"] = rc["name"]
 					out["info"] = "%d laps · 8 cars%s" % [int(rc["laps"]), (" · best %d:%05.2f" % [int(rb) / 60, fmod(rb, 60.0)]) if rb > 0.0 else ""]
-					out["medal"] = int(save.data["medals"].get("race_" + id, 0))
+					out["medal"] = int(save.data["medals"].get("race_" + dk, 0))
+					out["diff"] = race_diff()
+					out["set_diff"] = func(k: int):
+						save.data["settings"]["race_diff"] = k
+						ui.start_card_show(_start_info(kind, id), false)
 	return out
 
 ## xf moved down to just above the ground under it (so a car put there settles, rather than drops).
@@ -1637,7 +1645,7 @@ func start_challenge_now(kind: String, id: String) -> void:
 		"race":
 			_start_race(id)
 			race.count = 3.0 + INTRO_T + 0.05      # (its own 3-2-1 waits for the title)
-			sub = "Follow the line. Beat seven drivers to the flag"
+			sub = "%s · Follow the line. Beat seven drivers to the flag" % String(Race.DIFF[race_diff()]["name"])
 	if kind != "race":
 		car.place(on_ground(car.global_transform))     # (just above the road: it settles onto its wheels)
 	car.hold = true
@@ -2237,7 +2245,7 @@ func _start_race(id: String) -> void:
 	_break_drift(false)
 	race = Race.new()
 	add_child(race)
-	race.setup(self, island, d)
+	race.setup(self, island, d, race_diff())
 	race.grid(car)
 	car.collision_mask = car.collision_mask | Race.AI_LAYER     # bump into the other racers
 	_snap_cam()
@@ -2257,10 +2265,19 @@ func _race_tick(dt: float) -> void:
 		if race_end_t <= 0.0:
 			_end_challenges()
 
+## The difficulty races are run at (what you last picked on a race's start card).
+func race_diff() -> int:
+	return clampi(int(save.data["settings"].get("race_diff", 0)), 0, 2)
+
+## Where a race's best time and medal are kept: by its id on easy (as ever), with the difficulty after it
+## on medium and hard (each has its own).
+static func race_key(id: String, diff: int) -> String:
+	return id if diff <= 0 else "%s@%s" % [id, ["", "medium", "hard"][clampi(diff, 0, 2)]]
+
 ## You crossed the line: where you came, and your time.
 func race_done(place: int, t: float) -> void:
 	var d: Dictionary = race.def
-	var id := String(d["id"])
+	var id := race_key(String(d["id"]), race.diff)
 	var mkey := "race_" + id
 	var medal := 3 if place == 1 else (2 if place == 2 else (1 if place == 3 else 0))
 	var best := float(save.data["races"].get(id, 0.0))
@@ -2270,7 +2287,7 @@ func race_done(place: int, t: float) -> void:
 	var old_medal := int(save.data["medals"].get(mkey, 0))
 	var pay := 0
 	if medal > old_medal:
-		pay = MEDAL_PAY[medal] - MEDAL_PAY[old_medal]
+		pay = int(round((MEDAL_PAY[medal] - MEDAL_PAY[old_medal]) * DIFF_PAY[race.diff]))
 		save.data["medals"][mkey] = medal
 		save.data["coins"] = int(save.data["coins"]) + pay
 	if place == 1:
@@ -2278,7 +2295,7 @@ func race_done(place: int, t: float) -> void:
 	save.add_stat("races", 1)
 	var nth: String = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"][clampi(place - 1, 0, 7)]
 	var mins := int(t) / 60
-	ui.challenge_result(String(d["name"]), "%s · %d:%05.2f" % [nth, mins, t - mins * 60.0], medal, pay, better and best > 0.0)
+	ui.challenge_result(String(d["name"]), "%s · %s · %d:%05.2f" % [String(Race.DIFF[race.diff]["name"]), nth, mins, t - mins * 60.0], medal, pay, better and best > 0.0)
 	sfx("finish", -2.0)
 	race_end_t = 4.0
 	_save_now()

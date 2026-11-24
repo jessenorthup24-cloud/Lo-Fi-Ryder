@@ -12,10 +12,23 @@ const CARS := preload("res://scripts/game/cars.gd")
 const M := preload("res://scripts/core/models.gd")
 const MB := preload("res://scripts/core/mesh_builder.gd")
 
-const A_LAT := 8.0          # m/s² round a corner (what these cars hold, gripping)
-const A_BRAKE := 7.0
-const A_ACC := 4.5
-const V_MAX := 40.0
+# How hard the CPU drivers go, by difficulty (easy, medium, hard): the grip they use round a corner, how
+# late and hard they brake, how they pull out of one, their top speed on the line; the spread of pace
+# across the field (each driver's share of the line's speed), how much they hold back when they're ahead
+# of you (and push when behind); the cars they get and how upgraded they are.
+const DIFF := [
+	{"name": "Easy", "a_lat": 8.0, "a_brake": 7.0, "a_acc": 4.5, "v_max": 40.0,
+		"skill": [1.04, 1.0, 0.97, 0.95, 0.99, 0.93, 1.02, 0.96], "band": [0.94, 1.05], "cars": 0.0, "up": -1},
+	{"name": "Medium", "a_lat": 8.9, "a_brake": 7.9, "a_acc": 5.3, "v_max": 46.0,
+		"skill": [1.05, 1.03, 1.0, 0.99, 1.02, 0.98, 1.04, 1.0], "band": [0.97, 1.05], "cars": 0.4, "up": 2},
+	{"name": "Hard", "a_lat": 9.4, "a_brake": 8.6, "a_acc": 6.2, "v_max": 52.0,
+		"skill": [1.07, 1.05, 1.04, 1.03, 1.06, 1.02, 1.07, 1.04], "band": [0.995, 1.07], "cars": 0.7, "up": 5},
+]
+var diff := 0
+var A_LAT := 8.0            # m/s² round a corner (what these cars hold, gripping)
+var A_BRAKE := 7.0
+var A_ACC := 4.5
+var V_MAX := 40.0
 const CORNER_R := 8.0       # the street centre's corners are rounded this much (the racing line then uses the width)
 const LINE_W := 3.0         # how far either side of the street's centre the racing line goes
 const ROOM := 3.5           # and the furthest a car's middle goes from the centre (passing, the grid)
@@ -52,17 +65,28 @@ var laps := 3
 
 # ---------------------------------------------------------------- the course
 
-func setup(g, isl, d: Dictionary) -> void:
+func setup(g, isl, d: Dictionary, difficulty := 0) -> void:
 	game = g
 	island = isl
 	def = d
+	diff = clampi(difficulty, 0, DIFF.size() - 1)
+	var dd: Dictionary = DIFF[diff]
+	A_LAT = dd["a_lat"]
+	A_BRAKE = dd["a_brake"]
+	A_ACC = dd["a_acc"]
+	V_MAX = dd["v_max"]
 	laps = int(d.get("laps", 3))
 	line_w = float(d.get("line_w", LINE_W))
 	room_w = float(d.get("room", ROOM))
 	# the corners are junctions: use their exact centres, so the line runs down the middle of each street
-	# (on a race track they're just where the designer put them)
+	# (on a race track they're just where the designer put them). A race along winding roads gives a
+	# route instead: places to pass through in turn, joined up along the roads, its bends the corners.
 	var corners: Array = []
-	for q0 in d["corners"]:
+	if d.has("route"):
+		var rc := route_corners(game.router, d["route"])
+		corners = rc[0]
+		radii = rc[1]
+	for q0 in ([] if d.has("route") else d["corners"]):
 		var q := Vector2(q0.x, q0.y) if q0 is Vector3 else Vector2(q0)
 		radii.append(float(q0.z) if q0 is Vector3 else CORNER_R)
 		if d.get("track", false):
@@ -77,6 +101,11 @@ func setup(g, isl, d: Dictionary) -> void:
 				best = nc
 		corners.append(best)
 	_build_line(corners)
+	if game.args.has("racelog"):
+		var bb := Rect2(pts[0], Vector2.ZERO)
+		for q in pts:
+			bb = bb.expand(q)
+		print("RACE LINE %s: %d corners, %.0f m a lap, x %.0f..%.0f z %.0f..%.0f" % [d["id"], corners.size(), float(pts.size()), bb.position.x, bb.end.x, bb.position.y, bb.end.y])
 	# the start line: where the course passes start_x on its first straight
 	var sx: Vector2 = d["start"]
 	start_s = _nearest_s(sx, 0.0, length)
@@ -86,6 +115,99 @@ func setup(g, isl, d: Dictionary) -> void:
 	cps.append(length)          # the line itself, every lap
 	_paint_line()
 	_build_gates()
+	if game.args.has("linedump"):
+		var a0 := float(str(game.args["linedump"]).split(":")[0])
+		var a1 := float(str(game.args["linedump"]).split(":")[1])
+		var sx2 := a0
+		while sx2 <= a1:
+			var ss := fposmod(sx2 + start_s, length)
+			var lp := at(ss)
+			print("LD s=%.0f p=(%.1f, %.1f) off=%.2f v=%.0f" % [sx2, lp.x, lp.y, off_at(ss), speed_at(ss) * 3.6])
+			sx2 += 4.0
+
+## A route's corners: the roads between each place and the next (as the GPS would go), joined into a loop,
+## then thinned to the bends that matter (a point where the road strays more than a couple of metres from
+## a straight line). Junction turns get a street corner's radius; sweeping bends the most room there is.
+## Returns [corners, radii].
+static func route_corners(router, places: Array) -> Array:
+	# (each place onto the middle of its road first: a place a metre or two off it would have the route
+	# nip out to it and back, a hairpin that isn't there)
+	var on: Array = []
+	for q0 in places:
+		var nr: Array = router._nearest(q0)
+		on.append(router.road_at(int(nr[0]), float(nr[1])) if not nr.is_empty() else q0)
+	var path := PackedVector2Array()
+	for i in on.size():
+		var a: Vector2 = on[i]
+		var b: Vector2 = on[(i + 1) % on.size()]
+		var seg: PackedVector3Array = router.find(Vector3(a.x, 0, a.y), Vector3(b.x, 0, b.y))
+		for q in seg:
+			var p := Vector2(q.x, q.z)
+			if path.is_empty() or path[path.size() - 1].distance_to(p) > 1.0:
+				path.append(p)
+	if path.size() > 2 and path[0].distance_to(path[path.size() - 1]) < 1.0:
+		path.remove_at(path.size() - 1)
+	# and any out-and-back left (the path doubling back on itself) taken out
+	for _pass in 3:
+		var n0 := path.size()
+		var clean := PackedVector2Array()
+		for i in n0:
+			var pv := path[(i - 1 + n0) % n0]
+			var nx := path[(i + 1) % n0]
+			if (path[i] - pv).normalized().dot((nx - path[i]).normalized()) < -0.3:
+				continue
+			clean.append(path[i])
+		path = clean
+	var keep := _thin(path, 2.2)
+	var corners: Array = []
+	var radii2: Array = []
+	var n := keep.size()
+	for i in n:
+		var c := keep[i]
+		var turn := absf((c - keep[(i - 1 + n) % n]).normalized().angle_to((keep[(i + 1) % n] - c).normalized()))
+		corners.append(c)
+		radii2.append(CORNER_R + 1.0 if turn > deg_to_rad(55.0) else 60.0)
+	return [corners, radii2]
+
+## A closed polyline cut down to the points it needs to stay within tol of itself (Douglas-Peucker, done
+## round the loop from its two furthest-apart points).
+static func _thin(p: PackedVector2Array, tol: float) -> PackedVector2Array:
+	var n := p.size()
+	if n < 4:
+		return p
+	var far := 0
+	for i in n:
+		if p[i].distance_to(p[0]) > p[far].distance_to(p[0]):
+			far = i
+	var keep := PackedByteArray()
+	keep.resize(n)
+	keep[0] = 1
+	keep[far] = 1
+	var stack: Array = [[0, far], [far, n]]
+	while not stack.is_empty():
+		var se: Array = stack.pop_back()
+		var a: int = se[0]
+		var b: int = se[1]
+		var pa := p[a]
+		var pb := p[b % n]
+		var best := -1
+		var bd := tol
+		for i in range(a + 1, b):
+			var ab := pb - pa
+			var t := clampf((p[i] - pa).dot(ab) / maxf(ab.length_squared(), 0.0001), 0.0, 1.0)
+			var d := p[i].distance_to(pa + ab * t)
+			if d > bd:
+				bd = d
+				best = i
+		if best >= 0:
+			keep[best] = 1
+			stack.append([a, best])
+			stack.append([best, b])
+	var out := PackedVector2Array()
+	for i in n:
+		if keep[i] == 1:
+			out.append(p[i])
+	return out
 
 ## A loop of corners with each corner rounded off into an arc (radius each, or `r` for all): the middle of
 ## the course. (Race tracks are built from this too, so the road and the race agree exactly.)
@@ -99,6 +221,8 @@ static func rounded(corners: Array, rads: Array, r_all := CORNER_R) -> PackedVec
 		var d_in := (c - a).normalized()
 		var d_out := (b - c).normalized()
 		var turn := d_in.angle_to(d_out)
+		# (never a full about-turn: rounding one divides by nearly nothing)
+		turn = clampf(turn, -(PI - 0.2), PI - 0.2)
 		var cr: float = rads[i] if i < rads.size() else r_all
 		var tl := minf(cr * tan(absf(turn) * 0.5), minf(c.distance_to(a), c.distance_to(b)) * 0.45)
 		var r := tl / maxf(tan(absf(turn) * 0.5), 0.001)
@@ -157,7 +281,8 @@ func _build_line(corners: Array) -> void:
 				bd = dd
 				best = j
 		var room := minf(c.distance_to(a), c.distance_to(b))
-		cinfo.append([best, signf(turn), clampf(room * 0.42, 12.0, maxf(26.0, float(radii[i]) * 1.4))])
+		# (a gentle bend pulls the line over less than a real corner)
+		cinfo.append([best, signf(turn) * clampf(absf(turn) / 0.6, 0.15, 1.0), clampf(room * 0.42, 12.0, maxf(26.0, float(radii[i]) * 1.4))])
 	offs.resize(cnt0)
 	for i in cnt0:
 		var num := 0.0
@@ -219,6 +344,17 @@ func _build_line(corners: Array) -> void:
 		var p2 := pts[(i + 3) % cnt]
 		var k := _curv(p0, p1, p2)
 		speed[i] = minf(V_MAX, sqrt(A_LAT / maxf(k, 0.0001)))
+	# and over a crest no faster than keeps the wheels on the road (v² / R = g over the top: past that a car
+	# takes off, and on a hill road at 150 km/h that lands it in the trees). Heights from the ground under
+	# the line (the road's own, where it runs), the bend over 12 m.
+	var hy := PackedFloat32Array()
+	hy.resize(cnt)
+	for i in cnt:
+		hy[i] = island.height_at(pts[i].x, pts[i].y)
+	for i in cnt:
+		var bend := (hy[(i + 6) % cnt] - 2.0 * hy[i] + hy[(i - 6 + cnt) % cnt]) / 36.0
+		if bend < -0.0015:
+			speed[i] = minf(speed[i], sqrt(9.8 * 0.85 / -bend))
 	for _pass in 2:
 		for j in range(cnt * 2, 0, -1):
 			var i := j % cnt
@@ -349,15 +485,23 @@ func _build_gates() -> void:
 # ---------------------------------------------------------------- the field
 
 func grid(player_car) -> void:
+	# the field: harder races draw from the quicker cars, with more upgrades
+	var dd: Dictionary = DIFF[diff]
+	var ranked := CARS.LIST.duplicate()
+	ranked.sort_custom(func(a, b): return float(a["power"]) * float(a["speed"]) > float(b["power"]) * float(b["speed"]))
 	var pool := []
-	for d in CARS.LIST:
+	var top := maxi(8, int(round(ranked.size() * (1.0 - float(dd["cars"])))))
+	for d in ranked.slice(0, top):
 		if d["id"] != String(game.save.data["car"]):
 			pool.append(d)
 	pool.shuffle()
 	var names := NAMES.duplicate()
 	names.shuffle()
 	var your_slot := 5
-	var up: Dictionary = game.save.data["up"]
+	var up: Dictionary = (game.save.data["up"] as Dictionary).duplicate()
+	if int(dd["up"]) >= 0:
+		for k in ["engine", "turbo", "tyres", "steering"]:
+			up[k] = maxi(int(up.get(k, 0)), int(dd["up"]))
 	for slot in 8:
 		var row := slot / 2
 		var col := -2.6 if slot % 2 == 0 else 2.6
@@ -389,7 +533,7 @@ func grid(player_car) -> void:
 			r["ai"] = true
 			r["name"] = names[slot % names.size()]
 			# a spread of pace: the quickest a touch above the line's speeds, the slowest a little under
-			r["skill"] = [1.04, 1.0, 0.97, 0.95, 0.99, 0.93, 1.02, 0.96][slot]
+			r["skill"] = float(dd["skill"][slot])
 			r["lane"] = 0.0          # (everyone drives the racing line: off it only to get past someone)
 		racers.append(r)
 	for r in racers:
@@ -497,7 +641,8 @@ func _drive(r: Dictionary, dt: float) -> void:
 	var vt := speed_at(s + v * 0.35 + 3.0) * float(r["skill"])
 	# a little help for whoever's behind you, a little restraint for whoever's well ahead
 	var gap := float(r["s"]) - float(you["s"])
-	vt *= clampf(1.0 - gap * 0.0006, 0.94, 1.05)
+	var band: Array = DIFF[diff]["band"]
+	vt *= clampf(1.0 - gap * 0.0006, float(band[0]), float(band[1]))
 	vt = minf(vt, follow_v)
 	if absf(ang) > 0.45 and v > 6.0:
 		vt = minf(vt, v - 2.0)       # pointing well off the line: ease off and get it back
@@ -513,13 +658,44 @@ func _drive(r: Dictionary, dt: float) -> void:
 	else:
 		c.throttle = 0.4
 		c.brake = 0.0
+	# nosed into something (a lamp post, a wall): back off it and go round, as anyone would. Twice in the
+	# same spot and it's put back on the line instead.
+	if float(r.get("backing", 0.0)) > 0.0:
+		r["backing"] = float(r["backing"]) - dt
+		c.throttle = 0.0
+		c.brake = 1.0                # (held at a standstill: reverse)
+		c.steer_in = -c.steer_in     # (and backing up, the wheel the other way swings the nose to the line)
+	elif float(r["stuck"]) > 0.9 and t > 3.0 and (blocker.is_empty() or block_ds > 6.0):
+		if float(r["s"]) - float(r.get("back_s", -1000.0)) > 15.0:
+			r["back_n"] = 0
+		if int(r.get("back_n", 0)) < 2:
+			r["back_n"] = int(r.get("back_n", 0)) + 1
+			r["back_s"] = float(r["s"])
+			r["backing"] = 1.3
 	# stuck, off the course or on its roof: back on the line
 	r["stuck"] = float(r["stuck"]) + dt if v < 1.2 else 0.0
 	r["off"] = float(r["off"]) + dt if float(r["off_by"]) > 11.0 else 0.0
 	r["flip"] = float(r["flip"]) + dt if c.global_transform.basis.y.y < 0.3 else 0.0
 	if float(r["stuck"]) > 3.0 or float(r["off"]) > 2.5 or float(r["flip"]) > 1.2:
 		if game.args.has("racelog"):
-			print("RESPAWN %s stuck=%.1f off=%.1f flip=%.1f at s=%.0f" % [r["name"], float(r["stuck"]), float(r["off"]), float(r["flip"]), float(r["s"])])
+			var rp: Vector3 = (r["car"] as Node3D).global_position
+			print("RESPAWN %s stuck=%.1f off=%.1f flip=%.1f at s=%.0f pos=(%.0f, %.0f) line v=%.0f" % [r["name"], float(r["stuck"]), float(r["off"]), float(r["flip"]),
+				float(r["s"]), rp.x, rp.z, speed_at(fposmod(float(r["s"]) + start_s, length)) * 3.6])
+			var q := PhysicsShapeQueryParameters3D.new()
+			var sph := SphereShape3D.new(); sph.radius = 3.5
+			q.shape = sph
+			q.transform = Transform3D(Basis(), rp)
+			q.exclude = [(r["car"] as CollisionObject3D).get_rid()]
+			for hit in c.get_world_3d().direct_space_state.intersect_shape(q, 8):
+				var o: Object = hit["collider"]
+				if o != null:
+					print("   touching %s %s" % [o.get_class(), (o as Node).name if o is Node else ""])
+				else:
+					var rid: RID = hit["rid"]
+					var si: int = int(hit["shape"])
+					var sh := PhysicsServer3D.body_get_shape(rid, si)
+					var xf: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM) * PhysicsServer3D.body_get_shape_transform(rid, si)
+					print("   touching server body type=%d at %s data=%s" % [PhysicsServer3D.shape_get_type(sh), xf.origin, PhysicsServer3D.shape_get_data(sh)])
 		_respawn(r)
 
 func _respawn(r: Dictionary, back := 6.0) -> void:
@@ -539,6 +715,7 @@ func _respawn(r: Dictionary, back := 6.0) -> void:
 	c.linear_velocity = Vector3(tg.x, 0, tg.y) * 6.0
 	r["s"] = float(r["s"]) - back
 	r["stuck"] = 0.0
+	r["backing"] = 0.0
 	r["off"] = 0.0
 	r["flip"] = 0.0
 

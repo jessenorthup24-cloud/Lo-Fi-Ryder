@@ -29,7 +29,7 @@ static func defaults() -> Dictionary:
 		"up": {"engine": 0, "turbo": 0, "tyres": 0, "steering": 0, "nitrous": 0},
 		"tune": {},           # car id -> {"camber": 0..5, "height": -2..2, "neon": 0 (off) or a colour}
 		"neon_kit": false,    # bought the underglow (all cars)
-		"settings": {"music": 0.75, "sfx": 0.9, "haptics": true, "shadows": true, "assist": true, "cam": 0, "clock": true, "speedfx": true, "fps": false, "fps60": false, "bloom": true, "motes": true, "wheel": true},
+		"settings": {"music": 0.75, "sfx": 0.9, "haptics": true, "shadows": true, "assist": true, "cam": 0, "clock": true, "speedfx": true, "fps": false, "fps60": false, "bloom": true, "motes": true, "wheel": true, "race_diff": 0},
 		"stats": {},
 		"zones": {},          # zone id -> best score
 		"trials": {},         # trial id -> best (time or points)

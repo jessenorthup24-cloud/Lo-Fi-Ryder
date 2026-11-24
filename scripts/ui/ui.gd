@@ -1193,8 +1193,12 @@ func big_count(text: String) -> void:
 		count_ring.queue_redraw(), 0.0, 1.0, 0.7).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
 	game.buzz(40 if text != "GO!" else 90, 0.5)
 
-## The start card: what the challenge is, your best, and START.
-func start_card_show(info: Dictionary) -> void:
+## The start card: what the challenge is, your best, and START. A race's card also has the difficulty to
+## pick (Easy, Medium, Hard): picking one redraws the card where it is, with that difficulty's best and medal.
+func start_card_show(info: Dictionary, animate := true) -> void:
+	if not animate and start_card != null:
+		start_card.queue_free()
+		start_card = null
 	start_card_hide()
 	_start_cb = info["start"]
 	var col: Color = info["col"]
@@ -1235,6 +1239,26 @@ func start_card_show(info: Dictionary) -> void:
 		nr.add_child(Icon.new("trophy", [K.LINE, Color("b98b62"), Color("b3b8bd"), Color("d4b25c")][int(info["medal"])], 28))
 	vb.add_child(nr)
 	vb.add_child(K.label(info["info"], 17, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
+	if info.has("diff"):
+		var dr := HBoxContainer.new()
+		dr.add_theme_constant_override("separation", 8)
+		var dsp := Control.new()
+		dsp.custom_minimum_size = Vector2(0, 8)
+		vb.add_child(dsp)
+		vb.add_child(dr)
+		for k in 3:
+			var on: bool = int(info["diff"]) == k
+			var dcol: Color = [Color("6cc28a"), Color("f2b84b"), Color("ef6a55")][k]
+			var chip := K.button(["Easy", "Medium", "Hard"][k], dcol if on else K.CREAM, dcol.darkened(0.3) if on else K.LINE_DK, 19, 104, 46)
+			if not on:
+				chip.add_theme_color_override("font_color", K.INK_SOFT)
+			var kk := k
+			var setter: Callable = info["set_diff"]
+			_tap(chip, func():
+				if kk != int(info["diff"]):
+					game.sfx("select", -8.0, 1.1 + kk * 0.1)
+					setter.call(kk))
+			dr.add_child(chip)
 	var go := K.button("START", col.darkened(0.08), col.darkened(0.35), 30, 150, 70)
 	go.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_tap(go, func():
@@ -1242,6 +1266,11 @@ func start_card_show(info: Dictionary) -> void:
 		start_card_hide()
 		cb.call())
 	row.add_child(go)
+	if not animate:
+		await get_tree().process_frame
+		if start_card != null:
+			start_card.position = Vector2((_vs().x - start_card.size.x) * 0.5, 14.0)
+		return
 	start_card.modulate.a = 0.0
 	await get_tree().process_frame
 	if start_card == null:
@@ -1770,12 +1799,14 @@ func open_map() -> void:
 		list.add_child(_chal_row(t["name"], info, int(game.save.data["medals"].get(t["id"], 0)), Color("5cc8ff") if t["kind"] == "time" else Color("c38bff"),
 			Transform3D(g0.basis, g0.origin + Vector3(0, 1.0, 0)).translated_local(Vector3(0, 0, 16)), g0.origin))
 	for rc in island.races:
-		var rbest: float = float(game.save.data["races"].get(rc["id"], 0.0))
-		var rinfo := "Street race · %d laps · 8 cars" % int(rc["laps"])
+		var dk: String = game.race_key(String(rc["id"]), game.race_diff())
+		var rbest: float = float(game.save.data["races"].get(dk, 0.0))
+		var rinfo := "%s · %d laps · %s" % ["Circuit race" if rc.get("track", false) else "Street race", int(rc["laps"]),
+			String(game.Race.DIFF[game.race_diff()]["name"])]
 		if rbest > 0.0:
 			rinfo += " · best %d:%05.2f" % [int(rbest) / 60, fmod(rbest, 60.0)]
 		var rid: String = rc["id"]
-		list.add_child(_chal_row(rc["name"], rinfo, int(game.save.data["medals"].get("race_" + rid, 0)), Color("ff5c7a"),
+		list.add_child(_chal_row(rc["name"], rinfo, int(game.save.data["medals"].get("race_" + dk, 0)), Color("ff5c7a"),
 			Transform3D(Basis(), (rc["pos"] as Vector3) + Vector3(0, 1.0, 0)), rc["pos"], func(): game.start_challenge_now("race", rid)))
 	for st in island.stations:
 		var sp: Vector3 = st["pos"]
