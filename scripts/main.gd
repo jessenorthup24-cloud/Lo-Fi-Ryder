@@ -73,6 +73,7 @@ var fov_kick := 0.0
 var fov_base := 62.0
 var fire_t := 0.0
 var _slow_until := 0
+var _slow_scale := 1.0
 var title_t := 0.0
 # drifting
 var drift_on := false
@@ -635,6 +636,7 @@ func ach_check() -> void:
 
 func _process(dt: float) -> void:
 	frames += 1
+	_slow_tick()
 	if args.has("interp") and state == DRIVE and time > 4.0 and time < 4.2:
 		# testing: is the car drawn smoothly between physics steps? (run with --fixed-fps 120)
 		var xi := car.get_global_transform_interpolated().origin
@@ -735,6 +737,8 @@ func _process(dt: float) -> void:
 		# a test: a screenshot at a game time (shot_t=seconds:file)
 		set_meta("shot_done", true)
 		get_viewport().get_texture().get_image().save_png(String(args["shot_t"]).split(":")[1])
+	if args.has("census") and frames == int(args.get("shot_at", "200")):
+		_census()
 	if args.has("quit_after") and (time > float(args["quit_after"]) or (args.has("shot") and frames > int(args.get("shot_at", "200")) + 2)):
 		print("RESULT t=%.1f dist=%.0f drift=%.0f coins=%d max_kmh=%.0f knocks=%.0f state=%d tris=%d draws=%d" % [time, save.stat("distance"),
 			save.stat("drift_points"), int(save.data["coins"]), save.stat("max_kmh"), save.stat("knocks"), state,
@@ -784,6 +788,77 @@ func _controls(dt: float) -> void:
 	car.brake = 1.0 if held.get("brake", false) else 0.0
 	car.handbrake = 1.0 if held.get("hand", false) else 0.0
 	ui.pressed_controls(held)
+
+## A test (--census): what the camera draws this frame, grouped by name: geometry in view and in range
+## (each surface a draw), and how many triangles; plus what casts shadows within the sun's reach.
+func _census() -> void:
+	var fr := cam.get_frustum()
+	var cp := cam.global_position
+	var groups := {}
+	var stack: Array = [get_tree().root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		for ch in n.get_children():
+			stack.append(ch)
+		if not n is GeometryInstance3D or not (n as Node3D).is_visible_in_tree():
+			continue
+		var gi := n as GeometryInstance3D
+		if gi.layers & cam.cull_mask == 0:
+			continue
+		var ab: AABB = gi.global_transform * gi.get_aabb()
+		var inside := true
+		for pl: Plane in fr:
+			# (the AABB corner furthest along the plane's normal)
+			var far := Vector3(ab.end.x if pl.normal.x > 0 else ab.position.x, ab.end.y if pl.normal.y > 0 else ab.position.y,
+				ab.end.z if pl.normal.z > 0 else ab.position.z)
+			if pl.distance_to(far) > 0.0 and pl.distance_to(Vector3(ab.position.x if pl.normal.x > 0 else ab.end.x,
+					ab.position.y if pl.normal.y > 0 else ab.end.y, ab.position.z if pl.normal.z > 0 else ab.end.z)) > 0.0:
+				inside = false
+				break
+		var d := ab.get_center().distance_to(cp) - ab.size.length() * 0.5
+		if gi.visibility_range_end > 0.0 and d > gi.visibility_range_end:
+			inside = false
+		if not inside:
+			continue
+		var key := String(n.name).rstrip("0123456789_-").split("_")[0]
+		if key.begins_with("@") or key.length() <= 1:
+			key = "%s<%s>/%s" % [key.substr(0, 6), String(n.get_parent().name).left(14), (n.get_script().resource_path.get_file() if n.get_script() else "")]
+			if args.has("census_where") and randf() < 0.08:
+				print("  where %s at %s" % [key, str(ab.get_center().round())])
+		if n.get_parent() and String(n.get_parent().name) in ["Traffic", "Police"]:
+			key = String(n.get_parent().name) + ":" + key
+		var surfs := 1
+		var tris := 0
+		var mesh: Mesh = null
+		if gi is MeshInstance3D:
+			mesh = (gi as MeshInstance3D).mesh
+		elif gi is MultiMeshInstance3D and (gi as MultiMeshInstance3D).multimesh:
+			mesh = (gi as MultiMeshInstance3D).multimesh.mesh
+		if mesh:
+			surfs = mesh.get_surface_count()
+			for si in surfs:
+				var arr := mesh.surface_get_arrays(si) if mesh is ArrayMesh else []
+				if arr.size() > 0:
+					var idx = arr[Mesh.ARRAY_INDEX]
+					tris += (idx as PackedInt32Array).size() / 3 if idx is PackedInt32Array and (idx as PackedInt32Array).size() > 0 else (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() / 3
+			if gi is MultiMeshInstance3D:
+				var mm := (gi as MultiMeshInstance3D).multimesh
+				tris *= mm.visible_instance_count if mm.visible_instance_count >= 0 else mm.instance_count
+		var shad := gi.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF and d < 90.0
+		var g: Array = groups.get(key, [0, 0, 0])
+		g[0] += surfs
+		g[1] += tris
+		g[2] += surfs if shad else 0
+		groups[key] = g
+	var keys := groups.keys()
+	keys.sort_custom(func(a, b): return groups[a][0] > groups[b][0])
+	var tot := [0, 0, 0]
+	for k in keys:
+		for i in 3:
+			tot[i] += groups[k][i]
+	print("CENSUS draws %d tris %d shadow-draws %d" % tot)
+	for k in keys.slice(0, 22):
+		print("CENSUS %-22s draws %4d  tris %8d  shadow %3d" % [k, groups[k][0], groups[k][1], groups[k][2]])
 
 ## Tests: crashes on the Raceway's main straight (flat and open, a wall along its north side), logged:
 ##   --crashtest=tbone   a car driven into your side at --crashv m/s (you sit still)
@@ -847,7 +922,7 @@ func _crash_controls() -> void:
 		b.steer_in = 0.0
 	if frames % 6 == 0:
 		var hv := Vector3(car.linear_velocity.x, 0, car.linear_velocity.z).length()
-		print("CRASH %s t=%.2f v=%.1f up=%.2f dmg=%.0f eng=%.0f bent=%.2f roll=%.1f righting=%s misfire=%s pos=(%.1f,%.1f,%.1f)" % [kind, t, hv * 3.6,
+		print("CRASH ts=%.2f %s t=%.2f v=%.1f up=%.2f dmg=%.0f eng=%.0f bent=%.2f roll=%.1f righting=%s misfire=%s pos=(%.1f,%.1f,%.1f)" % [Engine.time_scale, kind, t, hv * 3.6,
 			car.global_transform.basis.y.y, car.damage, car.engine_dmg, car.bent, car.roll_t, car.righting(), car.misfiring(),
 			car.global_position.x, car.global_position.y, car.global_position.z]
 			+ (" | other (%.1f,%.1f,%.1f) v=%.1f up=%.2f" % [(auto["bullet"] as Node3D).global_position.x, (auto["bullet"] as Node3D).global_position.y,
@@ -1151,15 +1226,23 @@ func _on_misfire() -> void:
 	fx.flame(tail, 0.4, back * 3.0 + car.linear_velocity, 0.1)
 	shake = maxf(shake, 0.06)
 
-## A moment of slow motion (real time); overlapping ones run to the end of the longest.
+## A moment of slow motion (real time); overlapping ones run to the end of the longest, at the slowest.
+## Ended by _slow_tick every frame against the clock (not a timer, which can fire a hair early, miss the
+## end and leave the game stuck slow).
 func slowmo(scale: float, dur: float) -> void:
 	if autopilot:
 		return
-	Engine.time_scale = minf(Engine.time_scale, scale)
+	_slow_scale = minf(_slow_scale if _slow_until > Time.get_ticks_msec() else 1.0, scale)
 	_slow_until = maxi(_slow_until, Time.get_ticks_msec() + int(dur * 1000.0))
-	get_tree().create_timer(dur, true, false, true).timeout.connect(func():
-		if Time.get_ticks_msec() >= _slow_until - 5:
-			Engine.time_scale = 1.0)
+	Engine.time_scale = _slow_scale
+
+func _slow_tick() -> void:
+	if _slow_until > 0 and Time.get_ticks_msec() >= _slow_until:
+		_slow_until = 0
+		_slow_scale = 1.0
+		Engine.time_scale = 1.0
+	elif _slow_until == 0 and Engine.time_scale != 1.0:
+		Engine.time_scale = 1.0          # (nothing asked for slow motion: never left slow)
 
 # ------------------------------------------------------------------ landings, damage smoke, repairs
 
@@ -1856,8 +1939,7 @@ func police_busted(fine: int) -> void:
 	if args.has("shot_busted"):
 		get_tree().create_timer(1.9, true, false, true).timeout.connect(func():
 			get_viewport().get_texture().get_image().save_png(String(args["shot_busted"])))
-	Engine.time_scale = 0.35
-	get_tree().create_timer(1.3, true, false, true).timeout.connect(func(): Engine.time_scale = 1.0)
+	slowmo(0.35, 1.3)
 	if race != null and race.state == 1:
 		# busted in a race: you're out of it
 		race.state = 2

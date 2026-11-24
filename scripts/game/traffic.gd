@@ -5,6 +5,7 @@ extends Node3D
 ## on traffic lights. They keep their distance, don't pull into a junction they can't get out of, stop
 ## for you, and U-turn at dead ends. Cars that wander far from you reappear nearer by, out of sight.
 
+const FAR := 280.0             # traffic further away than this isn't drawn
 const M := preload("res://scripts/core/models.gd")
 const MB := preload("res://scripts/core/mesh_builder.gd")
 const Dents := preload("res://scripts/game/dents.gd")
@@ -60,6 +61,9 @@ func setup(isl: Node, material: Material) -> void:
 		var mi := MeshInstance3D.new()
 		mi.mesh = M.get_mesh(nm)
 		mi.material_override = mat
+		# (not drawn from right across the island: a car 300 m off is a few pixels, and each is a draw)
+		mi.visibility_range_end = FAR
+		mi.visibility_range_end_margin = 20.0
 		var pd := {}
 		if nm == "k_car_police":
 			# patrol cars are the very model the police chase you in (so one that sees you just pulls out
@@ -88,6 +92,7 @@ func setup(isl: Node, material: Material) -> void:
 				var wn := MeshInstance3D.new()
 				wn.mesh = M.wheel_mesh(pd, wi)
 				wn.material_override = mat
+				wn.visibility_range_end = FAR * 0.6
 				wn.position = (pd["wheels"][wi] as Vector3) + Vector3(0, lift, 0)
 				body.add_child(wn)
 		if not shapes.has(nm):
@@ -846,6 +851,7 @@ func _build_lights() -> void:
 				mi.mesh = on.commit()
 				mi.material_override = mat
 				mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				mi.visibility_range_end = 220.0          # (a lamp a few pixels across isn't worth a draw)
 				add_child(mi)
 				lamps[nm] = mi
 			var h := {"node": ni, "group": _group(a), "red": lamps["red"], "green": lamps["green"], "base": base, "b": b, "up": true}

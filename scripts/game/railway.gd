@@ -134,8 +134,10 @@ func _lay(I, g: PackedFloat32Array) -> void:
 	var chunk := 60
 	var sleeper: Mesh = M.get_mesh("k_train_spline-segment")
 	var ssz: Vector3 = M.ksize("k_train_spline-segment")
+	# (the deck goes in three stretches' worth per mesh: fewer draws when the whole loop's in view; the
+	# sleepers stay in short stretches, each drawn only near enough to see them)
+	var mb := MB.new()
 	for c0 in range(0, m, chunk):
-		var mb := MB.new()
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
 		mm.mesh = sleeper
@@ -183,11 +185,13 @@ func _lay(I, g: PackedFloat32Array) -> void:
 				var e := at((k + 3) * STEP) - at(k * STEP)
 				var cb := Basis.looking_at(e.normalized(), Vector3.UP)
 				I.add_box_collider(Transform3D(cb, c - Vector3(0, 0.65, 0)), Vector3(HALF_W * 2.0, 1.3, e.length() + 0.4))
-		var mi := MeshInstance3D.new()
-		mi.mesh = mb.commit()
-		mi.material_override = I.mat
-		mi.name = "Viaduct"
-		add_child(mi)
+		if (c0 / chunk) % 3 == 2 or c0 + chunk >= m:
+			var mi := MeshInstance3D.new()
+			mi.mesh = mb.commit()
+			mi.material_override = I.mat
+			mi.name = "Viaduct_%d" % c0
+			add_child(mi)
+			mb = MB.new()
 		mm.instance_count = sleepers.size()
 		for i in sleepers.size():
 			mm.set_instance_transform(i, sleepers[i])
@@ -195,6 +199,9 @@ func _lay(I, g: PackedFloat32Array) -> void:
 		mmi.multimesh = mm
 		mmi.material_override = I.mat
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.visibility_range_end = 240.0
+		mmi.visibility_range_end_margin = 20.0
+		mmi.name = "Sleepers_%d" % c0
 		add_child(mmi)
 	# pillars, every 14 m or so, wherever there's no road or yard under (then the next clear spot)
 	var pmb := MB.new()
@@ -250,6 +257,7 @@ func _trains(I) -> void:
 			var mi := MeshInstance3D.new()
 			mi.mesh = M.get_mesh(nm)
 			mi.material_override = I.mat
+			mi.visibility_range_end = 500.0
 			var sz: Vector3 = M.ksize(nm)
 			var body := AnimatableBody3D.new()
 			body.sync_to_physics = false

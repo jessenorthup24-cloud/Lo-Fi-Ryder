@@ -14,6 +14,8 @@ var pools := {}      # "v_pose" -> Pool, "v_pose_al" / "v_pose_ar" -> arm Pools
 var shoulders := {}  # "v_pose" -> [left, right]
 var list: Array = []
 var cheer_t := 0.0
+var _vis_t := 0.0
+const SEEN := 170.0          # people further than this aren't drawn (too small to make out anyway)
 var cheer_pos := Vector3.ZERO
 
 func setup(w: Node, material: ShaderMaterial) -> void:
@@ -205,6 +207,21 @@ func vanish(pr: Dictionary, fx: Node) -> void:
 	pools[key + "_ar"].release(pr["ar"])
 	list.erase(pr)
 
-func tick_visibility() -> void:
-	for p in pools.values():
-		p.visible = p.used() > 0
+## Each pool (a character in a pose) is drawn only while someone in it is near enough to see: the pools
+## span the whole island, so without this every one of them is a draw call from anywhere, even from the
+## far side where nobody's in sight.
+func tick_visibility(dt: float, car_pos: Vector3) -> void:
+	_vis_t -= dt
+	if _vis_t > 0.0:
+		return
+	_vis_t = 0.25
+	var near := {}
+	for pr in list:
+		if pr["gone"]:
+			continue
+		var p: Vector3 = pr["pos"]
+		if Vector2(p.x - car_pos.x, p.z - car_pos.z).length_squared() < SEEN * SEEN:
+			near[pr["key"]] = true
+	for k: String in pools:
+		var base := k.trim_suffix("_al").trim_suffix("_ar")
+		pools[k].visible = pools[k].used() > 0 and near.has(base)

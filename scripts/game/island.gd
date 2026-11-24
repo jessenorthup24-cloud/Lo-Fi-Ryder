@@ -17,7 +17,9 @@ const HALF := 600.0          # the world spans -HALF..HALF on x and z
 const CELL := 2.5
 const N := 481               # height samples per side
 const CHUNK := 100.0         # static props merge per chunk
-const TCHUNK := 30           # terrain chunk, in cells (75 m)
+const TCHUNK := 60           # terrain chunk, in cells (150 m): big, so the whole island in view (from the
+							 # Raceway, say) is a few dozen draws rather than a couple of hundred
+const ROAD_CHUNK := 200.0    # road surfaces and their markings merge per this much (the same reason)
 const TRACK_SUB := 4            # slices per sample on the Raceway's loops
 const ROAD_LIFT := 0.035     # road surface above the ground
 const MAP_LAYER := 1 << 19   # minimap-only meshes
@@ -680,7 +682,7 @@ func _road_meshes() -> void:
 			var tb := _tangent(pts, (k + 1) % n, r["closed"])
 			var na := Vector2(-ta.y, ta.x)
 			var nb := Vector2(-tb.y, tb.x)
-			var key := Vector2i(int(floor(a.x / CHUNK)), int(floor(a.y / CHUNK)))
+			var key := Vector2i(int(floor(a.x / ROAD_CHUNK)), int(floor(a.y / ROAD_CHUNK)))
 			if not by_chunk.has(key):
 				by_chunk[key] = MB.new()
 			var mb: MB = by_chunk[key]
@@ -1093,7 +1095,7 @@ func _arm_frame(ri: int, s0: float, dirn: int, dist: float) -> Array:
 	return [Vector3(p.x, y, p.y), Vector3(t.x, 0, t.y), Vector3(-t.y, 0, t.x), y]
 
 func _chunk_mb(by_chunk: Dictionary, p: Vector3) -> MB:
-	var key := Vector2i(int(floor(p.x / CHUNK)), int(floor(p.z / CHUNK)))
+	var key := Vector2i(int(floor(p.x / ROAD_CHUNK)), int(floor(p.z / ROAD_CHUNK)))
 	if not by_chunk.has(key):
 		by_chunk[key] = MB.new()
 	return by_chunk[key]
@@ -1802,6 +1804,6 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3) -> void:
 	_tick_fallers(dt, car_pos)
 	Districts.tick_anims(self, dt, car_pos)
 	people.tick(dt, car_pos, car_vel, time)
-	people.tick_visibility()
+	people.tick_visibility(dt, car_pos)
 	for p in pools.values():
 		p.visible = p.used() > 0
