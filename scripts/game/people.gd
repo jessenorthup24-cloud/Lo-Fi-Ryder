@@ -77,7 +77,8 @@ func spawn_walker(v: int, path: PackedVector3Array, speed: float) -> Dictionary:
 func _walk(pr: Dictionary, dt: float) -> void:
 	var cum: PackedFloat32Array = pr["cum"]
 	var total: float = cum[cum.size() - 1]
-	var d: float = pr["d"] + float(pr["wdir"]) * float(pr["speed"]) * dt
+	var run := 3.2 if float(pr.get("flee", 0.0)) > 0.0 else 1.0
+	var d: float = pr["d"] + float(pr["wdir"]) * float(pr["speed"]) * run * dt
 	if d > total or d < 0.0:
 		pr["wdir"] = -float(pr["wdir"])
 		d = clampf(d, 0.0, total)
@@ -142,6 +143,12 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 	for pr in list:
 		if pr["gone"]:
 			continue
+		if pr.get("down", false):
+			# knocked down: back on their feet where they were, a good while later, once you're well away
+			pr["down_t"] = float(pr["down_t"]) + dt
+			if float(pr["down_t"]) > 45.0 and Vector2(pr["home"].x - car_pos.x, pr["home"].z - car_pos.z).length() > 130.0:
+				_stand_up(pr, t)
+			continue
 		if pr.has("ride"):
 			# moved along by its place (the skater)
 			_place(pr, t)
@@ -177,12 +184,22 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 			var v2 := Vector3(car_vel.x, 0, car_vel.z)
 			var tc := clampf(rel.dot(v2) / maxf(v2.length_squared(), 0.01), 0.0, 0.55)
 			var miss := rel - v2 * tc
-			if miss.length() < 3.2 and pr["y"] == 0.0 and (dist < 4.0 or v2.length() > 3.0):
+			# (at a crawl anyone steps out of the way; going at a lick, only the quick ones get clear)
+			if not pr.has("quick") or randf() < dt * 0.15:
+				pr["quick"] = randf() < 0.3
+			var can_dodge: bool = v2.length() < 8.0 or pr["quick"]
+			if can_dodge and miss.length() < 3.2 and pr["y"] == 0.0 and (dist < 4.0 or v2.length() > 3.0):
 				pr["vy"] = 5.5
 				var side := Vector3(v2.z, 0, -v2.x).normalized() if v2.length() > 0.5 else -d.normalized()
 				if side.dot(miss) < 0.0:
 					side = -side
 				pr["hop"] = side * 4.5
+		if float(pr.get("flee", 0.0)) > 0.0:
+			pr["flee"] = float(pr["flee"]) - dt
+			if not walking and pr["pose"] == "stand":
+				var fv: Vector3 = pr["flee_v"]
+				pr["pos"] += fv * dt * clampf(float(pr["flee"]), 0.0, 1.0)
+				pr["face"] = lerp_angle(pr["face"], atan2(-fv.x, -fv.z), 1.0 - exp(-dt * 8.0))
 		if pr["vy"] != 0.0 or pr["y"] > 0.0:
 			pr["vy"] -= 14.0 * dt
 			pr["y"] += pr["vy"] * dt
@@ -194,6 +211,85 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 		_place(pr, t)
 	return honk
 
+## Who the car is hitting right now: its box (half extents across, up, along; the middle `zc` along it)
+## grown a little, at its transform xf, going at vel. Only at a decent pace (a nudge at a crawl is nothing).
+func hits(xf: Transform3D, half: Vector3, zc: float, vel: Vector3) -> Array:
+	var out := []
+	if Vector2(vel.x, vel.z).length() < 3.5:
+		return out
+	var inv := xf.affine_inverse()
+	for pr in list:
+		if pr["gone"] or pr.get("down", false) or pr.has("ride"):
+			continue
+		var p: Vector3 = pr["pos"] + Vector3(0, float(pr["y"]) + 0.5, 0)
+		if absf(p.x - xf.origin.x) > 7.0 or absf(p.z - xf.origin.z) > 7.0:
+			continue
+		var lp := inv * p
+		if absf(lp.x) < half.x + 0.3 and absf(lp.z - zc) < half.z + 0.35 and lp.y > -0.6 and lp.y < half.y * 2.0 + 0.4:
+			out.append(pr)
+	return out
+
+## Knocked down: gone from the crowd (their places in the pools freed) until they get up again.
+## Returns what the ragdoll needs: {v (the character), xf (the body as it stood), shoulders}.
+func knock_down(pr: Dictionary) -> Dictionary:
+	if pr["gone"] or pr.get("down", false):
+		return {}
+	var key: String = pr["key"]
+	# the body as it stands now (seated: they come off the seat as they'd stand; lying: as they lie)
+	var xf := Transform3D(Basis(Vector3.UP, pr["face"]), pr["pos"] + Vector3(0, float(pr["y"]), 0))
+	if pr["pose"] == "sit":
+		xf.origin.y -= SIT_LIFT
+	elif pr["pose"] == "lie":
+		var lb := Basis(Vector3.UP, pr["yaw"]) * Basis(Vector3.RIGHT, PI * 0.5)
+		xf = Transform3D(lb, pr["pos"] + Vector3(0, 0.16, 0) + lb * Vector3(0, -0.5, 0))
+	var info := {"v": int(pr["v"]), "xf": xf, "shoulders": shoulders["%d_stand" % int(pr["v"])]}
+	pools[key].release(pr["slot"])
+	pools[key + "_al"].release(pr["al"])
+	pools[key + "_ar"].release(pr["ar"])
+	pr["down"] = true
+	pr["down_t"] = 0.0
+	pr["y"] = 0.0
+	pr["vy"] = 0.0
+	pr["hop"] = Vector3.ZERO
+	return info
+
+func _stand_up(pr: Dictionary, t: float) -> void:
+	var key: String = pr["key"]
+	var slot: int = pools[key].alloc()
+	if slot < 0:
+		return
+	pr["slot"] = slot
+	pr["al"] = pools[key + "_al"].alloc()
+	pr["ar"] = pools[key + "_ar"].alloc()
+	pr["down"] = false
+	pr["flee"] = 0.0
+	pr["pos"] = pr["home"]
+	_place(pr, t)
+
+## Something awful just happened at `at`: everyone within r runs off (walkers hurry away along their way;
+## people standing about run a few metres away from it).
+func panic(at: Vector3, r: float) -> void:
+	for pr in list:
+		if pr["gone"] or pr.get("down", false) or pr.has("ride") or pr["pose"] == "lie":
+			continue
+		var d: Vector3 = pr["pos"] - at
+		d.y = 0.0
+		if d.length() > r:
+			continue
+		pr["flee"] = randf_range(2.5, 4.5)
+		pr["wave"] = 0.0
+		var away := d.normalized() if d.length() > 0.1 else Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)).normalized()
+		pr["flee_v"] = away * randf_range(3.5, 5.0)
+		if pr.has("path"):
+			# (along their way, whichever direction takes them off from it)
+			var path: PackedVector3Array = pr["path"]
+			var k := 0
+			var cum: PackedFloat32Array = pr["cum"]
+			while k < cum.size() - 2 and cum[k + 1] < float(pr["d"]):
+				k += 1
+			var along := (path[k + 1] - path[k]).normalized()
+			pr["wdir"] = 1.0 if along.dot(away) >= 0.0 else -1.0
+
 ## The ground is going: pop away in a puff.
 func vanish(pr: Dictionary, fx: Node) -> void:
 	if pr.is_empty() or pr["gone"]:
@@ -202,9 +298,10 @@ func vanish(pr: Dictionary, fx: Node) -> void:
 	if fx:
 		fx.puff(pr["pos"] + Vector3(0, 0.5, 0), Color(1, 1, 1), 0.6, Vector3(0, 1, 0), 0.6, 1.0)
 	var key: String = pr["key"]
-	pools[key].release(pr["slot"])
-	pools[key + "_al"].release(pr["al"])
-	pools[key + "_ar"].release(pr["ar"])
+	if not pr.get("down", false):
+		pools[key].release(pr["slot"])
+		pools[key + "_al"].release(pr["al"])
+		pools[key + "_ar"].release(pr["ar"])
 	list.erase(pr)
 
 ## Each pool (a character in a pose) is drawn only while someone in it is near enough to see: the pools
@@ -217,7 +314,7 @@ func tick_visibility(dt: float, car_pos: Vector3) -> void:
 	_vis_t = 0.25
 	var near := {}
 	for pr in list:
-		if pr["gone"]:
+		if pr["gone"] or pr.get("down", false):
 			continue
 		var p: Vector3 = pr["pos"]
 		if Vector2(p.x - car_pos.x, p.z - car_pos.z).length_squared() < SEEN * SEEN:

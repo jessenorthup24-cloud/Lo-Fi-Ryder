@@ -8,6 +8,7 @@ const MB := preload("res://scripts/core/mesh_builder.gd")
 const Island := preload("res://scripts/game/island.gd")
 const Car := preload("res://scripts/game/drift_car.gd")
 const Fx := preload("res://scripts/game/fx.gd")
+const Ragdoll := preload("res://scripts/game/ragdoll.gd")
 const Atmos := preload("res://scripts/game/atmos.gd")
 const Sound := preload("res://scripts/game/sound.gd")
 const SaveData := preload("res://scripts/game/save.gd")
@@ -34,6 +35,7 @@ var toon: ShaderMaterial
 var island: Island
 var car: Car
 var fx: Fx
+var ragdolls: Ragdoll
 var traffic: Traffic
 var atmos: Atmos
 var sound: Sound
@@ -219,6 +221,10 @@ func _build_world() -> void:
 	fx.setup(toon)
 	fx.ground = func(x: float, z: float) -> float: return island.height_at(x, z)
 	atmos.add_material(fx.smoke_mat)
+	ragdolls = Ragdoll.new()
+	ragdolls.name = "Ragdolls"
+	add_child(ragdolls)
+	ragdolls.setup(toon, fx, island, func(n: String, db: float): sfx(n, db, randf_range(0.9, 1.1)))
 	traffic = Traffic.new()
 	traffic.name = "Traffic"
 	add_child(traffic)
@@ -668,6 +674,11 @@ func _process(dt: float) -> void:
 	if island.rail and (state == DRIVE or state == TITLE):
 		island.rail.tick(dt, cam.global_position)
 	island.tick(dt, cp, car.linear_velocity)
+	if state == DRIVE:
+		var half := Vector3(float(car.info["width"]) * 0.5, float(car.info["height"]) * 0.5, float(car.info["length"]) * 0.5)
+		for pr in island.people.hits(car.global_transform, half, (float(car.info["front"]) + float(car.info["back"])) * 0.5, car.linear_velocity):
+			_ped_hit(pr)
+	ragdolls.tick(dt, cp)
 	traffic.tick(dt, cp, car.linear_velocity, -cam.global_transform.basis.z)
 	if traffic.honk != Vector3.INF and state == DRIVE:
 		var hd: float = traffic.honk.distance_to(cp)
@@ -880,6 +891,13 @@ func _crash_setup(kind: String, v: float) -> void:
 		"front":
 			car.place(Transform3D(Basis(), Vector3(470, y, 389)))
 			car.linear_velocity = Vector3(0, 0, -v)
+		"ped":
+			# three people on the main straight, you coming at them
+			for k in 3:
+				var pp := Vector3(470.0 + k * 1.5, island.height_at(470.0, 372.0), 371.0 + k * 1.6)
+				island.people.spawn(k * 5, "stand", pp, PI * 0.5, 0)
+			car.place(Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(430, y, 372)))
+			car.linear_velocity = Vector3(v, 0, 0)
 		"swipe", "swipe0":
 			car.place(Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(400, y, 370.2)))
 			car.linear_velocity = Vector3(v, 0, 0)
@@ -911,11 +929,16 @@ func _crash_controls() -> void:
 	car.brake = 0.0
 	car.handbrake = 0.0
 	car.steer_in = 0.0
-	car.throttle = 1.0 if kind in ["front", "swipe", "swipe0"] else 0.0
+	car.throttle = 1.0 if kind in ["front", "swipe", "swipe0", "ped"] else 0.0
 	if kind == "front" and t > 4.0:
 		car.steer_in = sin(t * 0.7) * 0.6           # (driving about on what's left of the engine)
 	if kind in ["swipe", "swipe0"] and t > 0.3 and t < 1.3:
 		car.steer_in = float(args.get("swipesteer", "0.35"))   # (in towards the other car)
+	if kind == "ped" and frames % 6 == 0:
+		for d in ragdolls.dolls:
+			var up: RigidBody3D = d["parts"]["upper"]
+			print("DOLL t=%.2f pos=(%.1f,%.1f,%.1f) v=%.1f up=%.2f still=%.1f" % [t, up.global_position.x, up.global_position.y, up.global_position.z,
+				up.linear_velocity.length(), up.global_transform.basis.y.y, float(d["still"])])
 	if auto.has("bullet"):
 		var b: Car = auto["bullet"]
 		b.throttle = 0.6 if kind == "swipe" else 0.0
@@ -1201,6 +1224,35 @@ func _on_bump(strength: float) -> void:
 	# a big hit lands with a moment of slow motion
 	if strength > 15.0 and kind != "ground":
 		slowmo(0.4, 0.14)
+
+## You hit someone: they go down as a ragdoll with a thump and a spray of blood (some on your bumper), the
+## people round about run off, and the police may well hear of it.
+func _ped_hit(pr: Dictionary) -> void:
+	var info: Dictionary = island.people.knock_down(pr)
+	if info.is_empty():
+		return
+	var v := car.linear_velocity
+	var s := Vector3(v.x, 0, v.z).length()
+	var xf: Transform3D = info["xf"]
+	ragdolls.spawn(int(info["v"]), xf, info["shoulders"], v, car)
+	var at := xf.origin + Vector3(0, 0.8, 0)
+	var dir := Vector3(v.x, 0, v.z).normalized()
+	fx.blood(at, dir, int(clampf(10.0 + s * 0.8, 10.0, 34.0)), clampf(3.0 + s * 0.18, 3.0, 9.0))
+	fx.splat(xf.origin, 0.55)
+	car.stain(at, clampf(0.35 + s * 0.03, 0.35, 0.9))
+	sfx("body_hit_%d" % randi_range(1, 3), clampf(-8.0 + s * 0.45, -8.0, 3.0), randf_range(0.9, 1.08))
+	if s > 12.0:
+		sfx("fender", -10.0, 0.8)
+	# a body has some weight: a little speed lost, a jolt
+	car.linear_velocity = v * (1.0 - clampf(0.05 - s * 0.0008, 0.02, 0.05))
+	shake = maxf(shake, clampf(s * 0.02, 0.15, 0.45))
+	cam_kick_v += -dir * clampf(s * 0.012, 0.05, 0.3)
+	buzz(int(clampf(s * 4.0, 30.0, 90.0)), 0.7)
+	if s > 16.0:
+		slowmo(0.45, 0.16)
+	save.add_stat("people_hit", 1)
+	island.people.panic(xf.origin, 32.0)
+	police.ped_hit(xf.origin)
 
 ## You've rolled it: a heavy crunch, a beat of slow motion, and the drift's gone.
 func _on_roll(sev: float) -> void:

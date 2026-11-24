@@ -67,6 +67,35 @@ static func dent(d: Dictionary, p: Vector3, n: Vector3, radius: float, depth: fl
 		if mat:
 			m.surface_set_material(si, mat)
 
+## Paint the bodywork round p (mesh space) toward col, strongest in the middle (k at the centre): blood on
+## the bumper after hitting someone. Lamps and glass keep their colour (only the paint takes it).
+static func stain(d: Dictionary, p: Vector3, radius: float, col: Color, k: float) -> void:
+	var m: ArrayMesh = d["mesh"]
+	var src: Mesh = d["src"]
+	m.clear_surfaces()
+	var r2 := radius * radius
+	for si in d["surfs"].size():
+		var arr: Array = d["surfs"][si]
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var cols = arr[Mesh.ARRAY_COLOR]
+		if cols is PackedColorArray and (cols as PackedColorArray).size() == vs.size():
+			for i in vs.size():
+				var dd := vs[i].distance_squared_to(p)
+				if dd >= r2:
+					continue
+				var c: Color = cols[i]
+				if c.a < 0.79:
+					continue
+				# (patchy: a splash, not a smooth disc)
+				var f := (1.0 - sqrt(dd) / radius) * k * (0.6 + 0.4 * sin(vs[i].x * 41.0 + vs[i].y * 29.0 + vs[i].z * 37.0))
+				var nc := Color(c.r, c.g, c.b).lerp(col, clampf(f, 0.0, 0.85))
+				cols[i] = Color(nc.r, nc.g, nc.b, c.a)
+			arr[Mesh.ARRAY_COLOR] = cols
+		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		var mat := src.surface_get_material(si)
+		if mat:
+			m.surface_set_material(si, mat)
+
 ## Back as it came from the factory.
 static func repair(d: Dictionary) -> void:
 	var m: ArrayMesh = d["mesh"]

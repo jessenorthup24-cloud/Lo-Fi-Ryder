@@ -52,6 +52,8 @@ var bust := 0.0             # 0..1: how nearly they've got you
 var units: Array = []       # {car, role, target, state ("chase", "block", "patrol", "wreck"), path, pi, ...}
 var heli: Heli
 var calm := 0.0
+var _witness_t := 0.0        # someone saw you knock a person down: they call it in when this runs out
+var _witness_at := Vector3.ZERO
 var limit := 0              # the limit where you are, km/h (0: off the roads)
 var patrol_near := false    # a patrol car's about (the limit sign comes up)
 var race_chase := false     # they're onto a street race: the racers too
@@ -131,6 +133,10 @@ func tick(dt: float) -> void:
 	_spawn_cd -= dt
 	_block_cd -= dt
 	calm -= dt
+	if _witness_t > 0.0:
+		_witness_t -= dt
+		if _witness_t <= 0.0 and heat == 0 and game.chase_ok():
+			start(1.0, "A witness called the police")
 	_scan -= dt
 	if _scan <= 0.0:
 		_scan = 0.2
@@ -282,6 +288,24 @@ func _hits() -> void:
 			start(2.0, "Rammed a police car")
 	else:
 		heat_pts += 0.3
+
+## You knocked someone down. In front of the police (or with them after you already) it's straight on;
+## otherwise, more often than not, somebody who saw it calls it in a few seconds later.
+func ped_hit(at: Vector3) -> void:
+	if not game.chase_ok_or_chase():
+		return
+	var cp: Vector3 = game.car.global_position
+	if heat > 0:
+		heat_pts += 0.7
+		_spotted(cp)
+		if int(heat_pts) > heat:
+			start(heat_pts, "Ran someone down")
+		return
+	if _witnessed(cp):
+		start(2.0, "Ran someone down in front of the police")
+	elif _witness_t <= 0.0 and randf() < 0.75:
+		_witness_t = randf_range(2.5, 5.0)
+		_witness_at = at
 
 ## They're after you (or after you harder): pts is the heat it starts at.
 func start(pts: float, why: String) -> void:
@@ -440,6 +464,7 @@ func hold(on: bool) -> void:
 
 ## Everything gone at once (back to the title).
 func clear() -> void:
+	_witness_t = 0.0
 	for u in units:
 		if is_instance_valid(u["car"]):
 			(u["car"] as Node).queue_free()

@@ -176,6 +176,13 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   run on traffic lights (timed as a green wave). Cars keep their distance, never stop in a junction,
   stop for you and U-turn at dead ends. People walk the pavements (they don't wander into the road),
   sit on benches, watch you drift and wave.
+- Hit someone: at a crawl anyone steps aside, but going at a lick only the quick ones get clear. Hit, they
+  go down as a ragdoll (the upper body and the legs jointed at the hips, the arms at the shoulders, about
+  70 kg in all): swept off their feet, over the bonnet, tumbling and sliding to a stop, with a heavy thump,
+  a spray of blood that spatters the road, a smear where they slide and a pool where they come to rest
+  (and some on your bumper until a repair). People round about run off. In front of the police it's two
+  stars; otherwise someone who saw it usually calls it in a few seconds later (one star); with them after
+  you already, it adds to the heat. They're back on their feet a while later, once you're well away.
 - Seasons: autumn colours from September, snow and decorations in winter, blossom in spring. Windows
   and lamps light up after dusk.
 - Farm fields are ploughed in ridges with crops growing along them (wheat, cabbages, corn, sunflowers,
@@ -214,7 +221,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `scripts/game/districts.gd` | The island plan: districts, blocks, places, challenges and everything placed in them |
 | `scripts/game/drift_car.gd` | Car physics: raycast wheels, tyre model, gearbox, handbrake and drift assist |
 | `scripts/game/traffic.gd` | Traffic: lanes, junction turns and right of way, traffic lights |
-| `scripts/game/people.gd` | People: stand, sit, walk, watch, wave and hop aside |
+| `scripts/game/people.gd` | People: stand, sit, walk, watch, wave, hop aside, get knocked down, run off |
+| `scripts/game/ragdoll.gd` | People knocked down: jointed ragdolls (hips, shoulders), the blood they leave |
 | `scripts/game/atmos.gd` | Day and night, seasons, sky and sun |
 | `scripts/game/achievements.gd`, `save.gd`, `cars.gd` | Trophies, save data, the car list |
 | `scripts/core/` | Palette (season colours), mesh builder, model loading and scales |
@@ -246,7 +254,7 @@ godot --path . -- --garage=up --fresh            # garage on the Upgrades tab, f
 godot --path . -- --drive --put=-108,284,90 --stunt=backflip   # exactly here (x,z,yaw), gas on, a trick in the air
 godot --path . -- --drive --season=3             # 0 spring, 1 summer, 2 autumn, 3 winter
 godot --path . -- --drive --race=downtown --raceauto --racelog   # straight into a race, CPU drives you too
-godot --path . -- --drive --crashtest=tbone --crashv=20   # crash tests (tbone, wall, front, swipe, swipe0), logged
+godot --path . -- --drive --crashtest=tbone --crashv=20   # crash tests (tbone, wall, front, swipe, swipe0, ped), logged
 godot --path . -- --drive --damage=90 --engine=95          # start battered, the engine on fire
 godot --path . -- --drive --begin=trial:main      # as if START was pressed (race:downtown, zone:bowl...)
 godot --path . -- --drive --demo=100 --aim=tree   # lined up for a run at a tree (lamp, light)
@@ -281,8 +289,8 @@ godot --headless --path . -s res://tools/test/traffic_soak.gd -- 300         # f
 The car sounds (engines, tyres, crashes, horns) are from heyheythere's Vehicle SFX pack
 (heyheythere.itch.io). Its licence lets the game use them but not share the files, so the repo keeps them
 encrypted (`assets/audio/pack.tar.enc`) and the build unlocks them with the `SFX_KEY` secret; without it
-the game falls back to its own synthesized sounds (`tools/audio/`; the train, the police radio and the
-helicopter are always synthesized). The buildings, people, pets, vehicles,
+the game falls back to its own synthesized sounds (`tools/audio/`; the train, the police radio, the
+helicopter and someone being hit are always synthesized). The buildings, people, pets, vehicles,
 ships and props are from Kenney's CC0 kits (kenney.nl: City Kit
 Suburban and Commercial, Modular Buildings, Retro Urban Kit, Car Kit, Mini Characters, Cube Pets,
 Mini Skate, Survival Kit, Mini Forest, Castle Kit, Holiday Kit, Mini Arena, Pirate Kit, Train Kit, Racing

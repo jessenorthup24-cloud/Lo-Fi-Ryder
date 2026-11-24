@@ -219,6 +219,9 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 	var stunt_rid: RID = island.stunt_body if island else RID()
 	var upw := st.transform.basis.y
 	for i in st.get_contact_count():
+		var who_o := st.get_contact_collider_object(i)
+		if who_o is Node and (who_o as Node).has_meta("ped"):
+			continue                      # (someone knocked down: no crash, no scrape; their weight does the rest)
 		var n := st.get_contact_local_normal(i)
 		# lying on its roof: the ground underneath pushes up into it (hanging upside down at the top of the
 		# loop, the track above pushes down instead)
@@ -860,6 +863,13 @@ func dent(at: Vector3, into: Vector3, strength: float) -> void:
 	var rad := clampf(0.55 + strength * 0.05, 0.55, 1.75)
 	var depth := clampf(strength * 0.022, 0.04, 0.46)
 	Dents.dent(dent_data, lp, out, rad, depth, 0.6)
+
+## Blood on the bodywork where it hit someone (at: the global point), k how much.
+func stain(at: Vector3, k: float) -> void:
+	if dent_data.is_empty():
+		return
+	var lp := body_node.global_transform.affine_inverse() * at
+	Dents.stain(dent_data, lp, 0.95, Color(0.68, 0.04, 0.05), k)
 
 ## How much of its power the engine still gives (misfiring: hardly any for that moment; blown: a limp).
 func engine_power() -> float:

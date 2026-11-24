@@ -19,6 +19,10 @@ var live_chunks: Array = []
 var live_sparks: Array = []
 var live_flames: Array = []
 var ground: Callable            # (x, z) -> the height of the ground there, for bits to land on
+var splats: Pool                # blood on the ground (flat blots that stay a while)
+var live_splats: Array = []
+var live_drops: Array = []      # blood in the air (each leaves a blot where it lands)
+const BLOOD := Color(0.74, 0.05, 0.06)     # (sRGB: the shader darkens it toward a deep red)
 
 var smoke_mat: ShaderMaterial
 
@@ -54,6 +58,22 @@ func setup(mat: ShaderMaterial) -> void:
 	sparks = Pool.new()
 	sparks.setup(sb.commit(), 200, mat, false, false)
 	add_child(sparks)
+	# a blot: an uneven round splash, flat (it lies on the ground like a skid mark)
+	var bm := MB.new()
+	var rr := RandomNumberGenerator.new()
+	rr.seed = 7
+	var ring := PackedVector3Array()
+	for i in 14:
+		var a := TAU * i / 14.0
+		var r := rr.randf_range(0.65, 1.0) if i % 3 != 0 else rr.randf_range(1.0, 1.35)
+		ring.append(Vector3(cos(a) * r, 0, sin(a) * r) * 0.5)
+	for i in 14:
+		# (both ways round: it shows whichever way it's wound)
+		bm.tri(Vector3.ZERO, ring[(i + 1) % 14], ring[i], Vector3.UP, Vector3.UP, Vector3.UP, MB.rgb("ffffff"))
+		bm.tri(Vector3.ZERO, ring[i], ring[(i + 1) % 14], Vector3.UP, Vector3.UP, Vector3.UP, MB.rgb("ffffff"))
+	splats = Pool.new()
+	splats.setup(bm.commit(), 160, marks, false, false)
+	add_child(splats)
 	var fm := ShaderMaterial.new()
 	fm.shader = load("res://shaders/flame.gdshader")
 	var fq := QuadMesh.new()
@@ -63,8 +83,9 @@ func setup(mat: ShaderMaterial) -> void:
 	add_child(flames)
 
 func clear() -> void:
-	puffs.clear_all(); skids.clear_all(); bits.clear_all(); chunks.clear_all(); sparks.clear_all(); flames.clear_all()
+	puffs.clear_all(); skids.clear_all(); bits.clear_all(); chunks.clear_all(); sparks.clear_all(); flames.clear_all(); splats.clear_all()
 	live_puffs.clear(); live_skids.clear(); live_bits.clear(); live_chunks.clear(); live_sparks.clear(); live_flames.clear()
+	live_splats.clear(); live_drops.clear()
 
 func puff(p: Vector3, col: Color, size := 0.35, v := Vector3.ZERO, life := 0.7, rise := 0.6) -> void:
 	var s := puffs.alloc()
@@ -126,6 +147,31 @@ func debris(p: Vector3, n: Vector3, cols: Array, count := 6, speed := 5.0, size 
 ## A windscreen going: little glinting bits of glass.
 func glass(p: Vector3, n: Vector3, count := 14) -> void:
 	debris(p, n, ["cfeefa", "a9dcef", "f4fbff"], count, 4.0, 0.32)
+
+## Blood thrown out from p along dir: drops that fly, fall and leave a blot where each lands.
+func blood(p: Vector3, dir: Vector3, count := 14, speed := 5.0) -> void:
+	for i in count:
+		var s := bits.alloc()
+		if s < 0:
+			return
+		bits.multimesh.set_instance_color(s, BLOOD.lerp(Color(0.55, 0.02, 0.04), randf() * 0.6))
+		var v := dir * speed * randf_range(0.3, 1.1) + Vector3(randf_range(-1.6, 1.6), randf_range(0.8, 3.5), randf_range(-1.6, 1.6))
+		live_drops.append({"s": s, "p": p + Vector3(randf_range(-0.2, 0.2), randf_range(-0.1, 0.3), randf_range(-0.2, 0.2)), "v": v,
+			"t": 0.0, "sz": randf_range(0.5, 1.1)})
+
+## A blot of blood on the ground at p (size: across, metres). It stays half a minute, then shrinks away.
+func splat(p: Vector3, size := 0.5) -> void:
+	var s := splats.alloc()
+	if s < 0:
+		var old = live_splats.pop_front()
+		splats.release(old["s"])
+		s = splats.alloc()
+	splats.multimesh.set_instance_color(s, BLOOD.lerp(Color(0.56, 0.02, 0.04), randf() * 0.5))
+	var gy: float = ground.call(p.x, p.z) if ground.is_valid() else p.y
+	var b := Basis(Vector3.UP, randf() * TAU).scaled(Vector3(size * randf_range(0.8, 1.25), 1.0, size * randf_range(0.8, 1.25)))
+	var at := Vector3(p.x, gy + 0.05, p.z)
+	live_splats.append({"s": s, "b": b, "p": at, "t": 0.0})
+	splats.put(s, Transform3D(b.scaled(Vector3(0.3, 1, 0.3)), at))
 
 ## Fire from a wrecked engine: a lick of flame rising from p.
 func flame(p: Vector3, size := 0.8, v := Vector3.ZERO, life := 0.45) -> void:
@@ -262,3 +308,35 @@ func _crash_tick(dt: float) -> void:
 		flames.multimesh.set_instance_color(q["s"], Color(1, 1, 1, (1.0 - k) * minf(k * 6.0, 1.0)))
 	for q in done:
 		live_flames.erase(q)
+	done.clear()
+	for q in live_drops:
+		q["t"] += dt
+		q["v"].y -= 12.0 * dt
+		q["p"] += q["v"] * dt
+		var p: Vector3 = q["p"]
+		var gy: float = ground.call(p.x, p.z) if ground.is_valid() else -1000.0
+		if p.y <= gy + 0.05 or q["t"] > 2.5:
+			bits.release(q["s"])
+			done.append(q)
+			if p.y <= gy + 0.3:
+				splat(p, 0.18 + float(q["sz"]) * 0.22)
+			continue
+		var v: Vector3 = q["v"]
+		var b := Basis.looking_at(v.normalized() if v.length() > 0.05 else Vector3.DOWN, Vector3.UP if absf(v.normalized().y) < 0.98 else Vector3.RIGHT)
+		bits.put(q["s"], Transform3D(b.scaled(Vector3(0.6, 0.6, 1.6) * float(q["sz"])), p))
+	for q in done:
+		live_drops.erase(q)
+	done.clear()
+	for q in live_splats:
+		q["t"] += dt
+		var t: float = q["t"]
+		if t > 34.0:
+			splats.release(q["s"])
+			done.append(q)
+			continue
+		if t < 0.25 or t > 30.0:
+			# (it spreads out as it lands, and shrinks away at the end)
+			var k := smoothstep(0.0, 0.25, t) * (1.0 - smoothstep(30.0, 34.0, t))
+			splats.put(q["s"], Transform3D((q["b"] as Basis).scaled(Vector3(0.3 + k * 0.7, 1, 0.3 + k * 0.7) * maxf(k, 0.01) if t > 30.0 else Vector3(0.3 + k * 0.7, 1, 0.3 + k * 0.7)), q["p"]))
+	for q in done:
+		live_splats.erase(q)
