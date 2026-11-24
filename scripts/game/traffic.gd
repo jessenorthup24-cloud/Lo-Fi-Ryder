@@ -65,6 +65,7 @@ func setup(isl: Node, material: Material) -> void:
 		mi.visibility_range_end = FAR
 		mi.visibility_range_end_margin = 20.0
 		var pd := {}
+		var wheel_nodes := []
 		if nm == "k_car_police":
 			# patrol cars are the very model the police chase you in (so one that sees you just pulls out
 			# after you): the body, and its wheels standing on the road
@@ -95,6 +96,7 @@ func setup(isl: Node, material: Material) -> void:
 				wn.visibility_range_end = FAR * 0.6
 				wn.position = (pd["wheels"][wi] as Vector3) + Vector3(0, lift, 0)
 				body.add_child(wn)
+				wheel_nodes.append(wn)
 		if not shapes.has(nm):
 			var b := BoxShape3D.new()
 			b.size = ab.size * Vector3(0.9, 0.8, 0.95)
@@ -106,6 +108,12 @@ func setup(isl: Node, material: Material) -> void:
 		add_child(body)
 		var c := {"id": i, "body": body, "mode": ROAD, "r": 0, "s": 0.0, "dir": 1, "v": 0.0, "len": ab.size.z, "w": ab.size.x,
 			"wait": 0.0, "hit": 0.0, "honked": false, "plan": {}, "turn": {}, "model": nm, "mi": mi, "shape": cs, "anim": body}
+		if not wheel_nodes.is_empty():
+			# (a patrol car's wheels are its own: they roll with the distance it goes and the front pair turn
+			# into the bends)
+			var wb := absf(float((pd["wheels"][0] as Vector3).z) - float((pd["wheels"][2] as Vector3).z))
+			c["wheels"] = {"nodes": wheel_nodes, "r": float(pd["r_f"]), "wb": maxf(wb, 1.5), "spin": 0.0, "steer": 0.0,
+				"last": Vector3.INF, "yaw": 0.0, "curv": 0.0}
 		cars.append(c)
 		_place_random(c, Vector3(-80, 0, 60), 0.0, 260.0, Vector3.ZERO)
 
@@ -429,6 +437,39 @@ func _put(c: Dictionary) -> void:
 	var pos := Vector3(p.x, _y(p), p.y)
 	var ahead := Vector3(p.x + t.x, _y(p + t), p.y + t.y)
 	(c["body"] as Node3D).global_transform = Transform3D(Basis.looking_at((ahead - pos).normalized(), Vector3.UP), pos)
+	if c.has("wheels"):
+		_roll_wheels(c, pos, atan2(-t.x, -t.y))
+
+## A patrol car's wheels: spun by how far it went since last time, the front pair steered by how fast
+## its heading is changing per metre (the bend it's on), eased so a jump to a new lane doesn't flick them.
+func _roll_wheels(c: Dictionary, pos: Vector3, yaw: float) -> void:
+	var w: Dictionary = c["wheels"]
+	var last: Vector3 = w["last"]
+	w["last"] = pos
+	var prev_yaw: float = w["yaw"]
+	w["yaw"] = yaw
+	if last == Vector3.INF:
+		return
+	var step := Vector2(pos.x - last.x, pos.z - last.z)
+	var d := step.length()
+	if d > 4.0:
+		return                     # (put somewhere new: nothing to roll)
+	var fwd := Vector2(-sin(yaw), -cos(yaw))
+	var sd := d * signf(step.dot(fwd) + 0.0001)
+	w["spin"] = fposmod(float(w["spin"]) + sd / maxf(float(w["r"]), 0.1), TAU)
+	# (the bend averaged over the last couple of metres: a turn's path is short straight pieces, so the
+	# heading changes in steps)
+	if d > 0.002:
+		var dyaw := wrapf(yaw - prev_yaw, -PI, PI)
+		w["curv"] = lerpf(float(w["curv"]), dyaw / d, clampf(d / 2.2, 0.0, 1.0))
+	var want := clampf(-atan(float(w["curv"]) * float(w["wb"])), -0.6, 0.6)
+	w["steer"] = lerpf(float(w["steer"]), want, 0.3)
+	var nodes: Array = w["nodes"]
+	for i in nodes.size():
+		var b := Basis()
+		if i < 2:
+			b = Basis(Vector3.UP, -float(w["steer"]))
+		(nodes[i] as Node3D).basis = b * Basis(Vector3.RIGHT, -float(w["spin"]))
 
 # ------------------------------------------------------------------ every frame
 
