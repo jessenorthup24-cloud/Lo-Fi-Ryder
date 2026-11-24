@@ -23,9 +23,10 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - A few things in the air round you: pollen on spring and summer days, leaves in autumn, snow in winter,
   fireflies at night. Settings → Bloom and Ambient particles turn them off (for slower phones).
 - The car is drawn smoothly between physics steps (physics interpolation, with the physics jitter fix
-  off as Godot needs), so it stays sharp on 90/120 Hz screens. From about 70 km/h the surroundings blur
-  outward from the road ahead and light streaks rush past the edges; an oval round your car is kept
-  sharp, and the blur never samples the car itself (so no ghost of it smears across the background).
+  off as Godot needs), so it stays sharp on 90/120 Hz screens. From about 120 km/h (building to 240) the
+  outer edges of the screen blur a little outward from the road ahead and faint streaks rush past; the
+  middle (the road, the buildings beside it) stays sharp, an oval round your car is kept sharp, and the
+  blur never samples the car itself (so no ghost of it smears across the background).
   The camera's aim is eased every frame, so on a 120 Hz screen the view never steps along with the 60 Hz
   physics. Settings → Speed blur turns it off; Settings → Cap at 60 fps holds the frame rate at 60 (smoother
   on phones that pace 120 Hz unevenly, and easier on the battery).

@@ -970,8 +970,9 @@ func hud_update(d: Dictionary) -> void:
 	var nf: Control = ctl["nos"].get_meta("fill")
 	nf.set_meta("v", float(d.get("nos", 1.0)))
 	nf.queue_redraw()
-	# a sense of speed: the surroundings blur outward (never your car) and streaks rush past, from about 70 km/h
-	var want := clampf((float(d["kmh"]) - 70.0) / 90.0 + float(d.get("nos_on", 0.0)) * 0.35, 0.0, 1.0) if bool(game.save.setting("speedfx")) else 0.0
+	# a sense of speed: the edges of the screen blur a little (never your car or the way ahead) and streaks
+	# rush past, from about 120 km/h, building to 240
+	var want := clampf((float(d["kmh"]) - 120.0) / 120.0 + float(d.get("nos_on", 0.0)) * 0.25, 0.0, 1.0) if bool(game.save.setting("speedfx")) else 0.0
 	if game.args.has("speedfx"):
 		want = float(game.args["speedfx"])      # test: show them at this strength
 	speed_k = move_toward(speed_k, want, get_process_delta_time() * 1.5)
