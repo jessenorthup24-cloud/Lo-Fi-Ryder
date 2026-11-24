@@ -107,7 +107,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   jump, cones and a tunnel. Crash in there and you're put back at the start of the nearest run.
 - The garage: 18 cars (each with its own power, top speed, grip and drift), plus four upgrades that
   work on every car you own (engine, turbo, tyres, steering angle).
-- 35 trophies, each paying coins once.
+- 39 trophies, each paying coins once.
 - The drift meter is a slim readout in the top left, with call-outs ("Close!", stunts) stacked beside it,
   so the middle of the screen stays clear.
 - If you flip, land in the water or get stuck, the car is put back on the road.
@@ -145,6 +145,25 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - Farm fields are ploughed in ridges with crops growing along them (wheat, cabbages, corn, sunflowers,
   potatoes), coloured with the seasons. Dirt tracks stop at the edge of the paved roads they join, and a
   field stops at any road that runs through it (a corner cut off by a road is left as plain verge).
+- The railway: a viaduct all the way round the island, a little outside the ring road and high enough
+  that every road passes under it, on pillars wherever there's no road or yard below (its strip is kept
+  clear before the town is built, so nothing stands under it). Three trains run round it a third of the
+  loop apart: a city electric, a steam train with old coaches and a goods train (containers, a tank,
+  coal, lumber). You hear their rumble as they pass and a toot of the horn when one comes up on you.
+  It's on the map as a dark line.
+- Boats: speedboats, sailing boats, a fishing boat, tugs and a tow boat go round the island not far off
+  the shore, each on its own loop (worked out from the coastline, so they go round the harbour, the
+  pier and the Raceway), rocking on the swell with a white wake; cargo ships, a big ship and an ocean
+  liner go round further out. Buoys bob off the beach.
+- The Raceway: a race track on its own peninsula off the south-east coast (built up flat, reached by
+  Raceway Road off the ring road, under the railway). The Grand Prix circuit (about 630 m a lap, 14 m
+  wide) has a long main straight past the pit garages and covered grandstands, a fast right-hander, a
+  sweeping south end, an S through the back and a last corner onto the straight, with red and white
+  kerbs on every bend, barrier walls round the outside, the start gantry over a chequered line, banner
+  towers, billboards, tents and parked race cars. Inside it, reached across the main straight, is a
+  tight drift course lined with red and white blocks to run along. Challenges: Raceway Grand Prix
+  (a race, 8 cars, 3 laps), Raceway Hot Lap (one timed lap) and Raceway Drift Course (drift it all the
+  way round).
 
 ## Project layout
 
@@ -169,6 +188,9 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `tools/audio/`, `tools/music/` | Sound synthesis scripts (the fallback sounds); the CC0 music list the build fetches |
 | `scripts/game/dents.gd` | Crash damage: bends a mesh in around an impact and scuffs the paint |
 | `scripts/game/route.gd` | GPS: the road network as a graph and the shortest way along it |
+| `scripts/game/railway.gd` | The railway: the line (the ring road pushed out and smoothed), the viaduct, track and pillars, the trains and their sounds |
+| `scripts/game/boats.gd` | Boats and ships going round the island off the shore, their wakes, the buoys |
+| `scripts/game/raceway.gd` | The Raceway peninsula: its land, the circuit and drift course, the dressing, its challenges |
 | `scripts/game/police.gd` | The police: patrol cars in the traffic noticing you, wanted stars, the police cars (road-following, ramming, boxing in, getting unstuck, coming in out of sight), busted and escaped, police at street races |
 | `scripts/game/race.gd` | Street races: the racing line (the streets' middle pulled tight within their width, with a speed for every metre), the CPU drivers (follow, pass, recover), checkpoints, laps and places |
 | `tools/cars/export_paints.gd` | Bakes each car's other liveries as per-vertex colour rows (`assets/cars/*_paints.res`) |
@@ -191,6 +213,9 @@ godot --path . -- --auto --wanted=3 --copslog     # the police after you from th
 godot --path . -- --drive --begin=race:downtown --raceauto --cops=1 --copsat=12   # police at this race, 12 s in
 godot --path . -- --drive --demo=3 --rwtest=6     # hold REWIND at 6 s for 1.5 s, logged
 godot --headless --path . --fixed-fps 120 -- --drive --demo=8 --interp   # the car between physics steps, per frame
+godot --path . -- --drive --traincam=0            # alongside a train (1, 2: the others); --boatcam=3 a boat
+godot --path . -- --drive --lookcam=-60,40,330,-60,0,560   # the camera here, looking there
+godot --path . -- --drive --begin=race:raceway --raceauto --racelog   # the Raceway Grand Prix
 xvfb-run godot --path . -- --drive --shot=/tmp/x.png --shot_at=200 --quit_after=30
 godot --headless --path . -s res://tools/test/handling.gd -- bug,hotrod all   # handling report
 godot --headless --path . -s res://tools/test/road_audit.gd                  # props in the road
@@ -212,7 +237,8 @@ encrypted (`assets/audio/pack.tar.enc`) and the build unlocks them with the `SFX
 the game falls back to its own synthesized sounds (`tools/audio/`). The buildings, people, pets, vehicles,
 ships and props are from Kenney's CC0 kits (kenney.nl: City Kit
 Suburban and Commercial, Modular Buildings, Retro Urban Kit, Car Kit, Mini Characters, Cube Pets,
-Mini Skate, Survival Kit, Mini Forest, Castle Kit, Holiday Kit, Mini Arena, Pirate Kit). The player cars
+Mini Skate, Survival Kit, Mini Forest, Castle Kit, Holiday Kit, Mini Arena, Pirate Kit, Train Kit, Racing
+Kit, Watercraft Pack). The player cars
 are the Tiny Car Pack. The Stunt Yard's ramps, platforms, half-pipes, gap jump, boost pads, gate, hoop,
 tunnel and yard props are "Stunt arena 3D models: ramps, hoop, barriers (GLB)" and "Stunt arena 3D
 expansion: loop, half-pipe, tunnel, obstacles" by Klyo Games (https://games.klyo.pl/free-game-assets/),

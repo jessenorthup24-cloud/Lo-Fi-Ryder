@@ -1551,7 +1551,7 @@ static func parked(def: Dictionary) -> ArrayMesh:
 # Each kit has its own scale; these bring them in line with the toy world (tile 1.6 m, people about 1 m tall).
 
 const K_PACK_SCALE := {"sub": 7.5, "com": 10.0, "mod": 5.0, "retro": 4.6, "arena": 4.0, "car": 1.75, "skate": 4.0, "surv": 3.8,
-	"forest": 5.5, "castle": 8.0, "holi": 1.6, "chars": 2.3}
+	"forest": 5.5, "castle": 8.0, "holi": 1.6, "chars": 2.3, "train": 2.4, "race": 8.0, "boat": 1.0}
 const K_SCALE := {
 	"k_surv_tree": 6.4, "k_surv_tree-tall": 6.4, "k_surv_tree-autumn": 6.4, "k_surv_tree-autumn-tall": 6.4, "k_surv_tree-trunk": 5.0,
 	"k_surv_tent": 4.4, "k_surv_tent-canvas": 4.4, "k_surv_campfire-pit": 4.0, "k_surv_patch-grass": 5.0,
@@ -1575,6 +1575,7 @@ const K_SCALE := {
 	"k_pirate_rocks-sand-a": 1.0, "k_pirate_rocks-sand-b": 1.0, "k_pirate_rocks-sand-c": 1.0, "k_pirate_boat-row-large": 1.4,
 	"k_pirate_boat-row-small": 1.4, "k_pirate_tower-watch": 1.8, "k_pirate_structure": 2.2, "k_pirate_structure-roof": 2.2,
 	"k_pirate_flag-high-pennant": 2.0,
+	"k_race_raceCarRed": 3.3, "k_race_raceCarGreen": 3.3, "k_race_raceCarOrange": 3.3, "k_race_raceCarWhite": 3.3,
 }
 # pets: heights in metres
 const K_PET_H := {"cow": 1.6, "elephant": 2.4, "giraffe": 3.0, "deer": 1.4, "bee": 0.3, "chick": 0.35, "crab": 0.35,

@@ -10,6 +10,8 @@ const P := preload("res://scripts/core/palette.gd")
 const Pool := preload("res://scripts/game/pool.gd")
 const People := preload("res://scripts/game/people.gd")
 const Districts := preload("res://scripts/game/districts.gd")
+const Railway := preload("res://scripts/game/railway.gd")
+const Raceway := preload("res://scripts/game/raceway.gd")
 
 const HALF := 600.0          # the world spans -HALF..HALF on x and z
 const CELL := 2.5
@@ -92,7 +94,7 @@ func build(material: ShaderMaterial, s: int) -> void:
 	road_mat.set_shader_parameter("depth_bias", 0.0005)
 	var steps := [["water", _water], ["coast", _coast], ["plan", func(): Districts.plan(self)], ["heights", _heights],
 		["roads", _road_levels], ["network", func(): _network(); _level_junctions()], ["cut", _cut_terrain], ["surfaces", _surfaces], ["terrain", _terrain], ["road meshes", _road_meshes], ["lots", _lot_meshes],
-		["bodies", _bodies], ["map", _map_meshes], ["populate", func(): Districts.populate(self)], ["scatter", func(): Districts.scatter(self)],
+		["bodies", _bodies], ["map", _map_meshes], ["rail", _rail], ["populate", func(): Districts.populate(self)], ["scatter", func(): Districts.scatter(self)],
 		["merge", _merge_statics], ["decals", _decal_mesh]]
 	for st in steps:
 		var t0 := Time.get_ticks_usec()
@@ -100,6 +102,14 @@ func build(material: ShaderMaterial, s: int) -> void:
 		timings[st[0]] = (Time.get_ticks_usec() - t0) / 1000
 
 var timings := {}
+
+## The railway round the island (laid before the town is built, so its strip stays clear).
+var rail: Node3D
+func _rail() -> void:
+	rail = Railway.new()
+	rail.name = "Railway"
+	add_child(rail)
+	rail.build(self)
 
 func _bodies() -> void:
 	body = StaticBody3D.new()
@@ -144,7 +154,12 @@ func inland(x: float, z: float) -> float:
 	var f := fposmod(rad_to_deg(a), 360.0)
 	var i := int(f)
 	var r := lerpf(coast_r[i], coast_r[(i + 1) % 360], f - i)
-	return r - sqrt(x * x + z * z)
+	var main := r - sqrt(x * x + z * z)
+	# the Raceway's peninsula, joined on smoothly
+	var pen := Raceway.inland(x, z)
+	var k := 40.0
+	var hk := maxf(k - absf(main - pen), 0.0) / k
+	return maxf(main, pen) + hk * hk * k * 0.25
 
 ## The raw land height before roads cut in.
 func h0(x: float, z: float) -> float:
@@ -272,7 +287,9 @@ func is_free(c: Vector2, hs: Vector2, yaw := 0.0) -> bool:
 ## Catmull-Rom spline through them, sampled every 2.5 m.
 func add_road(name: String, ctrl: Array, kind: String, closed := false) -> Dictionary:
 	# ("yard": a way in to the stunt yard; traffic leaves it alone)
-	var w: float = {"ring": 12.0, "main": 12.0, "road": 11.0, "street": 10.0, "lane": 8.0, "mountain": 9.0, "dirt": 6.5, "yard": 8.0}[kind]
+	# ("track", "drift": the Raceway's circuit and drift course)
+	var w: float = {"ring": 12.0, "main": 12.0, "road": 11.0, "street": 10.0, "lane": 8.0, "mountain": 9.0, "dirt": 6.5, "yard": 8.0,
+		"track": 14.0, "drift": 11.0}[kind]
 	var pts := _spline(ctrl, closed)
 	var r := {"name": name, "pts": pts, "y": PackedFloat32Array(), "w": w, "kind": kind, "closed": closed,
 		"walk": kind == "street" or kind == "main", "surf": S_DIRT if kind == "dirt" else S_ASPHALT}
@@ -711,11 +728,11 @@ func _road_meshes() -> void:
 			var lift := Vector3(0, 0.015, 0)
 			# centre line: dashed (solid yellow on the mountain)
 			var dash := kind == "mountain" or (k / 2) % 3 != 0
-			if kind != "lane" and kind != "yard" and dash:
+			if kind != "lane" and kind != "yard" and kind != "track" and kind != "drift" and dash:
 				var cw := 0.13
 				var cc: Color = line_y if kind in ["ring", "mountain", "main", "road"] else line_w
 				mb.quad(pa - la * cw + lift, pb - lb * cw + lift, pb + lb * cw + lift, pa + la * cw + lift, up, cc)
-			if kind in ["ring", "mountain", "main", "road"]:
+			if kind in ["ring", "mountain", "main", "road", "track", "drift"]:
 				for sd in [-1.0, 1.0]:
 					var e0: float = (hw - 0.55) * sd
 					var e1: float = (hw - 0.35) * sd
@@ -1603,6 +1620,14 @@ func _map_meshes() -> void:
 		var a := poly[tris[t]]
 		var b := poly[tris[t + 1]]
 		var c := poly[tris[t + 2]]
+		mb.tri(Vector3(a.x, -5, a.y), Vector3(c.x, -5, c.y), Vector3(b.x, -5, b.y), Vector3.UP, Vector3.UP, Vector3.UP, land)
+	# (and the Raceway's peninsula)
+	var pen := Raceway.outline()
+	var ptr := Geometry2D.triangulate_polygon(pen)
+	for t in range(0, ptr.size(), 3):
+		var a := pen[ptr[t]]
+		var b := pen[ptr[t + 1]]
+		var c := pen[ptr[t + 2]]
 		mb.tri(Vector3(a.x, -5, a.y), Vector3(c.x, -5, c.y), Vector3(b.x, -5, b.y), Vector3.UP, Vector3.UP, Vector3.UP, land)
 	_map_mesh(mb, "MapLand")
 	# roads, drawn fat so they read on the little map

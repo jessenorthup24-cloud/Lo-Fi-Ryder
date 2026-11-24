@@ -19,6 +19,11 @@ const V_MAX := 40.0
 const CORNER_R := 8.0       # the street centre's corners are rounded this much (the racing line then uses the width)
 const LINE_W := 3.0         # how far either side of the street's centre the racing line goes
 const ROOM := 3.5           # and the furthest a car's middle goes from the centre (passing, the grid)
+# (a race track, rather than the streets: its def says how wide the line may swing and how far out a car
+# may go, and each of its corners can have its own radius: Vector3(x, z, radius))
+var line_w := LINE_W
+var room_w := ROOM
+var radii: Array = []
 const CP_GAP := 75.0        # metres between checkpoints
 const NAMES := ["Ruby", "Dash", "Mika", "Juno", "Oz", "Pepper", "Sol", "Kit", "Remy", "Tess"]
 const AI_LAYER := 8
@@ -52,9 +57,17 @@ func setup(g, isl, d: Dictionary) -> void:
 	island = isl
 	def = d
 	laps = int(d.get("laps", 3))
+	line_w = float(d.get("line_w", LINE_W))
+	room_w = float(d.get("room", ROOM))
 	# the corners are junctions: use their exact centres, so the line runs down the middle of each street
+	# (on a race track they're just where the designer put them)
 	var corners: Array = []
-	for q in d["corners"]:
+	for q0 in d["corners"]:
+		var q := Vector2(q0.x, q0.y) if q0 is Vector3 else Vector2(q0)
+		radii.append(float(q0.z) if q0 is Vector3 else CORNER_R)
+		if d.get("track", false):
+			corners.append(q)
+			continue
 		var best: Vector2 = q
 		var bd := 18.0
 		for nd in island.nodes:
@@ -74,7 +87,9 @@ func setup(g, isl, d: Dictionary) -> void:
 	_paint_line()
 	_build_gates()
 
-func _build_line(corners: Array) -> void:
+## A loop of corners with each corner rounded off into an arc (radius each, or `r` for all): the middle of
+## the course. (Race tracks are built from this too, so the road and the race agree exactly.)
+static func rounded(corners: Array, rads: Array, r_all := CORNER_R) -> PackedVector2Array:
 	var n := corners.size()
 	var poly := PackedVector2Array()
 	for i in n:
@@ -84,7 +99,8 @@ func _build_line(corners: Array) -> void:
 		var d_in := (c - a).normalized()
 		var d_out := (b - c).normalized()
 		var turn := d_in.angle_to(d_out)
-		var tl := minf(CORNER_R * tan(absf(turn) * 0.5), minf(c.distance_to(a), c.distance_to(b)) * 0.45)
+		var cr: float = rads[i] if i < rads.size() else r_all
+		var tl := minf(cr * tan(absf(turn) * 0.5), minf(c.distance_to(a), c.distance_to(b)) * 0.45)
 		var r := tl / maxf(tan(absf(turn) * 0.5), 0.001)
 		var t1 := c - d_in * tl
 		var nrm := Vector2(-d_in.y, d_in.x) * signf(turn)     # towards the inside of the bend
@@ -93,6 +109,11 @@ func _build_line(corners: Array) -> void:
 		var a0 := (t1 - ctr).angle()
 		for k in steps + 1:
 			poly.append(ctr + Vector2.from_angle(a0 + turn * float(k) / steps) * r)
+	return poly
+
+func _build_line(corners: Array) -> void:
+	var n := corners.size()
+	var poly := rounded(corners, radii)
 	# resample to a point every metre, round the loop
 	var dense := PackedVector2Array()
 	var total := 0.0
@@ -136,7 +157,7 @@ func _build_line(corners: Array) -> void:
 				bd = dd
 				best = j
 		var room := minf(c.distance_to(a), c.distance_to(b))
-		cinfo.append([best, signf(turn), clampf(room * 0.42, 12.0, 26.0)])
+		cinfo.append([best, signf(turn), clampf(room * 0.42, 12.0, maxf(26.0, float(radii[i]) * 1.4))])
 	offs.resize(cnt0)
 	for i in cnt0:
 		var num := 0.0
@@ -152,7 +173,7 @@ func _build_line(corners: Array) -> void:
 			var w := 1.0 / pow(absf(d) + 6.0, 2.0)
 			num += h * w
 			den += w
-		offs[i] = clampf(num / den, -1.0, 1.0) * LINE_W
+		offs[i] = clampf(num / den, -1.0, 1.0) * line_w
 	var cur := ctr.duplicate()
 	for i in cnt0:
 		cur[i] = ctr[i] + nrm[i] * offs[i]
@@ -160,7 +181,7 @@ func _build_line(corners: Array) -> void:
 	for it in 40:
 		for i in cnt0:
 			var mid := (cur[(i - 3 + cnt0) % cnt0] + cur[(i + 3) % cnt0]) * 0.5
-			var o := clampf((mid - ctr[i]).dot(nrm[i]), -LINE_W, LINE_W)
+			var o := clampf((mid - ctr[i]).dot(nrm[i]), -line_w, line_w)
 			offs[i] = lerpf(offs[i], o, 0.5)
 			cur[i] = ctr[i] + nrm[i] * offs[i]
 	# resample the line itself to a point a metre apart (it's shorter than the middle of the street)
@@ -319,7 +340,7 @@ func _build_gates() -> void:
 		var arch := MeshInstance3D.new()
 		arch.mesh = am
 		arch.material_override = game.toon
-		var w := 14.0 if k == cps.size() - 1 else 11.5
+		var w: float = float(def.get("gate_w", 14.0)) if k == cps.size() - 1 else float(def.get("gate_w", 11.5))
 		var sc := w / maxf(am.get_aabb().size.x, 0.1)
 		arch.transform = Transform3D(Basis(Vector3.UP, atan2(-tg.x, -tg.y)).scaled(Vector3.ONE * sc), Vector3(c.x, island.height_at(c.x, c.y), c.y))
 		add_child(arch)
@@ -447,7 +468,7 @@ func _drive(r: Dictionary, dt: float) -> void:
 		follow_v = ov + clampf((block_ds - 9.0) * 0.5, -6.0, 4.0)
 		# pass on whichever side has room (and isn't someone already alongside)
 		for side in ([-1.0, 1.0] if my_lat < olat2 else [1.0, -1.0]):
-			var tl := clampf(olat2 + side * 2.7, -3.0, 3.0)
+			var tl := clampf(olat2 + side * 2.7, -(room_w - 0.5), room_w - 0.5)
 			if absf(tl - olat2) < 2.3:
 				continue       # (no room that side: the kerb)
 			var free := true
@@ -465,7 +486,7 @@ func _drive(r: Dictionary, dt: float) -> void:
 	r["lane_now"] = move_toward(float(r["lane_now"]), want, dt * 2.0)
 	# steer for a point ahead on the line (or beside it, but never off the street)
 	var la := 6.0 + v * 0.45
-	var lo := clampf(off_at(s + la) + float(r["lane_now"]), -ROOM, ROOM) - off_at(s + la)
+	var lo := clampf(off_at(s + la) + float(r["lane_now"]), -room_w, room_w) - off_at(s + la)
 	var tp := at(s + la) + right(s + la) * lo
 	var fwd := -c.global_transform.basis.z
 	var to := Vector3(tp.x - pos.x, 0, tp.y - pos.z)

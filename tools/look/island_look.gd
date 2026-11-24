@@ -49,6 +49,10 @@ const VIEWS := {
 	"cabbage": [Vector3(312, 4, 60), Vector3(330, 1, 85), 62.0],
 	"corn": [Vector3(240, 5, 150), Vector3(266, 1, 180), 62.0],
 	"potato": [Vector3(366, 5, -78), Vector3(340, 1, -55), 62.0],
+	"racewaytop": [Vector3(440, 330, 430.1), Vector3(440, 0, 430), 62.0],
+	"raceway": [Vector3(345, 40, 330), Vector3(470, 0, 430), 60.0],
+	"pits": [Vector3(470, 14, 395), Vector3(425, 3, 350), 60.0],
+	"raceway2": [Vector3(575, 25, 545), Vector3(460, 0, 440), 60.0],
 }
 
 var frames := 0

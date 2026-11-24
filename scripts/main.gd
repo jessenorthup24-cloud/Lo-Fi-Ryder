@@ -20,6 +20,7 @@ const Traffic := preload("res://scripts/game/traffic.gd")
 const Route := preload("res://scripts/game/route.gd")
 const Race := preload("res://scripts/game/race.gd")
 const Police := preload("res://scripts/game/police.gd")
+const Boats := preload("res://scripts/game/boats.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
 
@@ -125,6 +126,7 @@ var fuel_told := 0          # 1: told it's low, 2: told it's empty
 var at_station := {}        # the station you're stopped at
 var router: Route
 var police: Police
+var boats: Boats
 var route := {}             # where the GPS is taking you: {pos, name, kind}
 var route_pick := {}        # a place you picked on the map
 var route_pts := PackedVector3Array()
@@ -213,6 +215,10 @@ func _build_world() -> void:
 	traffic.name = "Traffic"
 	add_child(traffic)
 	traffic.setup(island, toon)
+	boats = Boats.new()
+	boats.name = "Boats"
+	add_child(boats)
+	boats.setup(island, toon, atmos)
 	car = Car.new()
 	car.name = "Car"
 	# the car moves in physics steps (60 a second) but the screen may show more frames than that:
@@ -438,6 +444,8 @@ func pause() -> void:
 		race.hold(true)
 	police.hold(true)
 	sound.mute_loops(true)
+	if island.rail:
+		island.rail.quiet(true)
 	ui.open_pause()
 	_save_now()
 
@@ -450,6 +458,8 @@ func resume() -> void:
 		race.hold(false)
 	police.hold(false)
 	sound.mute_loops(false)
+	if island.rail:
+		island.rail.quiet(false)
 	ui.close_sheet()
 	ui.show_hud()
 
@@ -630,6 +640,9 @@ func _process(dt: float) -> void:
 		(car.neon_node.get_meta("pool_mat") as ShaderMaterial).set_shader_parameter("night", atmos.night)
 		car.neon_tick(car.get_global_transform_interpolated())
 	var cp := car.global_position
+	boats.tick(dt)
+	if island.rail and (state == DRIVE or state == TITLE):
+		island.rail.tick(dt, cam.global_position)
 	island.tick(dt, cp, car.linear_velocity)
 	traffic.tick(dt, cp, car.linear_velocity, -cam.global_transform.basis.z)
 	if traffic.honk != Vector3.INF and state == DRIVE:
@@ -1155,7 +1168,7 @@ func _build_markers() -> void:
 		var sp: Vector2 = rc["start"]
 		var p3 := Vector3(sp.x, island.height_at(sp.x, sp.y), sp.y)
 		rc["pos"] = p3
-		_marker("race", rc["id"], p3, Color("ff5c7a"), "Street race: " + String(rc["name"]), 7.0)
+		_marker("race", rc["id"], p3, Color("ff5c7a"), String(rc.get("label", "Street race: ")) + String(rc["name"]), 7.0)
 		island.map_marker(p3, Color("ff5c7a"), 11.0)
 
 func _zone_start(z: Dictionary) -> Vector3:
@@ -2266,6 +2279,32 @@ func _cam(dt: float, snap := false) -> void:
 		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * shake * 0.18
 		shake = maxf(0.0, shake - dt * 2.5)
 	cam.look_at(look, Vector3.UP)
+	if args.has("traincam") and island.rail:
+		# a test: beside train i, a little ahead, looking back along it
+		var tb: Node3D = island.rail.trains[int(args["traincam"])]["cars"][0]["body"]
+		var tx := tb.global_transform
+		cam.position = tx.origin - tx.basis.z * 14.0 + tx.basis.x * 12.0 + Vector3(0, 4.0, 0)
+		cam.look_at(tx.origin + tx.basis.z * 10.0, Vector3.UP)
+		cam.far = 3000.0
+		cam.fov = 55.0
+		return
+	if args.has("boatcam") and boats:
+		# a test: alongside boat i, looking at it
+		var bmi: Node3D = boats.boats[int(args["boatcam"])]["mi"]
+		var bx := bmi.global_transform
+		cam.position = bx.origin + bx.basis.x.normalized() * 22.0 + bx.basis.z.normalized() * 14.0 + Vector3(0, 7.0, 0)
+		cam.look_at(bx.origin + Vector3(0, 1.0, 0), Vector3.UP)
+		cam.far = 3000.0
+		cam.fov = 50.0
+		return
+	if args.has("lookcam"):
+		# a test: the camera here, looking there (x,y,z,tx,ty,tz)
+		var lq := String(args["lookcam"]).split(",")
+		cam.position = Vector3(float(lq[0]), float(lq[1]), float(lq[2]))
+		cam.look_at(Vector3(float(lq[3]), float(lq[4]), float(lq[5])), Vector3.UP)
+		cam.far = 3000.0
+		cam.fov = 60.0
+		return
 	if args.has("topcam"):
 		# a test: straight down from x,z,height
 		var tq := String(args["topcam"]).split(",")

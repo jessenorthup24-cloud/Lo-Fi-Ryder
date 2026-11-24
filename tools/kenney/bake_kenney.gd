@@ -5,6 +5,7 @@ extends SceneTree
 ## them on load). The little people are posed (standing, sitting) and split into a body and two arms that
 ## hang from their shoulders, so they can still wave. Run from a scratch project whose res://packs/<pack>/
 ## holds the pack's "GLB format" folder:  godot --headless --path <scratch> -s bake_kenney.gd
+## (-- --only=train,race,boat bakes just those packs and keeps the others' entries in kenney_meta.json)
 const OUT := "/home/claude/lo-fi-ryder/assets/kenney/"
 const PICK := {
 	"sub": ["building-type-a", "building-type-b", "building-type-c", "building-type-d", "building-type-e", "building-type-f",
@@ -50,17 +51,43 @@ const PICK := {
 		"structure-platform-dock", "structure-platform-dock-small", "platform-planks", "structure", "structure-roof",
 		"barrel", "crate", "crate-bottles", "cannon", "mast", "flag-high-pennant", "palm-straight", "palm-bend",
 		"palm-detailed-straight", "palm-detailed-bend", "rocks-sand-a", "rocks-sand-b", "rocks-sand-c", "tower-watch", "chest"],
+	"train": ["train-locomotive-a", "train-locomotive-b", "train-locomotive-c", "train-locomotive-passenger-a",
+		"train-locomotive-passenger-b", "train-electric-city-a", "train-electric-city-b", "train-electric-city-c",
+		"train-diesel-a", "train-diesel-b", "train-diesel-c", "train-carriage-box", "train-carriage-coal",
+		"train-carriage-container-blue", "train-carriage-container-green", "train-carriage-container-red", "train-carriage-tank",
+		"train-carriage-tank-large", "train-carriage-lumber", "train-carriage-flatbed-wood", "train-carriage-wood", "track",
+		"track-detailed", "spline-track", "spline-segment", "railroad-straight", "train-connector"],
+	"race": ["barrierRed", "barrierWhite", "barrierWall", "bannerTowerGreen", "bannerTowerRed", "billboard", "billboardLow",
+		"fenceStraight", "fenceCurved", "flagCheckers", "flagCheckersSmall", "flagGreen", "flagRed", "grandStand",
+		"grandStandAwning", "grandStandCovered", "grandStandRound", "grandStandCoveredRound", "lightPostLarge",
+		"lightPostModern", "lightColored", "lightRedDouble", "overhead", "overheadLights", "overheadRound",
+		"overheadRoundColored", "pitsGarage", "pitsGarageClosed", "pitsGarageCorner", "pitsOffice", "pitsOfficeCorner",
+		"pitsOfficeRoof", "pylon", "radarEquipment", "rail", "railDouble", "tent", "tentClosed", "tentLong", "tentRoof",
+		"treeLarge", "treeSmall", "raceCarRed", "raceCarGreen", "raceCarOrange", "raceCarWhite", "roadBump"],
+	"boat": ["boat-speed-a", "boat-speed-b", "boat-speed-c", "boat-speed-d", "boat-speed-e", "boat-speed-f", "boat-sail-a",
+		"boat-sail-b", "boat-fishing-small", "boat-tug-a", "boat-tug-b", "boat-tow-a", "boat-row-large", "boat-row-small",
+		"ship-cargo-a", "ship-cargo-b", "ship-cargo-c", "ship-large", "ship-small", "ship-ocean-liner", "ship-ocean-liner-small",
+		"buoy", "buoy-flag", "boat-house-a", "cargo-container-a", "cargo-container-b"],
 	"chars": ["character-female-a", "character-female-b", "character-female-c", "character-female-d", "character-female-e",
 		"character-female-f", "character-male-a", "character-male-b", "character-male-c", "character-male-d", "character-male-e",
 		"character-male-f", "character-male-g", "character-worker"],
 }
 var images := {}
+# (the racing kit colours its parts with plain material colours, which come in brightened: put them back as
+# the kit drew them)
+var linear_tint := false
 const TURN := Basis(Vector3.UP, PI)   # Kenney models face +Z; the game's face -Z
 
 func _init():
 	var meta := {}
+	var only := []
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--only="):
+			only = Array(a.substr(7).split(","))
+	if not only.is_empty() and FileAccess.file_exists(OUT + "kenney_meta.json"):
+		meta = JSON.parse_string(FileAccess.get_file_as_string(OUT + "kenney_meta.json"))
 	for pack in PICK:
-		if pack == "chars":
+		if pack == "chars" or (not only.is_empty() and not only.has(pack)):
 			continue
 		for nm in PICK[pack]:
 			var path := "res://packs/%s/%s.glb" % [pack, nm]
@@ -68,6 +95,7 @@ func _init():
 				print("MISSING ", path)
 				continue
 			var root: Node = (load(path) as PackedScene).instantiate()
+			linear_tint = pack == "race"
 			var m := _bake(root, "", Vector3.ZERO, pack in ["sub", "com", "mod"], nm in ["lantern", "lantern-hanging", "lights-colored", "detail-light-single", "detail-light-double"])
 			root.free()
 			var key := "k_%s_%s" % [pack, nm]
@@ -76,7 +104,7 @@ func _init():
 			meta[key] = [snappedf(ab.position.x, 0.001), snappedf(ab.position.y, 0.001), snappedf(ab.position.z, 0.001),
 				snappedf(ab.size.x, 0.001), snappedf(ab.size.y, 0.001), snappedf(ab.size.z, 0.001), m.surface_get_array_len(0)]
 	# the little people, posed, with loose arms
-	for nm in PICK["chars"]:
+	for nm in (PICK["chars"] if only.is_empty() or only.has("chars") else []):
 		for pose in [["idle", 0.3, "stand"], ["sit", 0.1, "sit"]]:
 			var root: Node = (load("res://packs/chars/%s.glb" % nm) as PackedScene).instantiate()
 			get_root().add_child(root)
@@ -174,6 +202,8 @@ func _bake(root: Node, part: String, off: Vector3, lit_glass := false, lit_bulbs
 			var im: Image = null
 			if mat is BaseMaterial3D:
 				tint = (mat as BaseMaterial3D).albedo_color
+				if linear_tint and (mat as BaseMaterial3D).albedo_texture == null:
+					tint = tint.srgb_to_linear()
 				if (mat as BaseMaterial3D).albedo_texture:
 					im = _img((mat as BaseMaterial3D).albedo_texture)
 			var vv: PackedVector3Array = a[Mesh.ARRAY_VERTEX]

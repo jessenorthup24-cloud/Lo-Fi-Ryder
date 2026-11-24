@@ -7,6 +7,7 @@ const M := preload("res://scripts/core/models.gd")
 const MB := preload("res://scripts/core/mesh_builder.gd")
 const P := preload("res://scripts/core/palette.gd")
 const CARS := preload("res://scripts/game/cars.gd")
+const Raceway := preload("res://scripts/game/raceway.gd")
 
 const CASTLE := Vector2(-30, -362)
 const SQUARE := Vector2(-110, 30)
@@ -113,6 +114,7 @@ static func plan(I) -> void:
 	I.add_lot(Vector2(-46, -132), Vector2(13, 12), I.S_CONCRETE)          # gas station
 	I.add_lot(Vector2(246, -246), Vector2(14, 10), I.S_DIRT)              # campsite
 	I.add_lot(STUNT, STUNT_HS, I.S_CONCRETE)                              # the stunt yard
+	Raceway.plan(I)                                                       # the Raceway, on its peninsula
 	for st in STATIONS:
 		if st["lot"]:
 			var sp: Vector2 = st["pad"]
@@ -171,6 +173,7 @@ static func challenges(I) -> void:
 		_trial(I, "climb", "Castle Climb", "Castle Climb", Vector2(-30, -237), CASTLE + Vector2(0, 30), 6, "drift", [5000, 12000, 22000]),
 		_trial(I, "main", "Main Street Sprint", "Main Street", Vector2(-290, 62), Vector2(380, 30), 6, "time", [26.0, 31.0, 38.0]),
 	]
+	Raceway.challenges(I)
 	# coins hidden around the island
 	var spots := []
 	var rr := RandomNumberGenerator.new()
@@ -353,6 +356,7 @@ static func populate(I) -> void:
 	_harbour(I, rr)
 	_beach(I, rr)
 	_stunt_yard(I, rr)
+	Raceway.populate(I, rr)
 	_roadside(I, rr)
 	challenges(I)
 
