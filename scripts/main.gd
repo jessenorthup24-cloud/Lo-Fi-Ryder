@@ -256,6 +256,39 @@ func _build_world() -> void:
 		var off := Vector3(np.x - sp.origin.x, 0, np.z - sp.origin.z)
 		var side := Vector3(-f3.z, 0, f3.x)
 		car.place(Transform3D(sp.basis, sp.origin + side * off.dot(side) + Vector3(0, 0.3, 0)))
+	if args.has("aim"):
+		# a test: lined up 22 m from a tree, a street lamp or a traffic light, with a clear run at it
+		var want := String(args["aim"])
+		var cands := []
+		if want == "lamp":
+			for bk in island.breakables:
+				if String(bk["pool"]).contains("light-single"):
+					cands.append(bk["home"])
+		else:
+			for tr in island.topples:
+				if (tr["kind"] == "tree") == (want == "tree"):
+					cands.append(tr["pos"])
+		var c0 := Vector3(-150, 0, 100) if want != "tree" else Vector3(150, 0, 120)
+		cands.sort_custom(func(a1, b1): return (a1 as Vector3).distance_to(c0) < (b1 as Vector3).distance_to(c0))
+		var space := get_world_3d().direct_space_state
+		var done := false
+		for tp in cands.slice(0, 60):
+			for k in 12:
+				var d := Vector3(cos(k * TAU / 12.0), 0, sin(k * TAU / 12.0))
+				var st := (tp as Vector3) + d * 22.0
+				st.y = island.height_at(st.x, st.z)
+				if absf(st.y - (tp as Vector3).y) > 1.0 or island.is_blocked(st.x, st.z) and want == "tree":
+					continue
+				var q := PhysicsRayQueryParameters3D.create(st + Vector3(0, 0.8, 0), (tp as Vector3) + Vector3(0, 0.8, 0) + d * 1.2, 1 | 2)
+				var q2 := PhysicsRayQueryParameters3D.create(st + Vector3(0, 0.8, 0) + d.cross(Vector3.UP) * 1.0, (tp as Vector3) + Vector3(0, 0.8, 0) + d * 1.2 + d.cross(Vector3.UP) * 1.0, 1 | 2)
+				var q3 := PhysicsRayQueryParameters3D.create(st + Vector3(0, 0.8, 0) - d.cross(Vector3.UP) * 1.0, (tp as Vector3) + Vector3(0, 0.8, 0) + d * 1.2 - d.cross(Vector3.UP) * 1.0, 1 | 2)
+				if space.intersect_ray(q).is_empty() and space.intersect_ray(q2).is_empty() and space.intersect_ray(q3).is_empty():
+					car.place(Transform3D(Basis(Vector3.UP, atan2(d.x, d.z)), st + Vector3(0, 0.9, 0)))
+					print("AIM %s at (%.1f, %.1f) from (%.1f, %.1f)" % [want, tp.x, tp.z, st.x, st.z])
+					done = true
+					break
+			if done:
+				break
 	if args.has("sheet"):
 		# a test: open a screen for a screenshot (settings, help)
 		save.data["seen_help"] = true
@@ -505,6 +538,12 @@ func ach_check() -> void:
 
 func _process(dt: float) -> void:
 	frames += 1
+	if args.has("hitch") and state == DRIVE:
+		# testing: report frames that took far longer than the rest (stutters you'd feel)
+		var pt := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+		var ph := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+		if pt > 6.0 or ph > 6.0:
+			print("HITCH t=%.2f process=%.1f ms physics=%.1f ms save_t=%.1f ach_t=%.1f route_t=%.1f" % [time, pt, ph, save_t, ach_t, route_t])
 	if state == LOADING:
 		if frames == 3:
 			_build_world()
@@ -922,6 +961,21 @@ func _effects(dt: float) -> void:
 
 func _breakables() -> void:
 	var p := car.global_position + car.linear_velocity * 0.03
+	# trees and traffic lights: hit them fast enough and over they go (a little ahead, so the trunk or the
+	# post is out of the way before the car gets there)
+	for tr in island.hit_topples(car.global_position + car.linear_velocity * 0.07, car.linear_velocity, 2.1):
+		var tree: bool = tr["kind"] == "tree"
+		save.add_stat("knocks", 1)
+		sfx("knock_wood" if tree else "crash_wall", -1.0, randf_range(0.85, 1.0))
+		if tree:
+			for k in 6:
+				fx.puff((tr["pos"] as Vector3) + Vector3(randf_range(-1, 1), randf_range(2.0, 4.5), randf_range(-1, 1)), Color(0.45, 0.72, 0.38),
+					randf_range(0.5, 1.0), Vector3(randf_range(-2, 2), randf_range(0.5, 2.0), randf_range(-2, 2)), 1.2, 0.2)
+		fx.puff((tr["pos"] as Vector3) + Vector3(0, 0.6, 0), Color(0.85, 0.8, 0.72), 1.6, Vector3(0, 1, 0), 0.7, 0.8)
+		car.linear_velocity *= 0.8 if tree else 0.88
+		car.damage = minf(100.0, car.damage + (4.0 if tree else 2.5))
+		shake = maxf(shake, 0.45 if tree else 0.3)
+		_break_drift(true)
 	var hits := island.hit_breakables(p, car.linear_velocity, 1.9)
 	for b in hits:
 		save.add_stat("knocks", 1)

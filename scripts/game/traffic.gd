@@ -569,9 +569,12 @@ func hit(p: Vector3) -> bool:
 			return true
 	return false
 
+var _tick_n := 0
+
 func tick(dt: float, player: Vector3, _player_vel: Vector3, view := Vector3.ZERO) -> void:
 	honk = Vector3.INF
 	clock += dt
+	_tick_n += 1
 	_lights_tick()
 	var heads2 := []
 	for c in cars:
@@ -586,6 +589,15 @@ func tick(dt: float, player: Vector3, _player_vel: Vector3, view := Vector3.ZERO
 			continue
 		if int(c["mode"]) >= KNOCKED:
 			_wreck_tick(c, dt, player, view)
+			continue
+		# cars further off think less often (they still move every frame): near every frame, then every
+		# 2nd, then every 4th, staggered so it's spread out
+		var dp := pos.distance_to(player)
+		var every := 1 if dp < 70.0 else (2 if dp < 160.0 else 4)
+		if (_tick_n + i) % every != 0 and c.has("want_c"):
+			c["v"] = move_toward(c["v"], float(c["want_c"]), dt * (8.0 if float(c["want_c"]) < float(c["v"]) else 3.0))
+			_advance(c, float(c["v"]) * dt)
+			_put(c)
 			continue
 		var r := _road(c["r"])
 		var want: float = SPEED.get(r["kind"], 10.0) if c["mode"] == ROAD else TURN_V
@@ -634,6 +646,7 @@ func tick(dt: float, player: Vector3, _player_vel: Vector3, view := Vector3.ZERO
 		elif float(c["v"]) > 1.0:
 			c["wait"] = 0.0
 			c["honked"] = false
+		c["want_c"] = want
 		c["v"] = move_toward(c["v"], want, dt * (8.0 if want < float(c["v"]) else 3.0))
 		_advance(c, float(c["v"]) * dt)
 		_put(c)
@@ -765,7 +778,6 @@ func _advance(c: Dictionary, dist: float) -> void:
 # ------------------------------------------------------------------ traffic lights
 
 func _build_lights() -> void:
-	var post := MB.new()
 	for ni in island.nodes.size():
 		var nd: Dictionary = island.nodes[ni]
 		if not nd.get("signal", false):
@@ -780,34 +792,60 @@ func _build_lights() -> void:
 			var p := mouth + right * (float(a["hw"]) + 0.55) - t * 0.6
 			var y: float = island.height_at(p.x, p.y)
 			var b := Basis.looking_at(Vector3(-t.x, 0, -t.y), Vector3.UP)
-			post.cyl(Vector3(p.x, y, p.y), 0.09, 3.3, MB.rgb("4a4d52"), 8)
-			var hp := Vector3(p.x, y + 3.0, p.y)
-			post.box(hp, Vector3(0.42, 1.05, 0.3), MB.rgb("2b2d31"), b)
+			var base := Vector3(p.x, y, p.y)
 			var lamps := {}
-			for nm in ["red", "amber", "green"]:
-				var dy: float = {"red": 0.3, "amber": 0.0, "green": -0.3}[nm]
-				var lp := hp + Vector3(0, dy, 0) + b * Vector3(0, 0, -0.16)
-				post.box(lp, Vector3(0.24, 0.24, 0.04), MB.rgb("17181a"), b)
-				if nm == "amber":
-					continue
+			for nm in ["red", "green"]:
+				var lp := Vector3(0, 3.0 + (0.3 if nm == "red" else -0.3), 0) + b * Vector3(0, 0, -0.16)
 				var on := MB.new()
-				on.box(lp + b * Vector3(0, 0, -0.025), Vector3(0.22, 0.22, 0.03), MB.glow("ff4b3e" if nm == "red" else "54e08a"), b)
+				on.box(base + lp + b * Vector3(0, 0, -0.025), Vector3(0.22, 0.22, 0.03), MB.glow("ff4b3e" if nm == "red" else "54e08a"), b)
 				var mi := MeshInstance3D.new()
 				mi.mesh = on.commit()
 				mi.material_override = mat
 				mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 				add_child(mi)
 				lamps[nm] = mi
-			heads.append({"node": ni, "group": _group(a), "red": lamps["red"], "green": lamps["green"]})
-			island.add_cyl_collider(Vector3(p.x, y, p.y), 0.15, 3.3)
-	if not post.is_empty():
-		var pm := MeshInstance3D.new()
-		pm.mesh = post.commit()
-		pm.material_override = mat
-		add_child(pm)
+			var h := {"node": ni, "group": _group(a), "red": lamps["red"], "green": lamps["green"], "base": base, "b": b, "up": true}
+			heads.append(h)
+			# hit hard, it falls over (and comes back later, when you're gone)
+			island.add_post(base, 0.15, 3.3, func(vel: Vector3):
+				h["up"] = false
+				(h["red"] as Node3D).visible = false
+				(h["green"] as Node3D).visible = false
+				_posts_rebuild()
+				var one := MB.new()
+				_post_geo(one, Vector3.ZERO, b)
+				island.fall(one.commit(), Transform3D(Basis(), base), vel, 3.3),
+			func():
+				h["up"] = true
+				_posts_rebuild())
+	_posts_rebuild()
+
+## One traffic light's post and head (the lit lamps are separate, so they can change).
+func _post_geo(mb: MB, base: Vector3, b: Basis) -> void:
+	mb.cyl(base, 0.09, 3.3, MB.rgb("4a4d52"), 8)
+	var hp := base + Vector3(0, 3.0, 0)
+	mb.box(hp, Vector3(0.42, 1.05, 0.3), MB.rgb("2b2d31"), b)
+	for dy in [0.3, 0.0, -0.3]:
+		mb.box(hp + Vector3(0, dy, 0) + b * Vector3(0, 0, -0.16), Vector3(0.24, 0.24, 0.04), MB.rgb("17181a"), b)
+
+var _posts_mi: MeshInstance3D
+
+## All the standing traffic lights' posts in one mesh.
+func _posts_rebuild() -> void:
+	var post := MB.new()
+	for h in heads:
+		if h["up"]:
+			_post_geo(post, h["base"], h["b"])
+	if _posts_mi == null:
+		_posts_mi = MeshInstance3D.new()
+		_posts_mi.material_override = mat
+		add_child(_posts_mi)
+	_posts_mi.mesh = post.commit() if not post.is_empty() else null
 
 func _lights_tick() -> void:
 	for h in heads:
+		if not h["up"]:
+			continue          # (knocked down)
 		var go: bool = _green(island.nodes[h["node"]]) == int(h["group"])
 		(h["green"] as Node3D).visible = go
 		(h["red"] as Node3D).visible = not go

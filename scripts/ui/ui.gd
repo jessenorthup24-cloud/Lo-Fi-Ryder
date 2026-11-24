@@ -633,16 +633,28 @@ func show_hud() -> void:
 func hud_update(d: Dictionary) -> void:
 	_hud_data = d
 	speed_lbl.text = str(int(round(d["kmh"])))
-	# a sense of speed without blurring anything: faint streaks out at the edges, from about 90 km/h
-	var want := clampf((float(d["kmh"]) - 90.0) / 80.0, 0.0, 1.0) if bool(game.save.setting("speedfx")) else 0.0
+	# a sense of speed: the surroundings blur outward (never your car) and streaks rush past, from about 70 km/h
+	var want := clampf((float(d["kmh"]) - 70.0) / 90.0, 0.0, 1.0) if bool(game.save.setting("speedfx")) else 0.0
 	if game.args.has("speedfx"):
 		want = float(game.args["speedfx"])      # test: show them at this strength
 	speed_k = move_toward(speed_k, want, get_process_delta_time() * 1.5)
 	speed_fx.visible = speed_k > 0.01
 	if speed_fx.visible:
 		var vs := get_viewport().get_visible_rect().size
-		(speed_fx.material as ShaderMaterial).set_shader_parameter("amount", speed_k)
-		(speed_fx.material as ShaderMaterial).set_shader_parameter("aspect", vs.x / maxf(vs.y, 1.0))
+		var sm2 := speed_fx.material as ShaderMaterial
+		sm2.set_shader_parameter("amount", speed_k)
+		sm2.set_shader_parameter("aspect", vs.x / maxf(vs.y, 1.0))
+		# where the car is on screen (kept sharp) and where the road runs off to (everything rushes out from there)
+		var cam3: Camera3D = game.cam
+		var cpos: Vector3 = d["car_pos"]
+		if not cam3.is_position_behind(cpos):
+			var cs := cam3.unproject_position(cpos + Vector3(0, 0.6, 0)) / vs
+			sm2.set_shader_parameter("car_uv", cs)
+			var dist := maxf(cam3.global_position.distance_to(cpos), 2.0)
+			sm2.set_shader_parameter("car_size", Vector2(1.35 / dist * 1.2, 1.1 / dist * 1.5 * vs.x / vs.y * 0.5))
+		var ahead: Vector3 = cpos - cam3.global_transform.basis.z * 60.0
+		if not cam3.is_position_behind(ahead):
+			sm2.set_shader_parameter("center", cam3.unproject_position(ahead) / vs)
 	gear_lbl.text = "R" if game.car.speed < -0.5 and game.car.grounded > 0 else str(int(d["gear"]))
 	rpm_bar.value = d["rpm"]
 	clock_lbl.text = d["clock"] if bool(game.save.setting("clock")) else ""
@@ -1002,7 +1014,7 @@ func open_settings(from_pause := false) -> void:
 	g.add_child(_setting_toggle("vibe", "Vibration", st["haptics"], func(v): game.set_setting("haptics", v)))
 	g.add_child(_setting_toggle("shadow", "Shadows", st["shadows"], func(v): game.set_setting("shadows", v)))
 	g.add_child(_setting_toggle("sun", "Show clock", st["clock"], func(v): game.set_setting("clock", v)))
-	g.add_child(_setting_toggle("wind", "Speed lines", st.get("speedfx", true), func(v): game.set_setting("speedfx", v)))
+	g.add_child(_setting_toggle("wind", "Speed blur", st.get("speedfx", true), func(v): game.set_setting("speedfx", v)))
 	var reset := K.button("Reset progress", K.PAPER, K.LINE, 24, 0, 60)
 	reset.add_theme_color_override("font_color", K.CORAL_DK)
 	var armed := [false]

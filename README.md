@@ -18,9 +18,13 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   finger anywhere off the buttons to swing the view round the car (it settles back behind after a moment)
   and pinch to zoom (the zoom is kept).
 - Street lamps hang out over the road and throw a warm pool of light on it after dusk.
-- The car is drawn smoothly between physics steps (physics interpolation), so it stays sharp on 90/120 Hz
-  screens. Above about 90 km/h faint speed lines streak past the edges of the screen (never over the
-  car); Settings → Speed lines turns them off.
+- The car is drawn smoothly between physics steps (physics interpolation, with the physics jitter fix
+  off as Godot needs), so it stays sharp on 90/120 Hz screens. From about 70 km/h the surroundings blur
+  outward from the road ahead and light streaks rush past the edges; an oval round your car is kept
+  sharp. Settings → Speed blur turns it off.
+- Knock things over: hit a tree, a street lamp, a signpost or a traffic light at more than about
+  16 km/h and it falls over the way you were going (you lose some speed and take a little damage);
+  slower than that it just stops you. They're back about 40 s later once you're well away.
 - Controls: steer left and right on the left; brake, gas and the handbrake (DRIFT) on the right.
   Hold brake when stopped to reverse.
 - Handling: normally the car grips like a race car (planted rear, traction control, a stability system

@@ -51,6 +51,15 @@ var far_statics := {}              # landmarks seen from anywhere: mesh name -> 
 var pools := {}
 var breakables: Array = []         # {pool, slot, pos, yaw, sc, r, kind, home, state, t}
 var lamp_heads: Array = []         # the ground under each street lamp's head (where its light falls)
+var lamp_on := PackedByteArray()   # (a knocked-down lamp's light goes out)
+# ---- things that fall over when you hit them hard enough: trees (merged into the chunk meshes) and posts
+var topples: Array = []            # {kind: tree/post, name, xf, key, shape, pos, r, h, state 0 up / 1 down, t, knock, restore}
+var tgrid := {}                    # 10 m cell -> the topples in it
+var downed: Array = []             # knocked down, waiting to come back
+var chunk_mi := {}                 # chunk -> its merged props mesh
+var chunk_props := {}              # chunk -> {model: [transforms]} it's built from (rebuilt without a fallen tree)
+var fallers: Array = []            # falling over right now {node, xf0, axis, th, om, h, t, landed}
+const TOPPLE_V := 4.5              # m/s: slower than this a tree or a post just stops you
 var lamp_mi: MeshInstance3D        # those pools of light, all in one mesh
 var lamp_mat: ShaderMaterial
 var bgrid := {}                    # Vector2i (10 m) -> [breakable]
@@ -1179,8 +1188,11 @@ func add_stunt_collider(name: String, xf: Transform3D) -> void:
 func add_box_collider(xf: Transform3D, size: Vector3) -> void:
 	PhysicsServer3D.body_add_shape(_props_body(), _shape_box(size).get_rid(), xf)
 
-func add_cyl_collider(p: Vector3, r: float, h: float) -> void:
+## (returns the collider's index on the props body, so it can be switched off if the thing falls over)
+func add_cyl_collider(p: Vector3, r: float, h: float) -> int:
+	var i := PhysicsServer3D.body_get_shape_count(_props_body())
 	PhysicsServer3D.body_add_shape(_props_body(), _shape_cyl(r, h).get_rid(), Transform3D(Basis(), p + Vector3(0, h * 0.5, 0)))
+	return i
 
 ## The exact shape of a mesh (ramps, half-pipes) to drive on.
 func add_mesh_collider(name: String, xf: Transform3D) -> void:
@@ -1219,6 +1231,7 @@ func put(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, col := "box", 
 				y = minf(y, height_at(x + w.x, z + w.z))
 			y -= 0.05
 	var xf := Transform3D(bs, Vector3(x, y, z))
+	var ckey := Vector2i(int(floor(x / CHUNK)), int(floor(z / CHUNK)))
 	if audit_on and col != "":
 		var pts := [Vector2(x + cen.x, z + cen.z)]
 		for o in [] if col == "cyl" else [Vector3(ab.position.x, 0, ab.position.z), Vector3(ab.end.x, 0, ab.position.z), Vector3(ab.position.x, 0, ab.end.z), Vector3(ab.end.x, 0, ab.end.z)]:
@@ -1242,7 +1255,10 @@ func put(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, col := "box", 
 			var size := ab.size * sc * 0.96
 			add_box_collider(Transform3D(Basis(Vector3.UP, yaw), xf.origin + Basis(Vector3.UP, yaw) * c), size)
 		"cyl":
-			add_cyl_collider(xf.origin, clampf(minf(ab.size.x, ab.size.z) * sc * 0.12, 0.18, 0.6), ab.size.y * sc)
+			var cr := clampf(minf(ab.size.x, ab.size.z) * sc * 0.12, 0.18, 0.6)
+			var si := add_cyl_collider(xf.origin, cr, ab.size.y * sc)
+			if not landmark and _toppleable(name):
+				_add_topple({"kind": "tree", "name": name, "xf": xf, "key": ckey, "shape": si, "pos": xf.origin, "r": cr, "h": ab.size.y * sc})
 		"mesh":
 			add_mesh_collider(name, xf)
 		"stunt":
@@ -1280,8 +1296,11 @@ func put_breakable(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, r :=
 	if name == "k_retro_detail-light-single" or name == "k_retro_detail-light-double":
 		# where the light falls: out in front of the head, over the road (a park's double lamp: round both heads)
 		var reach := 0.92 * sc
+		b["heads"] = []
 		for hz in ([reach + 2.2] if name.ends_with("single") else [reach, -reach]):
+			b["heads"].append(lamp_heads.size())
 			lamp_heads.append(pos + Basis(Vector3.UP, yaw) * Vector3(0, 0, float(hz)))
+			lamp_on.append(1)
 	var g := Vector2i(int(floor(x / 10.0)), int(floor(z / 10.0)))
 	if not bgrid.has(g):
 		bgrid[g] = []
@@ -1356,6 +1375,16 @@ func hit_breakables(p: Vector3, vel: Vector3, radius: float) -> Array:
 				var d: Vector3 = b["pos"] - p
 				d.y = 0.0
 				if d.length() < radius + float(b["r"]) and absf(b["pos"].y - p.y) < 3.0:
+					if _is_post(b["pool"]):
+						# a lamp or a signpost: it folds over at the base and falls (and its light goes out)
+						b["state"] = 2
+						b["t"] = 0.0
+						pools[b["pool"]].put(b["slot"], Transform3D(Basis().scaled(Vector3.ONE * 0.001), b["home"]))
+						var ab: AABB = M.get_mesh(b["pool"]).get_aabb()
+						fall(M.get_mesh(b["pool"]), Transform3D(b["basis"], b["home"]), vel, ab.size.y * float(b["sc"]))
+						_lamp_light(b, false)
+						hits.append(b)
+						continue
 					var push := vel * 0.9 + Vector3(0, 3.5 + vel.length() * 0.18, 0)
 					b["state"] = 1
 					b["t"] = 0.0
@@ -1363,6 +1392,16 @@ func hit_breakables(p: Vector3, vel: Vector3, radius: float) -> Array:
 					b["spin"] = Vector3(randf_range(-6, 6), randf_range(-4, 4), randf_range(-6, 6))
 					hits.append(b)
 	return hits
+
+static func _is_post(pool_name: String) -> bool:
+	return pool_name.contains("light-single") or pool_name.contains("light-double") or pool_name.contains("signpost")
+
+func _lamp_light(b: Dictionary, on: bool) -> void:
+	if not b.has("heads"):
+		return
+	for hi in b["heads"]:
+		lamp_on[int(hi)] = 1 if on else 0
+	_lamp_glow()
 
 func _tick_breakables(dt: float, car_pos: Vector3) -> void:
 	for b in breakables:
@@ -1388,6 +1427,7 @@ func _tick_breakables(dt: float, car_pos: Vector3) -> void:
 			# back where it was once nobody's looking
 			if b["t"] > 25.0 and (b["home"] as Vector3).distance_to(car_pos) > 60.0:
 				b["state"] = 0
+				_lamp_light(b, true)
 				b["pos"] = b["home"]
 				b["basis"] = Basis(Vector3.UP, b["yaw"]).scaled(Vector3.ONE * float(b["sc"]))
 				pools[b["pool"]].put(b["slot"], Transform3D(b["basis"], b["pos"]))
@@ -1400,8 +1440,10 @@ func _lamp_glow() -> void:
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var rad := 6.0
 	var n := 4
-	for h in lamp_heads:
-		var c: Vector3 = h
+	for hi in lamp_heads.size():
+		if lamp_on[hi] == 0:
+			continue
+		var c: Vector3 = lamp_heads[hi]
 		var idx0 := 0
 		var grid := []
 		for j in n + 1:
@@ -1420,6 +1462,9 @@ func _lamp_glow() -> void:
 				for q in [a, b, c2, a, c2, d]:
 					st.set_uv(q[1])
 					st.add_vertex(q[0])
+	if lamp_mi != null:
+		lamp_mi.mesh = st.commit()       # (rebuilt: a lamp went down or came back)
+		return
 	lamp_mat = ShaderMaterial.new()
 	lamp_mat.shader = load("res://shaders/lamp_glow.gdshader")
 	lamp_mi = MeshInstance3D.new()
@@ -1432,19 +1477,14 @@ func _lamp_glow() -> void:
 
 ## Merge every static model into one mesh per chunk (plus one for the landmarks).
 func _merge_statics() -> void:
+	chunk_props = statics.duplicate()
 	for key in statics:
-		var st := SurfaceTool.new()
-		st.begin(Mesh.PRIMITIVE_TRIANGLES)
-		var any := false
-		for nm in statics[key]:
-			var m := M.get_mesh(nm)
-			for xf in statics[key][nm]:
-				st.append_from(m, 0, xf)
-				any = true
-		if not any:
+		var cm := _chunk_mesh(key)
+		if cm == null:
 			continue
 		var mi := MeshInstance3D.new()
-		mi.mesh = st.commit()
+		chunk_mi[key] = mi
+		mi.mesh = cm
 		mi.material_override = mat
 		mi.visibility_range_end = 330.0
 		mi.visibility_range_end_margin = 30.0
@@ -1463,8 +1503,129 @@ func _merge_statics() -> void:
 		mi2.material_override = mat
 		mi2.name = "Landmarks"
 		add_child(mi2)
-	statics.clear()
+	statics = {}
 	far_statics.clear()
+
+## A chunk's props merged into one mesh (from chunk_props: a fallen tree is left out).
+func _chunk_mesh(key: Vector2i) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var any := false
+	for nm in chunk_props[key]:
+		var m := M.get_mesh(nm)
+		for xf in chunk_props[key][nm]:
+			st.append_from(m, 0, xf)
+			any = true
+	return st.commit() if any else null
+
+# ---------------------------------------------------------------- knocking things over
+
+static func _toppleable(name: String) -> bool:
+	return name.contains("tree") or name.contains("palm") or name == "pine_tall"
+
+func _add_topple(tr: Dictionary) -> void:
+	tr["state"] = 0
+	tr["t"] = 0.0
+	topples.append(tr)
+	var p: Vector3 = tr["pos"]
+	var g := Vector2i(int(floor(p.x / 10.0)), int(floor(p.z / 10.0)))
+	if not tgrid.has(g):
+		tgrid[g] = []
+	tgrid[g].append(tr)
+
+## Something standing that a car can knock over (a traffic light): knock(vel) when it goes, restore() when
+## it comes back. Returns its record.
+func add_post(p: Vector3, r: float, h: float, knock: Callable, restore: Callable) -> Dictionary:
+	var tr := {"kind": "post", "shape": add_cyl_collider(p, r, h), "pos": p, "r": r, "h": h, "knock": knock, "restore": restore}
+	_add_topple(tr)
+	return tr
+
+## A car at p going at vel, radius big: knocks over whatever it's about to hit (fast enough). Returns them.
+func hit_topples(p: Vector3, vel: Vector3, radius: float) -> Array:
+	var hits := []
+	var v := Vector2(vel.x, vel.z).length()
+	if v < TOPPLE_V:
+		return hits
+	var g := Vector2i(int(floor(p.x / 10.0)), int(floor(p.z / 10.0)))
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			for tr in tgrid.get(g + Vector2i(dx, dz), []):
+				if tr["state"] != 0:
+					continue
+				var tp: Vector3 = tr["pos"]
+				if Vector2(tp.x - p.x, tp.z - p.z).length() < radius + float(tr["r"]) and absf(tp.y - p.y) < 3.0:
+					_knock(tr, vel)
+					hits.append(tr)
+	return hits
+
+func _knock(tr: Dictionary, vel: Vector3) -> void:
+	tr["state"] = 1
+	tr["t"] = 0.0
+	downed.append(tr)
+	PhysicsServer3D.body_set_shape_disabled(props_body, int(tr["shape"]), true)
+	if tr["kind"] == "tree":
+		var lst: Array = chunk_props[tr["key"]][tr["name"]]
+		lst.erase(tr["xf"])
+		_rebuild_chunk(tr["key"])
+		fall(M.get_mesh(tr["name"]), tr["xf"], vel, float(tr["h"]))
+	else:
+		(tr["knock"] as Callable).call(vel)
+
+func _rebuild_chunk(key: Vector2i) -> void:
+	if chunk_mi.has(key):
+		(chunk_mi[key] as MeshInstance3D).mesh = _chunk_mesh(key)
+
+## Something falls over from its base, away from what hit it (a copy: the real one's already hidden).
+func fall(mesh: Mesh, xf: Transform3D, vel: Vector3, h: float) -> void:
+	var dir := Vector3(vel.x, 0, vel.z)
+	if dir.length() < 0.1:
+		dir = Vector3.FORWARD
+	var node := MeshInstance3D.new()
+	node.mesh = mesh
+	node.material_override = mat
+	node.transform = xf
+	add_child(node)
+	var hh := maxf(h, 1.0)
+	fallers.append({"node": node, "xf0": xf, "axis": Vector3.UP.cross(dir.normalized()).normalized(),      # (so the top goes the way you were going)
+		"th": 0.12, "om": clampf(dir.length() / hh * 0.9, 0.7, 3.2), "h": hh, "t": 0.0, "landed": false})
+
+func _tick_fallers(dt: float, car_pos: Vector3) -> void:
+	for i in range(fallers.size() - 1, -1, -1):
+		var f: Dictionary = fallers[i]
+		f["t"] = float(f["t"]) + dt
+		var lie := 1.42               # (lying down: the crown or the lamp head holds it a little off flat)
+		if not f["landed"]:
+			# a falling stick: the further over, the faster it goes
+			f["om"] = float(f["om"]) + 1.5 * 9.8 / float(f["h"]) * sin(float(f["th"])) * dt
+			f["th"] = float(f["th"]) + float(f["om"]) * dt
+			if float(f["th"]) >= lie:
+				f["th"] = lie
+				f["om"] = -float(f["om"]) * 0.18
+				if absf(float(f["om"])) < 0.15:
+					f["landed"] = true
+					f["t"] = 0.0
+		var node: MeshInstance3D = f["node"]
+		var xf0: Transform3D = f["xf0"]
+		var sink := 0.0
+		if f["landed"] and float(f["t"]) > 8.0:
+			sink = (float(f["t"]) - 8.0) * 0.6          # then it sinks away
+		node.transform = Transform3D(Basis(f["axis"], float(f["th"])) * xf0.basis, xf0.origin - Vector3(0, sink, 0))
+		if sink > 2.5:
+			node.queue_free()
+			fallers.remove_at(i)
+	# what's down comes back once you're well away
+	for i in range(downed.size() - 1, -1, -1):
+		var tr: Dictionary = downed[i]
+		tr["t"] = float(tr["t"]) + dt
+		if float(tr["t"]) > 40.0 and (tr["pos"] as Vector3).distance_to(car_pos) > 90.0:
+			tr["state"] = 0
+			downed.remove_at(i)
+			PhysicsServer3D.body_set_shape_disabled(props_body, int(tr["shape"]), false)
+			if tr["kind"] == "tree":
+				(chunk_props[tr["key"]][tr["name"]] as Array).append(tr["xf"])
+				_rebuild_chunk(tr["key"])
+			else:
+				(tr["restore"] as Callable).call()
 
 # ---------------------------------------------------------------- minimap
 
@@ -1574,6 +1735,7 @@ func map_marker(pos: Vector3, col: Color, r := 9.0) -> MeshInstance3D:
 func tick(dt: float, car_pos: Vector3, car_vel: Vector3) -> void:
 	time += dt
 	_tick_breakables(dt, car_pos)
+	_tick_fallers(dt, car_pos)
 	Districts.tick_anims(self, dt, car_pos)
 	people.tick(dt, car_pos, car_vel, time)
 	people.tick_visibility()
