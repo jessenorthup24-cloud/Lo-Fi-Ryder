@@ -17,6 +17,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - Landscape, third-person chase camera. The camera button cycles near, far and a close, low view. Drag a
   finger anywhere off the buttons to swing the view round the car (it settles back behind after a moment)
   and pinch to zoom (the zoom is kept).
+- Street lamps hang out over the road and throw a warm pool of light on it after dusk.
 - The car is drawn smoothly between physics steps (physics interpolation), so it stays sharp on 90/120 Hz
   screens. Above about 90 km/h faint speed lines streak past the edges of the screen (never over the
   car); Settings → Speed lines turns them off.
@@ -35,6 +36,12 @@ on cars and upgrades. The day runs in real time on the island and the season fol
     The Drift Bowl, the town square, the harbour lot, the farmyard, the beach car park, the skate
     park and the Stunt Yard (where jumps, flips and the loop count too).
   - Time trials (blue): race through the gates. Drift runs (purple): drift through every gate.
+  - Street races (red ring): roll into the ring gently (or tap Race on the map) and you're lined up on
+    a grid with seven CPU drivers for three laps of the Downtown Loop; the streets are closed to
+    traffic while it's on. A racing line is painted on the road like Forza's (blue: on the power,
+    amber: the corner, red: brake now), checkpoint arches stand across it, the course is drawn on the
+    minimap and the arrow up top points the way with the distance to the next checkpoint. Gold for 1st,
+    silver 2nd, bronze 3rd. Lost or upside down: reset puts you back at the last checkpoint.
   - Each has bronze, silver and gold medals that pay out once.
   - Hidden coins are tucked around the island (a few hang in the Stunt Yard's air), and finding all 13
     places counts toward trophies.
@@ -112,6 +119,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `tools/audio/`, `tools/music/` | Sound synthesis scripts (the fallback sounds); the CC0 music list the build fetches |
 | `scripts/game/dents.gd` | Crash damage: bends a mesh in around an impact and scuffs the paint |
 | `scripts/game/route.gd` | GPS: the road network as a graph and the shortest way along it |
+| `scripts/game/race.gd` | Street races: the racing line (the streets' middle pulled tight within their width, with a speed for every metre), the CPU drivers (follow, pass, recover), checkpoints, laps and places |
 | `tools/cars/export_paints.gd` | Bakes each car's other liveries as per-vertex colour rows (`assets/cars/*_paints.res`) |
 
 There are no autoloads and no `class_name`s, so an update pack can replace any script before it loads.
@@ -124,6 +132,8 @@ godot --path . -- --drive --at=harbour --hour=21 # start at a zone, trial, place
 godot --path . -- --garage=up --fresh            # garage on the Upgrades tab, fresh save
 godot --path . -- --drive --put=-108,284,90 --stunt=backflip   # exactly here (x,z,yaw), gas on, a trick in the air
 godot --path . -- --drive --season=3             # 0 spring, 1 summer, 2 autumn, 3 winter
+godot --path . -- --drive --race=downtown --raceauto --racelog   # straight into a race, CPU drives you too
+godot --path . -- --drive --race=downtown --topcam=-170,120,190  # ...watched from straight above
 xvfb-run godot --path . -- --drive --shot=/tmp/x.png --shot_at=200 --quit_after=30
 godot --headless --path . -s res://tools/test/handling.gd -- bug,hotrod all   # handling report
 godot --headless --path . -s res://tools/test/road_audit.gd                  # props in the road

@@ -18,6 +18,7 @@ const Ach := preload("res://scripts/game/achievements.gd")
 const Pool := preload("res://scripts/game/pool.gd")
 const Traffic := preload("res://scripts/game/traffic.gd")
 const Route := preload("res://scripts/game/route.gd")
+const Race := preload("res://scripts/game/race.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
 
@@ -119,6 +120,8 @@ var route := {}             # where the GPS is taking you: {pos, name, kind}
 var route_pick := {}        # a place you picked on the map
 var route_pts := PackedVector3Array()
 var route_t := 0.0
+var race: Race = null       # the street race on now
+var race_end_t := 0.0
 
 func _ready() -> void:
 	_parse_args()
@@ -136,6 +139,7 @@ func _ready() -> void:
 	toon.shader = load("res://shaders/toon.gdshader")
 	toon.set_shader_parameter("palette", PAL.make_texture())
 	cam = Camera3D.new()
+	cam.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # follows the car every frame
 	cam.fov = 64.0
 	cam.near = 0.25
 	cam.far = 1400.0
@@ -173,6 +177,8 @@ func _build_world() -> void:
 	add_child(island)
 	island.build(toon, atmos.season)
 	atmos.sea = island.water_mat
+	if island.lamp_mat:
+		atmos.add_material(island.lamp_mat)
 	Ach.coin_total = island.coin_spots.size()
 	fx = Fx.new()
 	add_child(fx)
@@ -259,6 +265,8 @@ func _build_world() -> void:
 				ui.open_settings()
 			"help":
 				ui.show_help()
+			"map":
+				ui.open_map()
 	elif args.has("garage"):
 		open_garage()
 		if String(args["garage"]) in ["up", "paint"]:
@@ -268,6 +276,9 @@ func _build_world() -> void:
 	elif args.has("auto") or args.has("drive"):
 		autopilot = args.has("auto")
 		start_drive()
+		if args.has("race"):
+			# a test: straight into a street race (--raceauto: and the CPU drives your car too)
+			_start_race(String(args["race"]))
 	else:
 		state = TITLE
 		ui.show_title()
@@ -341,6 +352,8 @@ func pause() -> void:
 	state = PAUSED
 	get_tree().paused = false
 	car.freeze = true
+	if race != null:
+		race.hold(true)
 	sound.mute_loops(true)
 	ui.open_pause()
 	_save_now()
@@ -350,6 +363,8 @@ func resume() -> void:
 		return
 	state = DRIVE
 	car.freeze = false
+	if race != null:
+		race.hold(false)
 	sound.mute_loops(false)
 	ui.close_sheet()
 	ui.show_hud()
@@ -359,6 +374,8 @@ func open_garage() -> void:
 	var from := state
 	state = GARAGE
 	car.freeze = true
+	if race != null:
+		race.hold(true)
 	sound.mute_loops(true)
 	ui.show_garage(from)
 
@@ -368,6 +385,8 @@ func close_garage(back_to: int) -> void:
 	if back_to == DRIVE or back_to == PAUSED:
 		state = DRIVE
 		car.freeze = false
+		if race != null:
+			race.hold(false)
 		ui.show_hud()
 	else:
 		state = TITLE
@@ -387,6 +406,13 @@ func car_changed() -> void:
 	sound.turbo = int(save.data["up"].get("turbo", 0))
 
 func reset_car() -> void:
+	if race != null and race.state == 1:
+		# in a race: back to the last checkpoint
+		var lc := int(race.you["last_cp"])
+		race.you["s"] = (float(lc / race.cps.size()) * race.length + float(race.cps[lc % race.cps.size()])) if lc >= 0 else -9.0
+		race._respawn(race.you, 0.0)
+		_snap_cam()
+		return
 	var p := car.global_position
 	var xf := _road_spot(p, car.global_rotation.y)
 	# in the stunt yard: back to the start of the nearest run
@@ -486,6 +512,8 @@ func _process(dt: float) -> void:
 	dt = minf(dt, 0.05)
 	time += dt
 	atmos.tick(dt)
+	if island and island.lamp_mi:
+		island.lamp_mi.visible = atmos.night > 0.02     # the street lamps' light on the road, after dusk
 	var cp := car.global_position
 	island.tick(dt, cp, car.linear_velocity)
 	traffic.tick(dt, cp, car.linear_velocity, -cam.global_transform.basis.z)
@@ -661,6 +689,7 @@ func _drive(dt: float) -> void:
 	_breakables()
 	_zone_tick(dt)
 	_trial_tick(dt)
+	_race_tick(dt)
 	_places(dt)
 	_recover(dt)
 	bump_cd = maxf(0.0, bump_cd - dt)
@@ -675,7 +704,7 @@ func _drive(dt: float) -> void:
 	ui.hud_update({"kmh": kmh, "gear": car.gear, "rpm": car.rpm, "drift": drift_pts, "combo": combo, "combo_t": combo_t,
 		"drifting": drift_on, "coins": int(save.data["coins"]), "place": place_now, "clock": atmos.clock_text(),
 		"zone": zone, "zone_t": zone_t, "zone_pts": zone_pts, "trial": trial, "trial_t": trial_t, "trial_gate": trial_gate,
-		"trial_pts": trial_pts, "car_pos": car.get_global_transform_interpolated().origin, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip)),
+		"trial_pts": trial_pts, "race": {} if race == null else race.hud(), "car_pos": car.get_global_transform_interpolated().origin, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip)),
 		"close": drift_on and close < 1.6 and car.drift > 0.2, "damage": car.damage, "fuel": fuel})
 
 # ------------------------------------------------------------------ drifting
@@ -976,6 +1005,12 @@ func _build_markers() -> void:
 		var g0: Transform3D = t["gates"][0]
 		_marker("trial", t["id"], g0.origin, Color("5cc8ff") if t["kind"] == "time" else Color("c38bff"), t["name"], 6.0)
 		island.map_marker(g0.origin, Color("5cc8ff") if t["kind"] == "time" else Color("c38bff"), 10.0)
+	for rc in island.races:
+		var sp: Vector2 = rc["start"]
+		var p3 := Vector3(sp.x, island.height_at(sp.x, sp.y), sp.y)
+		rc["pos"] = p3
+		_marker("race", rc["id"], p3, Color("ff5c7a"), "Street race: " + String(rc["name"]), 7.0)
+		island.map_marker(p3, Color("ff5c7a"), 11.0)
 
 func _zone_start(z: Dictionary) -> Vector3:
 	var c: Vector3 = z["pos"]
@@ -1008,7 +1043,7 @@ func _marker(kind: String, id: String, pos: Vector3, col: Color, name: String, r
 
 func _markers_tick(_dt: float) -> void:
 	var p := car.global_position
-	var busy := not zone.is_empty() or not trial.is_empty()
+	var busy := not zone.is_empty() or not trial.is_empty() or race != null
 	for m in markers:
 		var d := (m["pos"] as Vector3).distance_to(p)
 		var show := d < 220.0 and not busy
@@ -1017,9 +1052,13 @@ func _markers_tick(_dt: float) -> void:
 		if show:
 			(m["node"] as Node3D).rotation.y += 0.3 * get_process_delta_time()
 			(m["label"] as Node3D).position.y = (m["pos"] as Vector3).y + 4.0 + sin(time * 2.0) * 0.3
-		if state == DRIVE and not busy and d < float(m["r"]) and car.linear_velocity.length() > 2.0:
+		# (a race lines you up on the grid: roll in gently to start one, so driving past doesn't)
+		if state == DRIVE and not busy and d < float(m["r"]) and car.linear_velocity.length() > 2.0 \
+				and (m["kind"] != "race" or car.linear_velocity.length() < 12.0):
 			if m["kind"] == "zone":
 				_start_zone(m["id"])
+			elif m["kind"] == "race":
+				_start_race(m["id"])
 			else:
 				_start_trial(m["id"])
 			busy = true
@@ -1192,6 +1231,14 @@ func _finish_trial() -> void:
 func _end_challenges() -> void:
 	zone = {}
 	trial = {}
+	if race != null:
+		race.cleanup()
+		race.queue_free()
+		race = null
+		traffic.keep_out = Rect2()
+		car.freeze = false
+		car.collision_mask = car.collision_mask & ~Race.AI_LAYER
+		route = {}
 	for g in gate_nodes:
 		g.queue_free()
 	gate_nodes.clear()
@@ -1239,6 +1286,8 @@ func _coins_tick(_dt: float) -> void:
 # ------------------------------------------------------------------ fuel and gas stations
 
 func _fuel(dt: float) -> void:
+	if race != null:
+		return          # (a race doesn't use up your tank: nobody wants to run dry on the last lap)
 	var burn := 0.004 + car.throttle * 0.075 * (0.45 + car.rpm)
 	if car.linear_velocity.length() < 0.5 and car.throttle < 0.05:
 		burn = 0.002
@@ -1317,6 +1366,67 @@ func buy_repair() -> void:
 	sfx("upgrade", -2.0)
 	_save_now()
 
+# ------------------------------------------------------------------ street races
+
+func _start_race(id: String) -> void:
+	var d := {}
+	for rc in island.races:
+		if rc["id"] == id:
+			d = rc
+	if d.is_empty():
+		return
+	_end_challenges()
+	_break_drift(false)
+	race = Race.new()
+	add_child(race)
+	race.setup(self, island, d)
+	race.grid(car)
+	car.collision_mask = car.collision_mask | Race.AI_LAYER     # bump into the other racers
+	_snap_cam()
+	# the streets the race runs on are closed to traffic
+	var bb := Rect2(race.pts[0], Vector2.ZERO)
+	for q in race.pts:
+		bb = bb.expand(q)
+	traffic.keep_out = bb.grow(14.0)
+	race_end_t = 0.0
+	ui.race_start(String(d["name"]), int(d["laps"]), race.racers.size())
+
+func _race_tick(dt: float) -> void:
+	if race == null:
+		return
+	race.tick(dt)
+	if race_end_t > 0.0:
+		race_end_t -= dt
+		if race_end_t <= 0.0:
+			_end_challenges()
+
+## You crossed the line: where you came, and your time.
+func race_done(place: int, t: float) -> void:
+	var d: Dictionary = race.def
+	var id := String(d["id"])
+	var mkey := "race_" + id
+	var medal := 3 if place == 1 else (2 if place == 2 else (1 if place == 3 else 0))
+	var best := float(save.data["races"].get(id, 0.0))
+	var better := best <= 0.0 or t < best
+	if better:
+		save.data["races"][id] = snappedf(t, 0.01)
+	var old_medal := int(save.data["medals"].get(mkey, 0))
+	var pay := 0
+	if medal > old_medal:
+		pay = MEDAL_PAY[medal] - MEDAL_PAY[old_medal]
+		save.data["medals"][mkey] = medal
+		save.data["coins"] = int(save.data["coins"]) + pay
+	if place == 1:
+		save.add_stat("race_wins", 1)
+	save.add_stat("races", 1)
+	var nth: String = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"][clampi(place - 1, 0, 7)]
+	var mins := int(t) / 60
+	ui.challenge_result(String(d["name"]), "%s · %d:%05.2f" % [nth, mins, t - mins * 60.0], medal, pay, better and best > 0.0)
+	sfx("finish", -2.0)
+	race_end_t = 4.0
+	_save_now()
+	ach_check()
+
 # ------------------------------------------------------------------ the GPS
 
 ## Set (or clear) a place to go, from the map.
@@ -1358,6 +1468,15 @@ func _route_target() -> Dictionary:
 	return {}
 
 func _route_tick(dt: float) -> void:
+	if race != null:
+		# racing: the arrow follows the course to the next checkpoint (the course is already on the map)
+		var g: Array = race.guide()
+		var cb0 := cam.global_transform.basis
+		var f0 := Vector3(-cb0.z.x, 0, -cb0.z.z).normalized()
+		var r0 := Vector3(cb0.x.x, 0, cb0.x.z).normalized()
+		var to0 := (g[0] as Vector3) - Vector3(car.global_position.x, 0, car.global_position.z)
+		ui.route_arrow(true, atan2(to0.dot(r0), to0.dot(f0)), float(g[1]), String(g[2]))
+		return
 	var want := _route_target()
 	route_t -= dt
 	var changed: bool = want.get("name", "") != route.get("name", "") or (want.get("pos", Vector3.ZERO) as Vector3).distance_to(route.get("pos", Vector3.ZERO)) > 1.0
@@ -1621,6 +1740,14 @@ func _cam(dt: float, snap := false) -> void:
 		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * shake * 0.18
 		shake = maxf(0.0, shake - dt * 2.5)
 	cam.look_at(look, Vector3.UP)
+	if args.has("topcam"):
+		# a test: straight down from x,z,height
+		var tq := String(args["topcam"]).split(",")
+		cam.position = Vector3(float(tq[0]), float(tq[2]), float(tq[1]))
+		cam.look_at(Vector3(float(tq[0]), 0, float(tq[1]) - 0.01), Vector3.UP)
+		cam.far = 2000.0
+		cam.fov = 60.0
+		return
 	cam.fov = lerpf(cam.fov, 62.0 + clampf(absf(car.speed) * 3.6 * 0.09, 0.0, 16.0), 1.0 - exp(-dt * 3.0))
 
 func _title_cam(dt: float) -> void:

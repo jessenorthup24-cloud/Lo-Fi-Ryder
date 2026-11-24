@@ -19,6 +19,7 @@ const LIST := [
 	{"id": "loop", "name": "Loop The Loop", "desc": "Go all the way round the loop", "icon": "star", "stat": "loops", "target": 1, "reward": 150},
 	{"id": "hoop", "name": "Golden Ticket", "desc": "Fly through the gold hoop", "icon": "star", "stat": "hoops", "target": 1, "reward": 200},
 	{"id": "s5k", "name": "Showboat", "desc": "Land a 5,000 point stunt", "icon": "trophy", "stat": "max_stunt", "target": 5000, "reward": 400},
+	{"id": "win1", "name": "Street King", "desc": "Win a street race", "icon": "trophy", "stat": "race_wins", "target": 1, "reward": 400},
 	{"id": "kmh100", "name": "Ton Up", "desc": "Hit 100 km/h", "icon": "wind", "stat": "max_kmh", "target": 100, "reward": 60},
 	{"id": "kmh150", "name": "Flat Out", "desc": "Hit 150 km/h", "icon": "wind", "stat": "max_kmh", "target": 150, "reward": 250},
 	{"id": "air1", "name": "Liftoff", "desc": "Spend a second in the air", "icon": "star", "stat": "max_air", "target": 1.0, "reward": 100},

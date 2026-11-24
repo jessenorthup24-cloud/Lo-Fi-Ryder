@@ -159,6 +159,11 @@ static func challenges(I) -> void:
 	]
 	for z in I.zones:
 		z["pos"].y = I.height_at(z["pos"].x, z["pos"].z)
+	# street races: a loop of junction centres (the corners get rounded off), and where the start line is
+	I.races = [
+		{"id": "downtown", "name": "Downtown Loop", "laps": 3, "start": Vector2(-200, 60),
+			"corners": [Vector2(-260, 60), Vector2(-80, 60), Vector2(-80, 120), Vector2(-140, 120), Vector2(-140, 180), Vector2(-260, 180)]},
+	]
 	# time trials and drift runs follow a road through gates
 	I.trials = [
 		_trial(I, "coast", "Coast Run", "Ring Road", Vector2(-316, 196), Vector2(300, 250), 6, "time", [42.0, 50.0, 62.0]),

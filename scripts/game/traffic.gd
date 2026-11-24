@@ -36,6 +36,7 @@ var clock := 0.0
 var heads := []             # traffic light heads {"node", "group", "red", "green"}
 var stats := {"crossed": 0, "uturns": 0, "respawns": 0}
 var ignore_player := false  # tools: drive as if you weren't there
+var keep_out := Rect2()     # a street race is on here: no traffic
 
 func setup(isl: Node, material: Material) -> void:
 	island = isl
@@ -338,6 +339,8 @@ func _place_random(c: Dictionary, near: Vector3, rmin: float, rmax: float, view:
 		var d := Vector2(near.x, near.z).distance_to(p)
 		if d < rmin or d > rmax:
 			continue
+		if keep_out.has_area() and keep_out.grow(20.0).has_point(p):
+			continue
 		# out of sight: behind the camera, or far off
 		if view != Vector3.ZERO and d < 160.0:
 			var to := Vector3(p.x - near.x, 0, p.y - near.z).normalized()
@@ -578,7 +581,7 @@ func tick(dt: float, player: Vector3, _player_vel: Vector3, view := Vector3.ZERO
 		var c: Dictionary = cars[i]
 		var pos: Vector3 = heads2[i][0]
 		var fwd: Vector3 = heads2[i][1]
-		if pos.distance_to(player) > 280.0:
+		if pos.distance_to(player) > 280.0 or (keep_out.has_area() and keep_out.has_point(Vector2(pos.x, pos.z))):
 			_place_random(c, player, 90.0, 220.0, view)
 			continue
 		if int(c["mode"]) >= KNOCKED:

@@ -42,6 +42,7 @@ const VIEWS := {
 	"farmtrack": [Vector3(318, 6, 262), Vector3(298, 1, 236), 60.0],
 	"fields": [Vector3(372, 10, 236), Vector3(320, 1, 190), 60.0],
 	"fields2": [Vector3(220, 12, 130), Vector3(260, 1, 92), 60.0],
+	"racetop": [Vector3(-170, 260, 120.1), Vector3(-170, 0, 120), 55.0],
 	"farmtop": [Vector3(300, 230, 110.1), Vector3(300, 0, 110), 62.0],
 	"fieldnear": [Vector3(300, 4, 160), Vector3(320, 1, 185), 62.0],
 	"wheat": [Vector3(232, 4, 60), Vector3(250, 1, 85), 62.0],

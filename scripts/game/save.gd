@@ -29,6 +29,7 @@ static func defaults() -> Dictionary:
 		"stats": {},
 		"zones": {},          # zone id -> best score
 		"trials": {},         # trial id -> best (time or points)
+		"races": {},          # race id -> best time
 		"medals": {},         # id -> 0 none, 1 bronze, 2 silver, 3 gold
 		"coins_taken": [],
 		"places": [],

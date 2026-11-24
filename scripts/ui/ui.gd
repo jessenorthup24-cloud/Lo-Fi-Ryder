@@ -83,6 +83,7 @@ const PAINT_PRICE := 250
 var g_spin := 0.0
 var g_drag := 0.0
 var speed_fx: ColorRect          # streaks at the screen edges when you're flying along
+var count_lbl: Label             # the race countdown, big in the middle
 var speed_k := 0.0
 
 func setup(g: Node) -> void:
@@ -635,8 +636,15 @@ func hud_update(d: Dictionary) -> void:
 	# the challenge in progress
 	var z: Dictionary = d["zone"]
 	var t: Dictionary = d["trial"]
-	chal_card.visible = not z.is_empty() or not t.is_empty()
-	if not z.is_empty():
+	var rc: Dictionary = d.get("race", {})
+	chal_card.visible = not z.is_empty() or not t.is_empty() or not rc.is_empty()
+	if not rc.is_empty():
+		chal_name.text = "%s · Lap %d/%d" % [rc["name"], int(rc["lap"]), int(rc["laps"])]
+		var pl := int(rc["place"])
+		chal_main.text = "Get ready" if rc["counting"] else ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"][clampi(pl - 1, 0, 7)]
+		var rt := float(rc["t"])
+		chal_sub.text = "of %d · %d:%04.1f" % [int(rc["of"]), int(rt) / 60, fmod(rt, 60.0)]
+	elif not z.is_empty():
 		chal_name.text = z["name"]
 		chal_main.text = K.fmt(int(d["zone_pts"]))
 		var m: Array = z["medals"]
@@ -735,6 +743,33 @@ func challenge_start(name: String, desc: String, medals: Array, timed: bool) -> 
 	toast(name + "!  " + desc, "flag", K.CORAL, Color.WHITE, 2.4)
 	toast(m, "trophy", K.PAPER, K.INK, 2.4)
 
+## A street race begins: what it is, and how the medals go.
+func race_start(name: String, laps: int, cars: int) -> void:
+	toast("%s!  %d laps, %d cars. Follow the line on the road" % [name, laps, cars], "flag", K.CORAL, Color.WHITE, 3.0)
+	toast("Gold for 1st · Silver for 2nd · Bronze for 3rd", "trophy", K.PAPER, K.INK, 3.0)
+
+## The countdown (3, 2, 1, GO!), big in the middle of the screen.
+func big_count(text: String) -> void:
+	if count_lbl == null:
+		count_lbl = K.label("", 120, Color.WHITE, 800)
+		count_lbl.add_theme_color_override("font_outline_color", K.INK)
+		count_lbl.add_theme_constant_override("outline_size", 18)
+		count_lbl.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+		count_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hud.add_child(count_lbl)
+	count_lbl.text = text
+	count_lbl.add_theme_color_override("font_color", Color("ffd34d") if text == "GO!" else Color.WHITE)
+	count_lbl.reset_size()
+	count_lbl.position = (_vs() - count_lbl.size) * 0.5 - Vector2(0, 90)
+	count_lbl.pivot_offset = count_lbl.size * 0.5
+	count_lbl.visible = true
+	count_lbl.modulate.a = 1.0
+	count_lbl.scale = Vector2(1.5, 1.5)
+	var tw := create_tween()
+	tw.tween_property(count_lbl, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(0.45 if text != "GO!" else 0.6)
+	tw.tween_property(count_lbl, "modulate:a", 0.0, 0.25)
+
 func challenge_end() -> void:
 	chal_card.visible = false
 
@@ -801,10 +836,12 @@ func _setup_minimap() -> void:
 	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	mini_wrap.add_child(svc)
 	mini_vp = SubViewport.new()
+	mini_vp.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # (everything in it moves every frame)
 	mini_vp.size = Vector2i(196, 196)
 	mini_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	svc.add_child(mini_vp)
 	mini_cam = Camera3D.new()
+	mini_cam.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # moved every frame by hand
 	mini_cam.projection = Camera3D.PROJECTION_ORTHOGONAL
 	mini_cam.size = 260.0
 	mini_cam.near = 1.0
@@ -1091,9 +1128,11 @@ func open_map() -> void:
 	svc.stretch = true
 	holder.add_child(svc)
 	var vp := SubViewport.new()
+	vp.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # (everything in it moves every frame)
 	vp.size = Vector2i(int(sz), int(sz))
 	svc.add_child(vp)
 	var mc := Camera3D.new()
+	mc.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # moved every frame by hand
 	mc.projection = Camera3D.PROJECTION_ORTHOGONAL
 	mc.size = 1000.0
 	mc.near = 1.0
@@ -1152,6 +1191,14 @@ func open_map() -> void:
 		var g0: Transform3D = t["gates"][0]
 		list.add_child(_chal_row(t["name"], info, int(game.save.data["medals"].get(t["id"], 0)), Color("5cc8ff") if t["kind"] == "time" else Color("c38bff"),
 			Transform3D(g0.basis, g0.origin + Vector3(0, 1.0, 0)).translated_local(Vector3(0, 0, 16)), g0.origin))
+	for rc in island.races:
+		var rbest: float = float(game.save.data["races"].get(rc["id"], 0.0))
+		var rinfo := "Street race · %d laps · 8 cars" % int(rc["laps"])
+		if rbest > 0.0:
+			rinfo += " · best %d:%05.2f" % [int(rbest) / 60, fmod(rbest, 60.0)]
+		var rid: String = rc["id"]
+		list.add_child(_chal_row(rc["name"], rinfo, int(game.save.data["medals"].get("race_" + rid, 0)), Color("ff5c7a"),
+			Transform3D(Basis(), (rc["pos"] as Vector3) + Vector3(0, 1.0, 0)), rc["pos"], func(): game._start_race(rid)))
 	for st in island.stations:
 		var sp: Vector3 = st["pos"]
 		var d := int(round(sp.distance_to(game.car.global_position) / 10.0) * 10.0)
@@ -1165,7 +1212,7 @@ func open_map() -> void:
 			close_sheet())
 	vb.add_child(back)
 
-func _chal_row(name: String, info: String, medal: int, col: Color, xf: Transform3D, where := Vector3.INF) -> Control:
+func _chal_row(name: String, info: String, medal: int, col: Color, xf: Transform3D, where := Vector3.INF, start := Callable()) -> Control:
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", K.box(K.CREAM, 20, 0, Color.TRANSPARENT, 10))
 	var hb := HBoxContainer.new()
@@ -1196,10 +1243,13 @@ func _chal_row(name: String, info: String, medal: int, col: Color, xf: Transform
 			if game.state == game.PAUSED:
 				game.resume())
 		hb.add_child(rt)
-	var go := K.button("Go", K.TEAL, K.TEAL_DK, 22, 76, 54)
+	var go := K.button("Race" if start.is_valid() else "Go", K.TEAL, K.TEAL_DK, 22, 76 if not start.is_valid() else 84, 54)
 	_tap(go, func():
 		close_sheet()
-		transition(func(): game.travel_to(xf)))
+		transition(func():
+			game.travel_to(xf)        # (out of the pause menu or the title, and to the spot)
+			if start.is_valid():
+				start.call()))
 	hb.add_child(go)
 	return p
 
@@ -1222,6 +1272,7 @@ func _build_garage() -> void:
 	svc.gui_input.connect(_garage_input)
 	garage.add_child(svc)
 	g_view = SubViewport.new()
+	g_view.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # (everything in it moves every frame)
 	g_view.own_world_3d = true
 	g_view.transparent_bg = true
 	g_view.msaa_3d = Viewport.MSAA_4X
@@ -1244,6 +1295,7 @@ func _build_garage() -> void:
 	sun.shadow_enabled = true
 	g_root3d.add_child(sun)
 	var cam := Camera3D.new()
+	cam.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # moved every frame by hand
 	cam.fov = 34
 	cam.position = Vector3(0, 3.6, 12.5)
 	cam.rotation_degrees = Vector3(-13, 0, 0)
