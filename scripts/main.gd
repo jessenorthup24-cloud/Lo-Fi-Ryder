@@ -67,6 +67,12 @@ var look_t := 9.0           # since the last look drag
 var cam_zoom := 1.0
 var look_touches := {}      # touch index -> position
 var shake := 0.0
+var cam_kick := Vector3.ZERO      # the camera jolted by a knock (springs back)
+var cam_kick_v := Vector3.ZERO
+var fov_kick := 0.0
+var fov_base := 62.0
+var fire_t := 0.0
+var _slow_until := 0
 var title_t := 0.0
 # drifting
 var drift_on := false
@@ -210,6 +216,7 @@ func _build_world() -> void:
 	fx = Fx.new()
 	add_child(fx)
 	fx.setup(toon)
+	fx.ground = func(x: float, z: float) -> float: return island.height_at(x, z)
 	atmos.add_material(fx.smoke_mat)
 	traffic = Traffic.new()
 	traffic.name = "Traffic"
@@ -227,12 +234,16 @@ func _build_world() -> void:
 	car.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
 	add_child(car)
 	car.bumped.connect(_on_bump)
+	car.rolled.connect(_on_roll)
+	car.misfired.connect(_on_misfire)
 	car.shifted.connect(func(_g): sound.rev(0.82); sound.shift())
 	car.rammed.connect(func(b, v, j, at): traffic.knock(b, v, j, at))
 	car_changed()
 	fuel = clampf(float(save.data.get("fuel", 100.0)), 0.0, 100.0)
 	nos_left = nos_cap()
 	car.damage = clampf(float(save.data.get("damage", 0.0)), 0.0, 100.0)
+	car.engine_dmg = clampf(float(save.data.get("engine", 0.0)), 0.0, 100.0)
+	car.batter(hash(String(save.data["car"])))      # (it comes back looking as battered as it was)
 	router = Route.new()
 	router.build(island)
 	police = Police.new()
@@ -264,6 +275,9 @@ func _build_world() -> void:
 		fuel = float(args["fuel"])
 	if args.has("damage"):
 		car.damage = float(args["damage"])
+		car.batter(7)
+	if args.has("engine"):
+		car.engine_dmg = float(args["engine"])
 	if args.has("cam"):
 		cam_mode = int(args["cam"])
 	last_pos = sp.origin
@@ -271,6 +285,8 @@ func _build_world() -> void:
 	_snap_cam()
 	print("world ready in %d ms %s" % [Time.get_ticks_msec() - t0, str(island.timings)])
 	ui.world_ready(island)
+	if args.has("crashtest"):
+		_crash_setup(String(args["crashtest"]), float(args.get("crashv", "18")))
 	if args.has("ram"):
 		# a test: park a traffic car on the road ahead to drive into
 		var p2 := Vector2(sp.origin.x, sp.origin.z)
@@ -495,8 +511,13 @@ func car_changed() -> void:
 	var d := CARS.by_id(String(save.data["car"]))
 	var xf := car.global_transform if car.is_inside_tree() and car.wheels.size() > 0 else Transform3D()
 	var dmg := car.damage
+	var edmg := car.engine_dmg
+	var bnt := car.bent
 	car.setup(d, toon, island, int(save.data["paint"].get(String(d["id"]), 0)))
 	car.damage = dmg          # (a different car doesn't mean a repaired one)
+	car.engine_dmg = edmg
+	car.bent = bnt
+	car.batter(hash(String(d["id"])))
 	car.tune(d, save.data["up"], save.data["tune"].get(String(d["id"]), {}))
 	car.assist = 1.0 if bool(save.setting("assist")) else 0.35
 	if xf != Transform3D():
@@ -584,6 +605,7 @@ func _save_now() -> void:
 		save.data["pos"] = [snappedf(p.x, 0.1), snappedf(p.y, 0.1), snappedf(p.z, 0.1), snappedf(car.global_rotation.y, 0.01)]
 		save.data["fuel"] = snappedf(fuel, 0.1)
 		save.data["damage"] = snappedf(car.damage, 0.1)
+		save.data["engine"] = snappedf(car.engine_dmg, 0.1)
 	save.save()
 
 # ------------------------------------------------------------------ feedback
@@ -727,6 +749,9 @@ func _controls_off() -> void:
 	car.handbrake = 0.0
 
 func _controls(dt: float) -> void:
+	if args.has("crashtest"):
+		_crash_controls()
+		return
 	if autopilot:
 		_autopilot(dt)
 		return
@@ -759,6 +784,74 @@ func _controls(dt: float) -> void:
 	car.brake = 1.0 if held.get("brake", false) else 0.0
 	car.handbrake = 1.0 if held.get("hand", false) else 0.0
 	ui.pressed_controls(held)
+
+## Tests: crashes on the Raceway's main straight (flat and open, a wall along its north side), logged:
+##   --crashtest=tbone   a car driven into your side at --crashv m/s (you sit still)
+##   --crashtest=wall    you, sliding sideways into the wall at --crashv
+##   --crashtest=front   you, nose first into the wall at --crashv (gas held: engine damage, misfires, fire)
+##   --crashtest=swipe   you at --crashv alongside a car going slower, steering into it for a second
+##                       (swipe0: the same without it there, for comparison)
+func _crash_setup(kind: String, v: float) -> void:
+	var y := island.height_at(470.0, 372.0) + 0.75
+	auto["crash"] = kind
+	auto["crash_t0"] = time
+	match kind:
+		"tbone":
+			car.place(Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(470, y, 372)))
+			auto["bullet"] = _crash_car(Transform3D(Basis(), Vector3(470, y, 389)), Vector3(0, 0, -v))
+		"wall":
+			car.place(Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(470, y, 369)))
+			car.linear_velocity = Vector3(0, 0, -v)
+		"front":
+			car.place(Transform3D(Basis(), Vector3(470, y, 389)))
+			car.linear_velocity = Vector3(0, 0, -v)
+		"swipe", "swipe0":
+			car.place(Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(400, y, 370.2)))
+			car.linear_velocity = Vector3(v, 0, 0)
+			if kind == "swipe":
+				auto["bullet"] = _crash_car(Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(412, y, 374.0)), Vector3(v * 0.55, 0, 0))
+	car._last_v = car.linear_velocity          # (setting off at speed isn't a knock)
+	car.reset_physics_interpolation()
+	_snap_cam()
+
+func _crash_car(xf: Transform3D, vel: Vector3) -> Car:
+	var d := CARS.by_id("police")
+	var c: Car = Car.new()
+	c.set_meta("racer", true)
+	c.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_ON
+	add_child(c)
+	c.setup(d, toon, island, 0)
+	c.tune(d, save.data["up"])
+	c.collision_layer = 16                   # (as a police car is: it meets yours)
+	c.collision_mask = 1 | 2 | 4 | 16
+	c.place(xf)
+	c.linear_velocity = vel
+	c._last_v = vel
+	c.reset_physics_interpolation()
+	return c
+
+func _crash_controls() -> void:
+	var kind: String = auto.get("crash", "")
+	var t: float = time - float(auto.get("crash_t0", 0.0))
+	car.brake = 0.0
+	car.handbrake = 0.0
+	car.steer_in = 0.0
+	car.throttle = 1.0 if kind in ["front", "swipe", "swipe0"] else 0.0
+	if kind == "front" and t > 4.0:
+		car.steer_in = sin(t * 0.7) * 0.6           # (driving about on what's left of the engine)
+	if kind in ["swipe", "swipe0"] and t > 0.3 and t < 1.3:
+		car.steer_in = float(args.get("swipesteer", "0.35"))   # (in towards the other car)
+	if auto.has("bullet"):
+		var b: Car = auto["bullet"]
+		b.throttle = 0.6 if kind == "swipe" else 0.0
+		b.steer_in = 0.0
+	if frames % 6 == 0:
+		var hv := Vector3(car.linear_velocity.x, 0, car.linear_velocity.z).length()
+		print("CRASH %s t=%.2f v=%.1f up=%.2f dmg=%.0f eng=%.0f bent=%.2f roll=%.1f righting=%s misfire=%s pos=(%.1f,%.1f,%.1f)" % [kind, t, hv * 3.6,
+			car.global_transform.basis.y.y, car.damage, car.engine_dmg, car.bent, car.roll_t, car.righting(), car.misfiring(),
+			car.global_position.x, car.global_position.y, car.global_position.z]
+			+ (" | other (%.1f,%.1f,%.1f) v=%.1f up=%.2f" % [(auto["bullet"] as Node3D).global_position.x, (auto["bullet"] as Node3D).global_position.y,
+				(auto["bullet"] as Node3D).global_position.z, (auto["bullet"] as RigidBody3D).linear_velocity.length() * 3.6, (auto["bullet"] as Node3D).global_transform.basis.y.y] if auto.has("bullet") else ""))
 
 ## A test: hold the gas along the line the car started on, then do a trick in the air:
 ## --stunt=straight|backflip|frontflip|spin|roll|level  (logs every few frames)
@@ -850,7 +943,7 @@ func _drive(dt: float) -> void:
 		"drifting": drift_on, "coins": int(save.data["coins"]), "place": place_now, "clock": atmos.clock_text(),
 		"zone": zone, "zone_t": zone_t, "zone_pts": zone_pts, "trial": trial, "trial_t": trial_t, "trial_gate": trial_gate,
 		"trial_pts": trial_pts, "race": {} if race == null else race.hud(), "car_pos": car.get_global_transform_interpolated().origin, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip)),
-		"close": drift_on and close < 1.6 and car.drift > 0.2, "damage": car.damage, "fuel": fuel,
+		"close": drift_on and close < 1.6 and car.drift > 0.2, "damage": car.damage, "engine": car.engine_dmg, "fuel": fuel,
 		"nos": nos_left / nos_cap(), "nos_on": car.nitro, "wheel": wheel_angle / WHEEL_MAX, "police": police.hud()})
 
 # ------------------------------------------------------------------ drifting
@@ -977,31 +1070,100 @@ func _on_bump(strength: float) -> void:
 		traffic.hit(car.global_position)
 	# crash damage: a dent where it hit, bits flying, and the car slowly getting more battered
 	if fresh and kind != "ground" and strength > 3.0:
-		car.dent(at, h["n"], strength)
+		var hn: Vector3 = h["n"]
+		car.dent(at, hn, strength)
 		var was := car.damage
+		var ewas := car.engine_dmg
 		car.damage = minf(100.0, car.damage + strength * 1.4)
-		for k in int(clampf(strength * 0.7, 2.0, 12.0)):
-			fx.puff(at + Vector3(0, randf_range(0.2, 0.8), 0), Color(1.0, 0.82, 0.42) if k % 2 == 0 else Color(0.62, 0.62, 0.64),
-				randf_range(0.15, 0.35), (h["n"] as Vector3) * randf_range(2.0, 5.0) + Vector3(randf_range(-2, 2), randf_range(1, 4), randf_range(-2, 2)), 0.5, -0.5)
+		# the engine's in the front: a knock there hurts it most (a roll shakes it about a bit too)
+		var lp := car.to_local(at)
+		var half_l: float = float(car.info["length"]) * 0.5
+		var zc: float = (float(car.info["front"]) + float(car.info["back"])) * 0.5
+		var nose := clampf((zc - lp.z) / maxf(half_l, 0.1), -1.0, 1.0)       # (+1: right at the front)
+		var e_k := 0.4 if kind == "roll" else 0.3 + 1.5 * smoothstep(0.2, 0.8, nose)
+		car.engine_dmg = minf(100.0, car.engine_dmg + strength * e_k)
+		# a hard knock on a front corner bends that wheel
+		if strength > 9.0 and nose > 0.4 and absf(lp.x) > float(car.info["width"]) * 0.2 and kind != "roll":
+			car.bent = clampf(car.bent + signf(lp.x) * strength * 0.035, -1.0, 1.0)
+		# sparks, bits of the bodywork, dust off a big one
+		fx.spark_burst(at, hn, int(clampf(strength * 1.6, 6.0, 40.0)), clampf(4.0 + strength * 0.35, 4.0, 12.0))
+		if strength > 6.0:
+			fx.debris(at, hn, [car.paint_col, car.paint_col, Color("2a2a2e"), Color("c9ccd2")],
+				int(clampf((strength - 4.0) * 0.6, 2.0, 12.0)), clampf(2.0 + strength * 0.2, 2.0, 7.0))
+		if strength > 10.0:
+			for k in int(clampf(strength * 0.3, 3.0, 10.0)):
+				fx.puff(at + Vector3(randf_range(-0.6, 0.6), randf_range(0.1, 0.9), randf_range(-0.6, 0.6)), Color(0.74, 0.73, 0.72),
+					randf_range(0.9, 1.6), hn * randf_range(1.0, 3.0) + Vector3(randf_range(-1, 1), randf_range(0.3, 1.2), randf_range(-1, 1)), 1.3, 0.7)
+		if strength > 16.0 and (nose > 0.5 or kind == "roll") and randf() < 0.7:
+			fx.glass(at + Vector3(0, 0.5, 0), hn, 12)
 		if strength > 11.0:
 			sfx("debris", vol - 4.0)
 		if was < 35.0 and car.damage >= 35.0:
 			sfx("headlight", -6.0)
+			fx.glass(at, hn, 6)
 		if was < 70.0 and car.damage >= 70.0:
 			sfx("glass", -4.0)
 			sfx("hubcap", -8.0)
+			fx.glass(car.global_position + Vector3(0, 1.0, 0), hn, 18)
+			fx.debris(car.global_position + Vector3(0, 0.3, 0), hn, [Color("d6d9de")], 1, 5.0, 1.2)     # (the hubcap)
 		if was < 50.0 and car.damage >= 50.0 and not damage_told:
 			damage_told = true
 			ui.toast("Battered! Any gas station fixes you up: follow the arrow", "gear", K.PAPER, K.INK, 3.0)
+		if ewas < 60.0 and car.engine_dmg >= 60.0 and car.engine_dmg < 99.5:
+			ui.toast("The engine's hurt: it's losing power", "gear", Color("f2b84b"), K.INK, 2.6)
+		if ewas < 99.5 and car.engine_dmg >= 99.5:
+			ui.toast("Engine's gone! Limp to a gas station", "gear", Color("ef6a55"), Color.WHITE, 3.2)
+			sfx("backfire", 0.0, 0.8)
+			for k in 6:
+				fx.flame(car.to_global(Vector3(randf_range(-0.5, 0.5), float(car.info["height"]) * 0.7, float(car.info["front"]) + half_l * 0.3)),
+					randf_range(0.8, 1.3), Vector3(randf_range(-1, 1), 1.5, randf_range(-1, 1)), randf_range(0.4, 0.7))
 		save.add_stat("crashes", 1)
+		# the camera takes the knock too
+		cam_kick_v += hn * clampf(strength * 0.06, 0.0, 1.4)
+		fov_kick = maxf(fov_kick, clampf((strength - 6.0) * 0.45, 0.0, 7.0))
+		if strength > 16.0:
+			ui.impact_flash((strength - 14.0) / 16.0)
 	# a big hit lands with a moment of slow motion
-	if strength > 15.0 and not autopilot and kind != "ground":
-		Engine.time_scale = 0.4
-		get_tree().create_timer(0.14, true, false, true).timeout.connect(func(): Engine.time_scale = 1.0)
+	if strength > 15.0 and kind != "ground":
+		slowmo(0.4, 0.14)
+
+## You've rolled it: a heavy crunch, a beat of slow motion, and the drift's gone.
+func _on_roll(sev: float) -> void:
+	if state != DRIVE:
+		return
+	sfx("rollover", -2.0)
+	sfx("crash_heavy", -4.0)
+	_break_drift()
+	save.add_stat("rollovers", 1)
+	shake = maxf(shake, 0.8)
+	buzz(140, 1.0)
+	slowmo(0.35, clampf(0.3 + sev * 0.015, 0.35, 0.6))
+	ui.popup_text("Rolled it!", K.CORAL)
+
+## The engine coughs: a bang from the exhaust, a puff of dark smoke and a flick of flame.
+func _on_misfire() -> void:
+	if state != DRIVE:
+		return
+	sfx("backfire", -6.0, randf_range(0.8, 1.05))
+	var tail := car.to_global(Vector3(float(car.info["width"]) * 0.22, 0.4, float(car.info["back"]) - 0.05))
+	var back := car.global_transform.basis.z
+	fx.puff(tail, Color(0.22, 0.22, 0.24), 0.45, back * 2.0 + car.linear_velocity * 0.8, 0.8, 0.4)
+	fx.flame(tail, 0.4, back * 3.0 + car.linear_velocity, 0.1)
+	shake = maxf(shake, 0.06)
+
+## A moment of slow motion (real time); overlapping ones run to the end of the longest.
+func slowmo(scale: float, dur: float) -> void:
+	if autopilot:
+		return
+	Engine.time_scale = minf(Engine.time_scale, scale)
+	_slow_until = maxi(_slow_until, Time.get_ticks_msec() + int(dur * 1000.0))
+	get_tree().create_timer(dur, true, false, true).timeout.connect(func():
+		if Time.get_ticks_msec() >= _slow_until - 5:
+			Engine.time_scale = 1.0)
 
 # ------------------------------------------------------------------ landings, damage smoke, repairs
 
-func _impacts(_dt: float) -> void:
+func _impacts(dt: float) -> void:
 	# landings
 	if car.grounded > 0 and was_air > 0.35:
 		sfx("land", clampf(-14.0 + was_air * 8.0, -14.0, 0.0))
@@ -1018,12 +1180,22 @@ func _impacts(_dt: float) -> void:
 	if hb and not hb_was and absf(car.speed) > 8.0:
 		sfx("chirp", -12.0)
 	hb_was = hb
-	# a battered car smokes a little from under the bonnet (thin and pale, rising: never a cloud in your face)
-	if car.damage > 40.0 and randf() < (car.damage - 30.0) / 500.0:
-		var front := car.to_global(Vector3(0, float(car.info["height"]) * 0.75, -float(car.info["length"]) * 0.35))
-		var dk := clampf((car.damage - 40.0) / 60.0, 0.0, 1.0)
-		fx.puff(front, Color(0.86, 0.86, 0.87).lerp(Color(0.6, 0.6, 0.62), dk), randf_range(0.3, 0.5) + dk * 0.2,
-			Vector3(randf_range(-0.3, 0.3), 1.8, randf_range(-0.3, 0.3)) + car.linear_velocity * 0.6, 0.8, 0.6)
+	# a hurt engine smokes from under the bonnet: wisps of steam, then grey, then thick black with flames
+	# when it's nearly gone (rising and drifting back, never a cloud in your face)
+	var ed := car.engine_dmg
+	var smoke_k := maxf(clampf((ed - 20.0) / 80.0, 0.0, 1.0), clampf((car.damage - 60.0) / 100.0, 0.0, 0.3))
+	var half_l: float = float(car.info["length"]) * 0.5
+	if smoke_k > 0.0 and randf() < 0.15 + smoke_k * 0.5:
+		var front := car.to_global(Vector3(randf_range(-0.35, 0.35), float(car.info["height"]) * 0.72, float(car.info["front"]) + half_l * 0.35))
+		var col := Color(0.93, 0.93, 0.95).lerp(Color(0.52, 0.52, 0.54), smoothstep(0.3, 0.65, smoke_k)).lerp(Color(0.15, 0.15, 0.17), smoothstep(0.7, 1.0, smoke_k))
+		fx.puff(front, col, randf_range(0.3, 0.5) + smoke_k * 0.7, Vector3(randf_range(-0.3, 0.3), 1.5 + smoke_k * 1.2, randf_range(-0.3, 0.3)) + car.linear_velocity * 0.6,
+			0.8 + smoke_k * 1.0, 0.6)
+	if ed > 85.0:
+		fire_t -= dt
+		if fire_t <= 0.0:
+			fire_t = randf_range(0.05, 0.1) * (1.0 if ed >= 99.5 else 1.8)
+			var fp := car.to_global(Vector3(randf_range(-0.45, 0.45), float(car.info["height"]) * 0.68, float(car.info["front"]) + half_l * 0.3))
+			fx.flame(fp, randf_range(0.45, 0.85) * (1.35 if ed >= 99.5 else 1.0), car.linear_velocity * 0.85, randf_range(0.28, 0.5))
 
 # ------------------------------------------------------------------ smoke, marks, knock-overs
 
@@ -1060,11 +1232,13 @@ func _effects(dt: float) -> void:
 				fx.puff(wp + Vector3(0, 0.3, 0), col, randf_range(1.2, 2.0) * (0.6 + car.drift * 0.6), -car.linear_velocity * 0.15 + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)), 1.4, 1.0)
 		else:
 			skid_acc.erase(i)
-	# scraping a wall throws sparks
+	# scraping a wall throws sparks, and so does sliding along on the roof
 	if car.wall_t > 0.15 and car.linear_velocity.length() > 5.0 and smoke_t > 0.04:
-		for k in 2:
-			fx.puff(car.wall_pos + Vector3(0, randf_range(0.1, 0.6), 0), Color(1.0, 0.82, 0.42), randf_range(0.18, 0.32),
-				-car.linear_velocity * 0.25 + Vector3(randf_range(-1.5, 1.5), randf_range(0.5, 2.0), randf_range(-1.5, 1.5)), 0.35, 0.0)
+		fx.spark_burst(car.wall_pos + Vector3(0, randf_range(0.1, 0.5), 0), -car.linear_velocity.normalized() * 0.6 + Vector3.UP * 0.4, 4, 5.0)
+	if car.roof_t > 0.0 and car.linear_velocity.length() > 3.0 and smoke_t > 0.04:
+		var rh: Dictionary = car.hit
+		var rp: Vector3 = rh["pos"] if not rh.is_empty() and rh.get("kind", "") == "roll" and car._clock - float(rh["t"]) < 1.0 else car.global_position
+		fx.spark_burst(rp, -car.linear_velocity.normalized() * 0.5 + Vector3.UP * 0.5, 5, 6.0)
 	if smoke_t > 0.05:
 		smoke_t = 0.0
 
@@ -1107,11 +1281,17 @@ func _recover(dt: float) -> void:
 		ui.toast("Splash! Back to the road.", "rain", K.SKY, K.PAPER, 1.5)
 		reset_car()
 		return
-	if (car.is_upside_down() and car.linear_velocity.length() < 4.0 and car.on_stunt < 2) or (car.grounded == 0 and car.linear_velocity.length() < 0.5):
+	var over := car.is_upside_down() and car.linear_velocity.length() < 4.0 and car.on_stunt < 2
+	var hung := car.grounded == 0 and car.linear_velocity.length() < 0.5
+	if over or hung or car.righting():
 		flip_t += dt
 		if flip_t > 0.5:
 			_bail()
-		if flip_t > 2.2:
+		# come to rest on its roof or side: after a beat it's set back on its wheels, right where it is
+		if over and flip_t > 1.2 and not car.righting():
+			car.right_up()
+			sfx("land", -8.0)
+		if flip_t > (5.0 if over or car.righting() else 2.2):
 			reset_car()
 	else:
 		flip_t = 0.0
@@ -1698,7 +1878,7 @@ func rewind_ok() -> bool:
 	return intro.is_empty() and (race == null or race.state == 1) and state == DRIVE and not police.wanted()
 
 func _rw_snap() -> Dictionary:
-	var sn := {"xf": car.global_transform, "v": car.linear_velocity, "w": car.angular_velocity, "fuel": fuel, "nos": nos_left, "dmg": car.damage,
+	var sn := {"xf": car.global_transform, "v": car.linear_velocity, "w": car.angular_velocity, "fuel": fuel, "nos": nos_left, "dmg": car.damage, "eng": car.engine_dmg,
 		"drift": [drift_on, drift_pts, combo, combo_t, drift_len], "zone": [zone_t, zone_pts], "trial": [trial_t, trial_gate, trial_pts]}
 	if race != null:
 		sn["race"] = race.snapshot()
@@ -1770,6 +1950,7 @@ func _rewind_end() -> void:
 	fuel = float(sn["fuel"])
 	nos_left = float(sn["nos"])
 	car.damage = float(sn["dmg"])
+	car.engine_dmg = float(sn.get("eng", car.engine_dmg))
 	var dr: Array = sn["drift"]
 	drift_on = dr[0]
 	drift_pts = dr[1]
@@ -1848,7 +2029,7 @@ func fuel_cost() -> int:
 	return int(ceil((100.0 - fuel) * FUEL_PRICE))
 
 func repair_cost() -> int:
-	return int(ceil(car.damage * REPAIR_PRICE))
+	return int(ceil(maxf(car.damage, car.engine_dmg) * REPAIR_PRICE))
 
 func _stations_tick() -> void:
 	var p := car.global_position
@@ -1889,20 +2070,22 @@ func buy_fuel() -> void:
 
 ## Mend the car (all of it if you can pay; otherwise as much as you can).
 func buy_repair() -> void:
-	if car.damage < 0.5:
+	var worst := maxf(car.damage, car.engine_dmg)
+	if worst < 0.5:
 		return
 	var coins := int(save.data["coins"])
-	var fix := minf(car.damage, float(coins) / REPAIR_PRICE)
+	var fix := minf(worst, float(coins) / REPAIR_PRICE)
 	if fix < 1.0:
 		ui.toast("Not enough coins for repairs", "coin", K.PAPER, K.INK, 1.8)
 		return
 	save.data["coins"] = coins - int(ceil(fix * REPAIR_PRICE))
-	if fix >= car.damage - 0.5:
+	if fix >= worst - 0.5:
 		car.repair()
 		damage_told = false
 		ui.toast("All fixed up!", "gear", K.PAPER, K.INK, 2.0)
 	else:
-		car.damage -= fix
+		car.damage = maxf(0.0, car.damage - fix)
+		car.engine_dmg = maxf(0.0, car.engine_dmg - fix)
 		ui.toast("Patched up a bit", "gear", K.PAPER, K.INK, 2.0)
 	sfx("upgrade", -2.0)
 	_save_now()
@@ -2299,6 +2482,10 @@ func _cam(dt: float, snap := false) -> void:
 	if shake > 0.0:
 		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * shake * 0.18
 		shake = maxf(0.0, shake - dt * 2.5)
+	# a knock jolts the camera the way the car was shoved, and it springs back
+	cam_kick_v += (-cam_kick * 90.0 - cam_kick_v * 12.0) * dt
+	cam_kick += cam_kick_v * dt
+	cam.position += cam_kick
 	cam.look_at(look, Vector3.UP)
 	if args.has("patrolcam") and traffic:
 		# a test: beside the first patrol car in the traffic
@@ -2343,7 +2530,9 @@ func _cam(dt: float, snap := false) -> void:
 		cam.far = 2000.0
 		cam.fov = 60.0
 		return
-	cam.fov = lerpf(cam.fov, 62.0 + clampf(absf(car.speed) * 3.6 * 0.09, 0.0, 16.0) + car.nitro * 9.0, 1.0 - exp(-dt * 3.0))
+	fov_base = lerpf(fov_base, 62.0 + clampf(absf(car.speed) * 3.6 * 0.09, 0.0, 16.0) + car.nitro * 9.0, 1.0 - exp(-dt * 3.0))
+	cam.fov = fov_base + fov_kick
+	fov_kick = maxf(0.0, fov_kick - dt * 30.0)
 
 func _title_cam(dt: float) -> void:
 	title_t += dt
@@ -2375,7 +2564,8 @@ func _sound(dt: float) -> void:
 		skid *= car.linear_velocity.length() / 3.0
 	sound.tick(dt, {"speed": absf(car.speed), "active": active, "grounded": car.grounded > 0, "drift": maxf(skid, car.wheelspin),
 		"air_t": car.air_t, "rpm_k": car.rpm, "throttle": car.throttle, "roll": roll, "pace": 2.6,
-		"grind": active and car.wall_t > 0.12 and car.linear_velocity.length() > 3.0,
+		"grind": active and (car.wall_t > 0.12 or car.roof_t > 0.0) and car.linear_velocity.length() > 3.0,
+		"eng_dmg": car.engine_dmg, "misfire": car.misfiring(),
 		"siren": 0.0, "siren_close": 0.0})          # (each police car has its own siren now, heard from where it is)
 
 # ------------------------------------------------------------------ input

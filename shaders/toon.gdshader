@@ -120,7 +120,8 @@ void fragment() {
 void light() {
 	float ndl = dot(NORMAL, LIGHT);
 	float band = smoothstep(0.0, shade_soft, ndl);
-	float sh = smoothstep(0.25, 0.65, ATTENUATION);
+	// (a soft edge: a hard one shows the shadow map's texels as a staircase that hops each time the sun steps)
+	float sh = smoothstep(0.06, 0.94, ATTENUATION);
 	float l = band * sh;
 	DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * l / PI;
 }

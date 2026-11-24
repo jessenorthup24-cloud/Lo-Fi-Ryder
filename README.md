@@ -29,6 +29,9 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   The camera's aim is eased every frame, so on a 120 Hz screen the view never steps along with the 60 Hz
   physics. Settings → Speed blur turns it off; Settings → Cap at 60 fps holds the frame rate at 60 (smoother
   on phones that pace 120 Hz unevenly, and easier on the battery).
+- Shadows hold still: the sun moves in small steps (a game minute, about every half second) rather than a
+  little every frame, which made the shadow map re-sample every frame and the edges of building shadows
+  shimmer; their edges are soft, so a step is a nudge rather than a jump.
 - Tuning (garage, Tune tab, per car): camber (0-10°) and ride height (slammed to lifted) change the look
   and the handling. More camber and lower: drifts more easily but less race grip and worse off-road.
   Less camber and higher: harder to drift, more grip, better on grass, dirt and sand. Bars show the
@@ -140,8 +143,22 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - Paint jobs: every car comes in the pack's other liveries too (Garage, Paint tab; 250 coins each, kept
   per car).
 - Crashes: hit a traffic car and it gets shoved and spun by the knock (you share it by weight), then the
-  driver straightens up and carries on, dents and all. Your own car dents where it hits, smokes once
-  it's battered and pulls a little less. The gas station on Castle Road (and the garage) fix it up.
+  driver straightens up and carries on, dents and all (hit one hard side-on and it rolls over). Your own
+  car crumples where it hits (deeper the harder), with sparks, bits of bodywork and glass that bounce and
+  skid along the road, a jolt of the camera and, on a big one, a pale flash and a beat of slow motion.
+  It comes back from a save looking as battered as it was.
+- Engine damage: knocks to the front hurt the engine most. A hurt engine pulls less, runs rough, and past
+  about half coughs under throttle (a bang from the exhaust, a puff of black smoke, the power gone for a
+  moment); it smokes from under the bonnet, white, then grey, then thick black with flames, and when it's
+  gone you limp along at a third of the power. A hard knock on a front corner bends that wheel: it leans
+  and wobbles and pulls the steering. Gas stations fix it all (the condition gauge shows the worse of the
+  body and the engine).
+- Rollovers: T-boned by a car at about 40 km/h or more (or slammed sideways into a wall at 60+) and the car
+  goes over, rolling away from the hit, longer the harder (traffic cars too). Sliding on the roof throws
+  sparks and dents it. Once it stops on its roof or side it's lifted and set back on its wheels where it
+  lies. Nose first into something at 80+ kicks the back end up.
+- Trading paint: rubbing along another car (traffic, racers, the police) costs you no speed; the knock
+  itself shares the speed out by weight, as before. Scraping a wall still costs some, more the squarer on.
 
 ## The world
 
@@ -228,6 +245,8 @@ godot --path . -- --garage=up --fresh            # garage on the Upgrades tab, f
 godot --path . -- --drive --put=-108,284,90 --stunt=backflip   # exactly here (x,z,yaw), gas on, a trick in the air
 godot --path . -- --drive --season=3             # 0 spring, 1 summer, 2 autumn, 3 winter
 godot --path . -- --drive --race=downtown --raceauto --racelog   # straight into a race, CPU drives you too
+godot --path . -- --drive --crashtest=tbone --crashv=20   # crash tests (tbone, wall, front, swipe, swipe0), logged
+godot --path . -- --drive --damage=90 --engine=95          # start battered, the engine on fire
 godot --path . -- --drive --begin=trial:main      # as if START was pressed (race:downtown, zone:bowl...)
 godot --path . -- --drive --demo=100 --aim=tree   # lined up for a run at a tree (lamp, light)
 godot --path . -- --drive --race=downtown --topcam=-170,120,190  # ...watched from straight above
@@ -245,6 +264,7 @@ xvfb-run godot --path . -- --drive --shot=/tmp/x.png --shot_at=200 --quit_after=
 godot --headless --path . -s res://tools/test/handling.gd -- bug,hotrod all   # handling report
 godot --headless --path . -s res://tools/test/road_audit.gd                  # props in the road
 godot --headless --path . -s res://tools/test/track_audit.gd                 # the Raceway's loops: kinks, folds, seams
+xvfb-run godot --path . -s res://tools/look/shadow_flicker.gd -- street 60   # pixels that change frame to frame
 godot --headless --path . -s res://tools/test/traffic_soak.gd -- 300         # five minutes of traffic
 ```
 

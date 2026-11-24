@@ -359,6 +359,10 @@ func _pack_engine(dt: float, v: Dictionary, active: bool, grounded: bool, speed:
 			target = maxf(target, F[3] * 0.9 * throttle)
 		if absf(speed) < 0.6 and throttle < 0.1:
 			target = F[0]
+	# a hurt engine runs rough: the note lumps about
+	var ek := clampf((float(v.get("eng_dmg", 0.0)) - 30.0) / 70.0, 0.0, 1.0)
+	if ek > 0.0 and active:
+		target *= 1.0 + (sin(_t * 23.0) * 0.6 + sin(_t * 37.0) * 0.4) * 0.04 * ek
 	freq = lerpf(freq, target, 1.0 - exp(-dt * (6.0 if target > freq else 3.0)))
 	# lifting off at high revs: a pop from the exhaust (and a whoosh with a turbo)
 	if active and _last_throttle > 0.6 and throttle < 0.1 and float(v.get("rpm_k", 0.0)) > 0.7:
@@ -369,6 +373,8 @@ func _pack_engine(dt: float, v: Dictionary, active: bool, grounded: bool, speed:
 	_last_throttle = throttle
 	var off := clampf((absf(speed) - 3.0) / 4.0, 0.0, 1.0) * (1.0 - throttle) if active else 0.0
 	var gain := 0.0 if not active and not v.get("idle", true) else (0.55 if active else 0.35)
+	if v.get("misfire", false):
+		gain *= 0.3                  # (coughing: the engine cuts out for a moment)
 	var lo := 0
 	while lo < 3 and freq > F[lo + 1]:
 		lo += 1

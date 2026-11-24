@@ -72,6 +72,10 @@ func setup(isl: Node, material: Material) -> void:
 		body.collision_layer = 2
 		body.collision_mask = 0
 		body.set_meta("traffic_id", i)
+		# (slick: rubbing along a traffic car doesn't drag you back to its speed, it just shoves you aside)
+		var slick := PhysicsMaterial.new()
+		slick.friction = 0.0
+		body.physics_material_override = slick
 		var heavy := nm.contains("truck") or nm.contains("garbage") or nm.contains("ambulance")
 		body.set_meta("mass", 2400.0 if heavy else (1600.0 if nm.contains("van") or nm.contains("delivery") else 1150.0))
 		var cs := CollisionShape3D.new()
@@ -488,6 +492,14 @@ func knock(body: Node, its_velocity: Vector3, impulse: Vector3, at: Vector3) -> 
 	c["v"] = 0.0
 	w.linear_velocity = its_velocity
 	w.apply_impulse(impulse + Vector3(0, impulse.length() * 0.06, 0), at - w.global_position)
+	# hit hard side-on, it goes over: a roll away from the hit (bigger knocks, more of a tumble)
+	var dv := impulse.length() / w.mass
+	var bs := w.global_transform.basis
+	var dirn := impulse.normalized()
+	if dv > 7.0 and absf(dirn.dot(bs.x)) > 0.5:
+		var axis := Vector3.UP.cross(Vector3(dirn.x, 0.0, dirn.z)).normalized()
+		w.angular_velocity += axis * clampf(1.6 + (dv - 7.0) * 0.45, 1.6, 6.0)
+		w.linear_velocity += Vector3.UP * clampf(1.0 + (dv - 7.0) * 0.2, 1.0, 3.0)
 
 func _dent(c: Dictionary, at: Vector3, into: Vector3, dv: float) -> void:
 	if not c.has("dents"):

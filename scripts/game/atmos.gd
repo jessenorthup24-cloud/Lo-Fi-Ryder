@@ -5,6 +5,7 @@ extends Node
 const P := preload("res://scripts/core/palette.gd")
 
 const DAY_LENGTH := 840.0     # seconds for 24 hours
+const SUN_STEPS := 60.0        # the sun's direction changes this many times a game hour
 # time of day keys: hour, sky top, horizon, sun colour, sun energy, ambient colour, ambient energy
 const KEYS := [
 	[0.0, "0b1433", "26365f", "9fb4ff", 0.18, "5a6aa8", 0.55],
@@ -235,13 +236,16 @@ func _apply() -> void:
 	env.fog_light_color = (k[1] as Color).lerp(k[0], 0.25)
 	env.ambient_light_color = k[4]
 	env.ambient_light_energy = k[5]
-	# the sun goes round once a day (the moon takes over at night, from the other side)
-	var day := hour >= 5.5 and hour <= 19.8
-	var t := (hour - 6.0) / 12.0
+	# the sun goes round once a day (the moon takes over at night, from the other side). It moves in small steps
+	# (a game minute, about every half second) rather than smoothly: a light that turns a little every frame
+	# makes the shadow map re-sample every frame, and the edges of every building's shadow shimmer
+	var hq := floorf(hour * SUN_STEPS) / SUN_STEPS
+	var day := hq >= 5.5 and hq <= 19.8
+	var t := (hq - 6.0) / 12.0
 	var elev := sin(clampf(t, 0.0, 1.0) * PI) * 62.0 + 8.0
 	var az := lerpf(-70.0, 250.0, clampf(t, 0.0, 1.0))
 	if not day:
-		var nt := fposmod(hour - 19.8, 24.0) / 9.7
+		var nt := fposmod(hq - 19.8, 24.0) / 9.7
 		elev = sin(nt * PI) * 45.0 + 12.0
 		az = lerpf(-60.0, 240.0, nt)
 	sun.rotation_degrees = Vector3(-elev, az, 0)

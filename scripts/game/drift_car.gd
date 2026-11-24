@@ -16,6 +16,8 @@ signal shifted(gear: int)
 signal bumped(strength: float)
 ## You hit a traffic car: the push it gets (an impulse, N·s) and where.
 signal rammed(body: Node3D, its_velocity: Vector3, impulse: Vector3, at: Vector3)
+signal rolled(severity: float)       # a big side-on knock has tipped it over
+signal misfired                      # a damaged engine coughing
 
 # ---- inputs, set every frame by main
 var throttle := 0.0
@@ -64,6 +66,16 @@ var wall_t := 0.0            # just touched a wall (counts down)
 var wall_pos := Vector3.ZERO  # where it last touched one
 var hit := {}                # the last knock: {"t", "pos", "n" (into the car), "kind": wall/car}
 var damage := 0.0            # 0..100, from knocks; gas stations fix it (for coins)
+var engine_dmg := 0.0        # 0..100: knocks to the front hurt the engine: it pulls less, coughs, smokes, then
+							 # gives up (limps along) until a gas station fixes it
+var bent := 0.0              # a front wheel bent by a knock: -1..1 (sign: which side), pulls the steering
+var roll_t := 0.0            # rolling over after a big knock: nothing steadies it until this runs out
+var _misfire := 0.0          # the engine has cut out for a moment
+var paint_col := Color(0.6, 0.6, 0.62)   # the body's main colour (for the bits that come off it)
+var _righting := {}          # being set back on its wheels after a roll: {t, from, to}
+var _roll_cd := 0.0
+var _bump_wait := 0.0         # a knock felt, waiting (a step or two) to be told until the contact's known
+var _bump_ticks := 0
 var power_k := 1.0           # 1 normally; low when the tank's empty
 var dent_data := {}
 var _vh: Array = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]   # the last few velocities, for knocks
@@ -116,7 +128,12 @@ func setup(def: Dictionary, mat: Material, isl: Node, paint := 0) -> void:
 	body_node = MeshInstance3D.new()
 	dent_data = Dents.own(M.painted_body(def, paint))
 	body_node.mesh = dent_data["mesh"]
+	paint_col = _main_colour(dent_data["mesh"])
 	damage = 0.0
+	engine_dmg = 0.0
+	bent = 0.0
+	roll_t = 0.0
+	_righting = {}
 	body_node.material_override = mat
 	body_node.name = "Body"
 	add_child(body_node)
@@ -194,6 +211,10 @@ func tune(def: Dictionary, up: Dictionary, tun := {}) -> void:
 ## don't stop you dead like a wall would: the two of you share the knock by weight.
 func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 	var wall := false
+	var touch_car := false
+	var touch_wall := false
+	var wall_n := Vector3.ZERO
+	var big := {}              # the hardest knock this step: {sev (m/s closing), n (into the car), kind}
 	var com := st.transform * st.center_of_mass_local
 	var stunt_rid: RID = island.stunt_body if island else RID()
 	var upw := st.transform.basis.y
@@ -218,6 +239,9 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 				hit = {"t": _clock, "pos": cps, "n": n, "kind": "wall"}
 			continue
 		if absf(n.y) >= 0.6:
+			# rolled onto its side or its roof, the ground it comes down on is a knock too (the roof dents)
+			if upw.y < 0.5 and n_in.y > 0.6 and (hit.is_empty() or _clock - float(hit["t"]) > 0.25):
+				hit = {"t": _clock, "pos": st.get_contact_local_position(i), "n": n_in, "kind": "roll"}
 			continue
 		wall = true
 		var cp := st.get_contact_local_position(i)
@@ -228,13 +252,21 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 		var kind := "car" if col is Node and ((col as Node).has_meta("traffic_id") or (col as Node).has_meta("wreck") or (col as Node).has_meta("racer") or (col as Node).has_meta("police")) else "wall"
 		if hit.is_empty() or _clock - float(hit["t"]) > 0.25:
 			hit = {"t": _clock, "pos": cp, "n": n, "kind": kind, "who": col}
+		# how hard did we meet it? (the most we were closing on it over the last few steps)
+		var vt := st.get_contact_collider_velocity_at_position(i)
+		var vb: Vector3 = _vh[0]
+		for q in _vh:
+			if ((q as Vector3) - vt).dot(n) < (vb - vt).dot(n):
+				vb = q
+		var closing: float = (vb - vt).dot(n)
+		if -closing > float(big.get("sev", 0.0)):
+			big = {"sev": -closing, "n": n, "kind": kind}
+		if kind == "car":
+			touch_car = true
+		else:
+			touch_wall = true
+			wall_n = n
 		if kind == "car" and col is AnimatableBody3D and _ram_cd <= 0.0:
-			var vt := st.get_contact_collider_velocity_at_position(i)
-			var vb: Vector3 = _vh[0]
-			for q in _vh:
-				if ((q as Vector3) - vt).dot(n) < (vb - vt).dot(n):
-					vb = q
-			var closing: float = (vb - vt).dot(n)
 			if closing < -2.5:
 				var mt: float = float((col as Node).get_meta("mass", 1150.0))
 				var j: float = -(1.0 + 0.25) * closing / (1.0 / mass + 1.0 / mt)
@@ -243,9 +275,16 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 				rammed.emit(col, vt, -n * j, cp)
 	if wall:
 		wall_t = 0.3
-		# scraping along costs a little speed
-		st.linear_velocity *= 0.994
-	if wall_t <= 0.0:
+		# scraping along a wall costs some speed, more the squarer on it is. Trading paint with another car
+		# costs none: the knock itself shares the speed out, and rubbing along it doesn't brake you
+		if touch_wall:
+			var sq := absf(st.linear_velocity.normalized().dot(wall_n)) if st.linear_velocity.length() > 1.0 else 1.0
+			st.linear_velocity *= lerpf(0.9985, 0.994, clampf(sq * 2.0, 0.0, 1.0))
+	# a big knock side-on tips it over: T-boned by a car, or slammed sideways into a wall very fast.
+	# (Anything less and the car is steadied on its wheels, below.)
+	if not big.is_empty() and _roll_cd <= 0.0 and roll_t <= 0.0:
+		_big_knock(st, big)
+	if roll_t > 0.0 or wall_t <= 0.0:
 		return
 	# for a moment after a knock the car won't tip: rolling and pitching are held right down
 	var upv := st.transform.basis.y
@@ -255,9 +294,42 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 	tip = tip * (0.4 if wall else 0.8)
 	if tip.length() > 0.7:
 		tip = tip.normalized() * 0.7
-	st.angular_velocity = yaw_part * (0.97 if wall else 1.0) + tip
+	st.angular_velocity = yaw_part * ((0.97 if touch_wall else 0.996) if wall else 1.0) + tip
+
+## A knock hard enough to matter beyond a dent. Side-on (T-boned by a car at about 40 km/h or more closing,
+## or sideways into a wall at 60+): it goes over, rolling away from what hit it, harder the bigger the hit.
+## Nose first into something at 80+: the back end kicks up.
+func _big_knock(st: PhysicsDirectBodyState3D, big: Dictionary) -> void:
+	var sev: float = big["sev"]
+	var n: Vector3 = big["n"]
+	var bs := st.transform.basis
+	var upw := bs.y
+	var side := absf(n.dot(bs.x))
+	var car_hit: bool = big["kind"] == "car"
+	var thr := 11.0 if car_hit else 17.0
+	if side > 0.55 and sev > thr and upw.y > 0.6:
+		var nl := Vector3(n.x, 0.0, n.z).normalized()
+		var axis := upw.cross(nl).normalized()          # (the roof goes the way the knock pushes)
+		st.angular_velocity += axis * clampf(2.5 + (sev - thr) * 0.42, 2.5, 7.5)
+		st.linear_velocity += Vector3.UP * clampf(1.3 + (sev - thr) * 0.2, 1.3, 4.0)
+		roll_t = 2.6
+		_roll_cd = 3.0
+		rolled.emit(sev)
+		return
+	var front := n.dot(bs.z)                            # (+: the knock pushes the car backwards: hit nose first)
+	if front > 0.7 and sev > 22.0 and upw.y > 0.6:
+		st.angular_velocity += -bs.x * clampf((sev - 20.0) * 0.28, 0.5, 4.0)
+		st.linear_velocity += Vector3.UP * clampf((sev - 20.0) * 0.12, 0.3, 2.0)
+		roll_t = 1.6
+		_roll_cd = 2.0
+		if sev > 30.0:
+			rolled.emit(sev)
 
 func place(xf: Transform3D) -> void:
+	if not _righting.is_empty():
+		_righting = {}
+		freeze = false
+	roll_t = 0.0
 	global_transform = xf
 	reset_physics_interpolation()
 	linear_velocity = Vector3.ZERO
@@ -269,6 +341,9 @@ func place(xf: Transform3D) -> void:
 	gear = 1
 
 func _physics_process(dt: float) -> void:
+	if not _righting.is_empty():
+		_right_step(dt)
+		return
 	if hold:
 		throttle = 0.0
 		brake = 0.0
@@ -318,6 +393,8 @@ func _physics_process(dt: float) -> void:
 	# (plus enough for the front tyres to reach their best slip angle: at speed you can always use all the grip)
 	var lock_v := minf(steer_lock, atan(wb * 1.5 * mu * 9.8 / maxf(vs * vs, 1.0)) + deg_to_rad(4.0 if drift_mode else 6.5))
 	var want := steer_in * lock_v
+	# a bent front wheel pulls to one side (less the faster you're going: you hold it straight)
+	want += bent * deg_to_rad(2.2) * clampf(12.0 / maxf(vs, 6.0), 0.35, 1.0)
 	# (gripping, a few degrees of slip is just a tyre cornering hard: the hands only catch a real slide)
 	if absf(slip) > deg_to_rad(4.0 if drift_mode else 7.0) and speed > 2.0:
 		var counter := clampf(slip, -steer_lock, steer_lock) * 0.92 * assist
@@ -356,7 +433,8 @@ func _physics_process(dt: float) -> void:
 	var drive := 0.0
 	if throttle > 0.0:
 		drive = throttle * minf(engine_force, engine_force * power_speed / maxf(gv, 1.0))
-		drive *= 1.0 - damage * 0.0012     # a battered car pulls a little less
+		drive *= 1.0 - damage * 0.0008     # a battered car pulls a little less,
+		drive *= engine_power()            # and a hurt engine a lot less (and coughs)
 		drive *= power_k                   # (and with an empty tank, hardly at all)
 		# sideways, most of the power goes into wheelspin and smoke
 		drive *= lerpf(1.0, 0.5, drift * clampf((vs - DRIFT_PACE + 6.0) / 6.0, 0.0, 1.0))
@@ -588,6 +666,8 @@ func _physics_process(dt: float) -> void:
 		var brake_a := brake if _air_free["brake"] else 0.0
 		var steer_a := steer_in if _air_free["steer"] else 0.0
 		var ctl := clampf((air_t - 0.12) / 0.2, 0.0, 1.0)     # (a hop over a crest isn't a flip)
+		if roll_t > 0.0:
+			ctl = 0.0                                          # (a crash roll isn't steered or levelled)
 		if ctl > 0.0:
 			var bs := xf.basis
 			var wl := bs.inverse() * angular_velocity       # x: nose up, y: turning left, z: rolling left
@@ -618,7 +698,7 @@ func _physics_process(dt: float) -> void:
 		var vh := Vector3(v.x, 0.0, v.z)
 		if vh.length() > 0.3:
 			apply_central_force(-vh.normalized() * mass * 9.8 * 0.55 - vh * mass * 0.6)
-		apply_torque(-angular_velocity * 900.0)
+		apply_torque(-angular_velocity * (250.0 if roll_t > 0.0 else 900.0))
 	_last_vdir = (v - up * v.dot(up)).normalized() if vs > 1.0 else Vector3.ZERO
 	# ---- nitrous: a hard shove along the nose while it lasts (the drag lets it run a good deal faster)
 	if nitro > 0.0 and grounded >= 2 and speed > -1.0:
@@ -634,16 +714,39 @@ func _physics_process(dt: float) -> void:
 		angular_velocity = angular_velocity.lerp(Vector3.ZERO, 0.2)
 	_clock += dt
 	_ram_cd = maxf(0.0, _ram_cd - dt)
+	_roll_cd = maxf(0.0, _roll_cd - dt)
+	roll_t = maxf(0.0, roll_t - dt)
+	if roll_t > 0.0 and up.y > 0.85 and grounded >= 3 and roll_t < 1.8:
+		roll_t = 0.0                       # (back on its wheels)
+	# a hurt engine coughs now and then under throttle: the power cuts out for a moment
+	_misfire = maxf(0.0, _misfire - dt)
+	if engine_dmg > 45.0 and throttle > 0.3 and _misfire <= 0.0 and randf() < dt * (engine_dmg - 45.0) / 55.0 * 1.5:
+		_misfire = randf_range(0.08, 0.22)
+		misfired.emit()
+	# tumbling, the body grips the ground (so it rolls rather than skating along on its side)
+	var pm := physics_material_override
+	var want_f := 0.5 if (roll_t > 0.0 or up.y < 0.5) else 0.08
+	if pm and absf(pm.friction - want_f) > 0.01:
+		pm.friction = want_f
 	_vh.push_front(linear_velocity)
 	_vh.resize(3)
-	# bumps: sudden changes in velocity
+	# bumps: sudden changes in velocity. Told a step late, so what was hit (and where) is known by then:
+	# the speed changes in the step before the contact is reported
 	var dv := (linear_velocity - _last_v).length()
-	if dv > 4.5:
-		bumped.emit(dv)
+	if _bump_wait <= 0.0 and dv > 4.5:
+		_bump_wait = dv
+		_bump_ticks = 0
+	elif _bump_wait > 0.0:
+		_bump_wait = maxf(_bump_wait, dv)
+		_bump_ticks += 1
+	if _bump_wait > 0.0 and ((not hit.is_empty() and _clock - float(hit["t"]) < 0.1) or _bump_ticks >= 4):
+		bumped.emit(_bump_wait)
+		_bump_wait = 0.0
 	_last_v = linear_velocity
 	wall_t = maxf(0.0, wall_t - dt)
-	# just after a knock, keep the wheels down: lean back toward upright if it's tipping
-	if wall_t > 0.0:
+	# just after a knock, keep the wheels down: lean back toward upright if it's tipping (not when it's
+	# been sent over)
+	if wall_t > 0.0 and roll_t <= 0.0:
 		var tilt2 := up.cross(Vector3.UP)
 		if tilt2.length() > 0.12 and grounded > 0:
 			apply_torque(tilt2 * 14000.0)
@@ -666,7 +769,12 @@ func _wheel_vis(dt: float) -> void:
 		var b := Basis()
 		if wd["front"]:
 			b = Basis(Vector3.UP, -vis_steer)
-		b = b * camber_basis(bool(wd["left"]), camber) * Basis(Vector3.RIGHT, -float(wd["spin"]))
+		b = b * camber_basis(bool(wd["left"]), camber)
+		if wd["front"] and bent != 0.0 and (bent < 0.0) == bool(wd["left"]):
+			# the bent one leans in at the top and wobbles as it turns
+			var lean := deg_to_rad(11.0) * absf(bent) * (-1.0 if wd["left"] else 1.0)
+			b = b * Basis(Vector3(0, 0, 1), lean) * Basis(Vector3.UP, sin(float(wd["spin"])) * deg_to_rad(4.0) * absf(bent))
+		b = b * Basis(Vector3.RIGHT, -float(wd["spin"]))
 		wn.transform = Transform3D(b, home - Vector3(0, drop, 0))
 
 
@@ -749,14 +857,100 @@ func dent(at: Vector3, into: Vector3, strength: float) -> void:
 	var out := -(inv.basis * into).normalized()
 	# the box we collide with sits a little inside the bodywork: reach out to it
 	lp += out * 0.15
-	var rad := clampf(0.55 + strength * 0.045, 0.55, 1.35)
-	var depth := clampf(strength * 0.02, 0.04, 0.32)
-	Dents.dent(dent_data, lp, out, rad, depth, 0.38)
+	var rad := clampf(0.55 + strength * 0.05, 0.55, 1.75)
+	var depth := clampf(strength * 0.022, 0.04, 0.46)
+	Dents.dent(dent_data, lp, out, rad, depth, 0.6)
+
+## How much of its power the engine still gives (misfiring: hardly any for that moment; blown: a limp).
+func engine_power() -> float:
+	if engine_dmg >= 99.5:
+		return 0.12 if _misfire > 0.0 else 0.3
+	var p := 1.0 - engine_dmg * 0.0042
+	return p * 0.12 if _misfire > 0.0 else p
+
+func misfiring() -> bool:
+	return _misfire > 0.0
+
+## Dents all over, as much as `damage` says (a car that comes back battered from a save looks it): the same
+## dents every time for the same seed.
+func batter(seed: int) -> void:
+	if dent_data.is_empty() or damage < 4.0:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var w: float = float(info["width"]) * 0.5
+	var l: float = float(info["length"]) * 0.5
+	var h: float = float(info["height"])
+	var zc: float = (float(info["front"]) + float(info["back"])) * 0.5
+	for k in int(damage / 9.0):
+		var face := rng.randi_range(0, 4)
+		var nrm: Vector3 = [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, -1), Vector3(0, 0, 1), Vector3(0, 1, 0)][face]
+		var p := Vector3(rng.randf_range(-w, w) * 0.8, rng.randf_range(0.35, 0.7) * h, zc + rng.randf_range(-l, l) * 0.8)
+		if face < 2:
+			p.x = nrm.x * w
+		elif face < 4:
+			p.z = zc + nrm.z * l
+		else:
+			p.y = h * 0.95
+		Dents.dent(dent_data, p, nrm, rng.randf_range(0.6, 1.1), rng.randf_range(0.06, 0.16) * (0.6 + damage / 100.0), 0.45)
 
 func repair() -> void:
 	if not dent_data.is_empty():
 		Dents.repair(dent_data)
 	damage = 0.0
+	engine_dmg = 0.0
+	bent = 0.0
+
+## Over on its roof or side and come to a stop: lift it, turn it back onto its wheels where it lies.
+func right_up() -> void:
+	var xf := global_transform
+	var f := -xf.basis.z
+	f.y = 0.0
+	if f.length() < 0.2:
+		f = xf.basis.x.cross(Vector3.UP)        # (nose straight up or down: go by its side)
+	var p := xf.origin
+	var gy: float = island.height_at(p.x, p.z) if island else p.y
+	var to := Transform3D(Basis(Vector3.UP, atan2(-f.x, -f.z)), Vector3(p.x, maxf(p.y, gy) + 0.75, p.z))
+	_righting = {"t": 0.0, "from": xf, "to": to}
+	roll_t = 0.0
+	freeze = true
+
+func righting() -> bool:
+	return not _righting.is_empty()
+
+func _right_step(dt: float) -> void:
+	_righting["t"] = float(_righting["t"]) + dt
+	var k := smoothstep(0.0, 0.75, float(_righting["t"]))
+	var a: Transform3D = _righting["from"]
+	var b: Transform3D = _righting["to"]
+	var xf := Transform3D(a.basis.slerp(b.basis, k), a.origin.lerp(b.origin, k) + Vector3(0, sin(k * PI) * 0.7, 0))
+	global_transform = xf
+	if k >= 1.0:
+		_righting = {}
+		freeze = false
+		linear_velocity = Vector3.ZERO
+		angular_velocity = Vector3.ZERO
+		_last_v = Vector3.ZERO
+		for wd in wheels:
+			wd["len"] = REST
+			wd["last"] = REST
+
+## The colour most of a mesh is painted (its body colour).
+static func _main_colour(m: Mesh) -> Color:
+	var cnt := {}
+	for si in m.get_surface_count():
+		var cols = m.surface_get_arrays(si)[Mesh.ARRAY_COLOR]
+		if not cols is PackedColorArray:
+			continue
+		for c: Color in cols:
+			if c.a > 0.79:
+				var key := c.to_html(false)
+				cnt[key] = int(cnt.get(key, 0)) + 1
+	var best := ""
+	for k in cnt:
+		if best == "" or int(cnt[k]) > int(cnt[best]):
+			best = k
+	return Color(best) if best != "" else Color(0.6, 0.6, 0.62)
 
 func is_upside_down() -> bool:
 	return global_transform.basis.y.y < 0.25

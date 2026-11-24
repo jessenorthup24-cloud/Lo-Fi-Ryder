@@ -631,6 +631,20 @@ func wanted_lost(bounty: int, _heat: int) -> void:
 	_wanted_fade = 1.2
 	toast("Lost the police  ·  +%d" % bounty, "coin", Color(0.12, 0.13, 0.16, 0.85), Color.WHITE, 2.4)
 
+## A big knock: the screen flashes pale for an instant (k: 0..1, how hard), whatever the time scale.
+var _flash: ColorRect
+func impact_flash(k: float) -> void:
+	if _flash == null:
+		_flash = ColorRect.new()
+		_flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hud.add_child(_flash)
+		hud.move_child(_flash, 0)            # (under the gauges and buttons)
+	_flash.color = Color(1.0, 0.96, 0.9, clampf(k, 0.0, 1.0) * 0.4)
+	var tw := create_tween()
+	tw.set_ignore_time_scale(true)
+	tw.tween_property(_flash, "color:a", 0.0, 0.25)
+
 ## Busted: the picture drains of colour, BUSTED across it, the fine under it; then it all fades back.
 func busted_fx(fine: int) -> void:
 	var lay := Control.new()
@@ -991,7 +1005,7 @@ func hud_update(d: Dictionary) -> void:
 			_fps_worst = 0.0
 		clock_lbl.text += ("   " if clock_lbl.text != "" else "") + _fps_txt
 	var fv := float(d.get("fuel", 100.0)) / 100.0
-	var cv := 1.0 - float(d.get("damage", 0.0)) / 100.0
+	var cv := 1.0 - maxf(float(d.get("damage", 0.0)), float(d.get("engine", 0.0))) / 100.0
 	if absf(float(fuel_g.get_meta("v")) - fv) > 0.002:
 		fuel_g.set_meta("v", fv)
 		fuel_g.queue_redraw()
