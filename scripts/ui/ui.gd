@@ -84,6 +84,8 @@ var g_paint := -1            # the paint job being tried on in the showroom (-1:
 const PAINT_PRICE := 250
 var g_spin := 0.0
 var g_drag := 0.0
+var g_neon: Node3D = null       # the underglow on the car on show (lit as light, by _garage_neon)
+var g_neon_y := 0.0
 var speed_fx: ColorRect          # streaks at the screen edges when you're flying along
 var count_lbl: Label             # the race countdown, big in the middle
 var sweet_meter: Control         # the drift angle, with the sweet spot marked
@@ -1474,6 +1476,12 @@ func tick(dt: float) -> void:
 	if garage.visible:
 		g_spin += dt * 0.35
 		g_turn.rotation.y = g_spin
+		# the underglow's light turns with the car
+		if g_neon and is_instance_valid(g_neon):
+			var zc: float = g_neon.get_meta("zc")
+			CarScript.neon_light(g_neon, g_turn.global_transform * Vector3(0, g_neon_y + 0.02, zc), g_turn.global_transform.basis.z, 0.95)
+		else:
+			CarScript.neon_light(null, Vector3.ZERO, Vector3.ZERO, 0.0)
 	_bank_t = maxf(0.0, _bank_t - dt)
 	if _hint_t > 0.0:
 		_hint_t -= dt
@@ -2195,11 +2203,12 @@ func _show_car(d: Dictionary) -> void:
 		g_car.add_child(w)
 		low = minf(low, (c["wheels"][i] as Vector3).y - float(c["r_f"] if i < 2 else c["r_r"]))
 	var ni := int(tn.get("neon", 0))
+	g_neon = null
+	g_neon_y = low
 	if ni > 0 and ni < CarScript.NEON.size():
 		var nn := CarScript.make_neon(c, CarScript.NEON[ni], g_mat)
-		(nn.get_meta("pool") as Node3D).position.y = low + 0.03
-		(nn.get_meta("pool_mat") as ShaderMaterial).set_shader_parameter("night", 0.6)
 		g_car.add_child(nn)
+		g_neon = nn
 
 func _cars_tab() -> void:
 	var s = game.save.data
@@ -2452,7 +2461,4 @@ func _garage_input(e: InputEvent) -> void:
 		g_drag += e.relative.x
 		g_spin += e.relative.x * 0.01
 	elif e is InputEventScreenTouch and not e.pressed:
-		if absf(g_drag) > 160.0:
-			_garage_step(-1 if g_drag > 0 else 1)
-			game.ui_tap()
-		g_drag = 0.0
+		g_drag = 0.0          # (a swipe only turns the car: the arrows change it)

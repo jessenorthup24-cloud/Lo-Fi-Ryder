@@ -62,10 +62,13 @@ func setup(parent: Node, toon: ShaderMaterial) -> void:
 	sun = DirectionalLight3D.new()
 	sun.shadow_enabled = true
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	sun.directional_shadow_max_distance = 90.0
-	sun.shadow_blur = 0.6
-	sun.shadow_bias = 0.06
-	sun.shadow_normal_bias = 1.4
+	sun.directional_shadow_max_distance = 110.0     # (fading out at the far end, not stopping on a line)
+	sun.directional_shadow_blend_splits = true      # (no line where the near, sharper shadows hand over)
+	sun.shadow_blur = 0.8
+	# enough bias that a surface never shadows itself (the speckled "acne" on a car's bonnet with the sun
+	# low), not so much that shadows lift off the ground
+	sun.shadow_bias = 0.08
+	sun.shadow_normal_bias = 2.2
 	parent.add_child(sun)
 	mats.append(toon)
 	set_season(season_now())
@@ -249,6 +252,9 @@ func _apply() -> void:
 		elev = sin(nt * PI) * 45.0 + 12.0
 		az = lerpf(-60.0, 240.0, nt)
 	sun.rotation_degrees = Vector3(-elev, az, 0)
+	# with the sun (or the moon) low, shadows are long and grazing, and that's when they turn speckled and
+	# patchy: they fade back as it gets low, rather than glitch
+	sun.shadow_opacity = clampf((elev - 6.0) / 16.0, 0.35, 1.0)
 	sun.light_color = k[2]
 	sun.light_energy = k[3]
 	night = clampf(1.0 - smoothstep(0.2, 0.55, float(k[3])), 0.0, 1.0)

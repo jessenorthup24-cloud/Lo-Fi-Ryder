@@ -21,6 +21,12 @@ uniform float depth_bias = 0.0;        // roads and lots: drawn a hair toward th
 uniform vec4 lamps[16];
 uniform vec3 lamp_col : source_color = vec3(1.0, 0.76, 0.44);
 uniform vec3 head_col : source_color = vec3(0.85, 0.92, 1.0);
+// your car's neon underglow, as light (it lies on whatever's under the car: road, kerb, grass, its own
+// lower body): xyz where (just under the floor), w strength (0: none); fwd: the car's way (xyz), w half
+// length; col: linear rgb, a half width
+global uniform vec4 neon_pos;
+global uniform vec4 neon_fwd;
+global uniform vec4 neon_col;
 
 varying vec3 v_col;
 varying float v_glow;
@@ -115,13 +121,29 @@ void fragment() {
 		// (plus a touch of the light's own colour, so a pool of light shows even on dark asphalt)
 		EMISSION += (col * 1.9 + vec3(0.035)) * lit * night;
 	}
+	if (neon_pos.w > 0.001) {
+		vec3 nd = v_world - neon_pos.xyz;
+		vec3 nf = neon_fwd.xyz;
+		vec3 ns = normalize(cross(vec3(0.0, 1.0, 0.0), nf) + vec3(1e-4, 0.0, 0.0));
+		float lon = dot(nd, nf) / max(neon_fwd.w, 0.1);
+		float lat = dot(nd, ns) / max(neon_col.a, 0.1);
+		float r = sqrt(lon * lon + lat * lat);
+		float f = (1.0 - smoothstep(0.15, 1.0, r)) * (1.0 - smoothstep(0.35, 1.3, abs(nd.y)));
+		if (f > 0.0) {
+			vec3 to_l = normalize(neon_pos.xyz - v_world + vec3(0.0, 0.2, 0.0));
+			float ndl = clamp(dot(v_nrm, to_l), 0.0, 1.0) * 0.75 + 0.25;
+			EMISSION += neon_col.rgb * f * ndl * neon_pos.w;
+		}
+	}
 }
 
 void light() {
 	float ndl = dot(NORMAL, LIGHT);
-	float band = smoothstep(0.0, shade_soft, ndl);
-	// (a soft edge: a hard one shows the shadow map's texels as a staircase that hops each time the sun steps)
-	float sh = smoothstep(0.06, 0.94, ATTENUATION);
+	// the turn from light to shade: soft over the first few degrees, so the flat panels of a car (or a
+	// curved roof) that face the sun only just don't flicker between lit and dark facet by facet
+	float band = smoothstep(-0.02, shade_soft + 0.2, ndl);
+	// the shadow map's own soft edge, as it comes (sharpening it turns its grain into blotches)
+	float sh = ATTENUATION;
 	float l = band * sh;
 	DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * l / PI;
 }

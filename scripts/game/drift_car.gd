@@ -195,9 +195,6 @@ func tune(def: Dictionary, up: Dictionary, tun := {}) -> void:
 	if ni > 0 and ni < NEON.size() and not info.is_empty():
 		neon_node = make_neon(info, NEON[ni], body_node.material_override if body_node else null)
 		add_child(neon_node)
-		var pl: MeshInstance3D = neon_node.get_meta("pool")
-		pl.top_level = true            # (it goes on the ground, not with the car's tilt)
-		pl.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	var pw: float = def.get("power", 1.0) * (1.0 + 0.08 * int(up.get("engine", 0)))
 	engine_force = 7600.0 * pw
 	power_speed = 13.0 * (1.0 + 0.05 * int(up.get("turbo", 0)))
@@ -785,26 +782,15 @@ func _wheel_vis(dt: float) -> void:
 static func camber_basis(left: bool, cam: float) -> Basis:
 	return Basis(Vector3(0, 0, 1), deg_to_rad(CAMBER_MAX) * cam * (-1.0 if left else 1.0))
 
-## Underglow for a car: a pool of light on the ground and neon tubes under the floor (seen only from
-## underneath). The pool is its child "pool" (meta); in the game it's laid on the ground by neon_tick.
+## Underglow for a car: neon tubes under the floor (seen only from underneath), and the light they throw,
+## which is real light in the toon shader (see neon_light): it lies on whatever's under the car, the
+## road, a kerb, grass, the car's own sills, with nothing to clip into the ground.
 static func make_neon(car_info: Dictionary, col: String, _mat: Material) -> Node3D:
 	var root := Node3D.new()
 	root.name = "Neon"
 	var w: float = car_info["width"]
 	var l: float = car_info["length"]
 	var zc: float = (float(car_info["front"]) + float(car_info["back"])) * 0.5
-	var pool := MeshInstance3D.new()
-	var pm := PlaneMesh.new()
-	pm.size = Vector2(w * 2.7, l * 1.75)
-	pool.mesh = pm
-	var sm := ShaderMaterial.new()
-	sm.shader = load("res://shaders/neon.gdshader")
-	sm.set_shader_parameter("col", Color(col))
-	pool.material_override = sm
-	pool.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	pool.position = Vector3(0, 0.03, zc)
-	root.add_child(pool)
-	# the tubes: tucked under the floor, inside the outline of the body
 	var tubes := MeshInstance3D.new()
 	var mb := MB.new()
 	var fy: float = float(car_info["r_f"]) * 0.9 - 0.04
@@ -820,36 +806,49 @@ static func make_neon(car_info: Dictionary, col: String, _mat: Material) -> Node
 	tubes.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	tubes.name = "Tubes"
 	root.add_child(tubes)
-	root.set_meta("pool_mat", sm)
-	root.set_meta("pool", pool)
+	root.set_meta("col", Color(col))
 	root.set_meta("zc", zc)
+	root.set_meta("w", w)
+	root.set_meta("l", l)
 	return root
 
-## Every frame (xf: where the car's drawn): the underglow lies on the ground under the car, and fades as
-## the car lifts off or tips over.
-func neon_tick(xf: Transform3D) -> void:
-	if neon_node == null:
+## The globals the toon shader lights the underglow from (made here if the app's own settings don't have
+## them yet: an update can't change those).
+static func neon_globals() -> void:
+	for nm in ["neon_pos", "neon_fwd", "neon_col"]:
+		if not ProjectSettings.has_setting("shader_globals/" + nm):
+			RenderingServer.global_shader_parameter_add(nm, RenderingServer.GLOBAL_VAR_TYPE_VEC4, Vector4(0, 0, 1, 1) if nm == "neon_fwd" else Vector4.ZERO)
+
+## The underglow's light: under the middle of the car at `at` (on the ground), the car pointing `fwd`.
+static func neon_light(neon: Node3D, at: Vector3, fwd: Vector3, strength: float) -> void:
+	if neon == null or strength <= 0.001:
+		RenderingServer.global_shader_parameter_set("neon_pos", Vector4.ZERO)
 		return
-	var pool: MeshInstance3D = neon_node.get_meta("pool")
-	var mat: ShaderMaterial = neon_node.get_meta("pool_mat")
+	var c: Color = (neon.get_meta("col") as Color).srgb_to_linear()
+	var f := Vector3(fwd.x, 0, fwd.z)
+	f = f.normalized() if f.length() > 0.01 else Vector3(0, 0, 1)
+	RenderingServer.global_shader_parameter_set("neon_pos", Vector4(at.x, at.y + 0.25, at.z, strength))
+	RenderingServer.global_shader_parameter_set("neon_fwd", Vector4(f.x, 0, f.z, float(neon.get_meta("l")) * 0.9))
+	RenderingServer.global_shader_parameter_set("neon_col", Vector4(c.r, c.g, c.b, float(neon.get_meta("w")) * 1.35))
+
+## Every frame (xf: where the car's drawn): the underglow lights the ground under the car, fading as the
+## car lifts off or tips over.
+func neon_tick(xf: Transform3D, night: float) -> void:
+	if neon_node == null:
+		neon_light(null, Vector3.ZERO, Vector3.ZERO, 0.0)
+		return
 	var up := xf.basis.y
 	var c := xf * Vector3(0, 0.3, float(neon_node.get_meta("zc")))
 	var q := PhysicsRayQueryParameters3D.create(c + Vector3(0, 0.8, 0), c - Vector3(0, 3.0, 0), 1)
 	q.exclude = [get_rid()]
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
 	if hit.is_empty():
-		pool.visible = false
+		neon_light(null, Vector3.ZERO, Vector3.ZERO, 0.0)
 		return
 	var hp: Vector3 = hit["position"]
 	var n: Vector3 = hit["normal"]
 	var k := clampf(1.0 - (c.y - 0.3 - hp.y - 0.4) / 1.0, 0.0, 1.0) * clampf((up.dot(n) - 0.55) / 0.3, 0.0, 1.0)
-	pool.visible = k > 0.02
-	if not pool.visible:
-		return
-	var f := xf.basis.z
-	f = (f - n * f.dot(n)).normalized()
-	pool.global_transform = Transform3D(Basis(n.cross(f).normalized(), n, f), hp + n * 0.05)
-	mat.set_shader_parameter("k", k)
+	neon_light(neon_node, hp, -xf.basis.z, k * (0.95 + 0.6 * night))
 
 ## A dent where you hit (global point and the direction into the car), sized by how hard.
 func dent(at: Vector3, into: Vector3, strength: float) -> void:

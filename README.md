@@ -32,13 +32,19 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   on phones that pace 120 Hz unevenly, and easier on the battery).
 - Shadows hold still: the sun moves in small steps (a game minute, about every half second) rather than a
   little every frame, which made the shadow map re-sample every frame and the edges of building shadows
-  shimmer; their edges are soft, so a step is a nudge rather than a jump.
+  shimmer; their edges are soft, so a step is a nudge rather than a jump. Enough shadow bias that nothing
+  shadows itself (no speckled "acne" on a bonnet), the near and far shadow cascades blend into each other,
+  shadows reach 110 m and fade out there, and with the sun (or moon) low they soften back rather than go
+  patchy. The turn from lit to shade is soft over the first few degrees, so a car's flat panels don't flick
+  between light and dark one facet at a time.
 - Tuning (garage, Tune tab, per car): camber (0-10°) and ride height (slammed to lifted) change the look
   and the handling. More camber and lower: drifts more easily but less race grip and worse off-road.
   Less camber and higher: harder to drift, more grip, better on grass, dirt and sand. Bars show the
-  trade-off as you go. Neon underglow (a one-off kit for all cars) in eight colours: a soft pool of light
-  laid on the ground under the car (it fades as the car leaves the ground or tips over), brighter at
-  night, with the tubes themselves only visible from underneath.
+  trade-off as you go. Neon underglow (a one-off kit for all cars) in eight colours: real light in the
+  toon shader (global shader values `neon_pos`, `neon_fwd`, `neon_col`), so it lies on whatever's under
+  the car (road, kerb, grass, the sills) with nothing to clip into the ground; it fades as the car leaves
+  the ground or tips over, brighter at night, with the tubes themselves only visible from underneath. In
+  the garage a swipe on the car turns it; the arrows change cars.
 - Settings → Show FPS puts the frame rate and the slowest frame of the last second by the clock.
 - Rewind: hold REWIND (by the camera button; Backspace or Z on a keyboard) to take back the last 10
   seconds. The picture goes blue and plays backwards at double speed; let go to carry on from there, at
@@ -310,6 +316,7 @@ godot --path . -- --drive --race=northloop --racelog --linedump=1640:1740 --quit
 godot --path . -- --drive --begin=race:cliffside --raceauto --restartat=14 --quitat=40   # the pause menu's Restart, then Leave
 godot --path . -- --drive --auto --begin=zone:square --againtest   # the results card's Try again, pressed for you
 godot --path . -- --drive --begin=race:downtown --pauseat=6        # the pause menu (--sheet=settings, help, map, trophies too)
+godot --path . -- --drive --car=mail --tunetest=5,-2,8 --hour=21   # this car, slammed, blue neon, at night
 godot --path . -- --drive --patrolcam             # beside a patrol car in the traffic
 godot --headless --path . -- --auto --crew=3 --crewlog --crashlog   # three of the drivers called to you, logged
 godot --path . -- --drive --crew=Kai,Rico --phone_at=6               # these two with you, the phone up 6 s in

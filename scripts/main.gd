@@ -165,6 +165,7 @@ var race_end_t := 0.0
 
 func _ready() -> void:
 	_parse_args()
+	Car.neon_globals()
 	# landscape, laid out for 1280x720 whatever the installed app was built with
 	if OS.has_feature("mobile"):
 		DisplayServer.screen_set_orientation(DisplayServer.SCREEN_SENSOR_LANDSCAPE)
@@ -251,6 +252,8 @@ func _build_world() -> void:
 	car.misfired.connect(_on_misfire)
 	car.shifted.connect(func(_g): sound.rev(0.82); sound.shift())
 	car.rammed.connect(func(b, v, j, at): traffic.knock(b, v, j, at))
+	if args.has("car"):
+		save.data["car"] = String(args["car"])      # (a test: drive this one)
 	car_changed()
 	fuel = clampf(float(save.data.get("fuel", 100.0)), 0.0, 100.0)
 	nos_left = nos_cap()
@@ -686,9 +689,8 @@ func _process(dt: float) -> void:
 		atmos.motes_tick(cam.global_position, -cam.global_transform.basis.z, bool(save.setting("motes")))
 	if island and state != LOADING:
 		_lamp_lights(dt)
-	if car and car.neon_node:
-		(car.neon_node.get_meta("pool_mat") as ShaderMaterial).set_shader_parameter("night", atmos.night)
-		car.neon_tick(car.get_global_transform_interpolated())
+	if car and state != GARAGE:
+		car.neon_tick(car.get_global_transform_interpolated(), atmos.night)     # (the garage lights its own)
 	var cp := car.global_position
 	boats.tick(dt)
 	if island.rail and (state == DRIVE or state == TITLE):
