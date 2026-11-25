@@ -819,6 +819,11 @@ func _process(dt: float) -> void:
 			if on_foot:
 				_foot_tick(dt)
 			else:
+				# the EXIT button (on foot, the same button's ENTER: _foot_tick reads it there)
+				if _pressed("door") and not rewinding:
+					ui_tap()
+					toggle_foot()
+			if not on_foot:
 				_controls(dt)
 				_intro_tick(dt)
 				_rewind_tick(dt)
@@ -1026,6 +1031,16 @@ func _crew_tests() -> void:
 			held["brake"] = time > 9.0 and not has_meta("st_back")
 			if frames % 30 == 0:
 				print("STEAL drive t=%.1f kmh=%.0f up=%.2f grounded=%d" % [time, car.speed * 3.6, car.global_transform.basis.y.y, car.grounded])
+	if args.has("doortest") and state == DRIVE:
+		# a test: the EXIT button pressed (as a touch would) at 3 s, ENTER at 5 s
+		touches[99] = "door" if (time > 3.0 and time < 3.2) or (time > 5.0 and time < 5.2) else ""
+		_touch_held()
+		if not has_meta("dr") and time > 2.0:
+			set_meta("dr", true)
+			var r: Rect2 = (ui.ctl["door"] as Control).get_global_rect()
+			print("DOOR rect ", r, " control_at(centre)=", ui.control_at(r.get_center()), " screen ", get_viewport().get_visible_rect().size)
+		if frames % 20 == 0 and time > 2.5 and time < 6.5:
+			print("DOOR t=%.1f on_foot=%s held=%s" % [time, str(on_foot), str(held.get("door", false))])
 	if args.has("foottest") and state == DRIVE:
 		# a test: out of the car at 3 s, walk forward, sprint, jump, turn; back in at the end
 		if not has_meta("ft_out") and time > 3.0:
