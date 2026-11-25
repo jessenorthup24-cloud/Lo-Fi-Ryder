@@ -27,32 +27,42 @@ var _started := false
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var bg := ColorRect.new()
-	bg.color = Color(0.2, 0.196, 0.188)
+	bg.color = Color(0.043, 0.039, 0.067)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 	var font: Font = null
+	var thin: FontVariation = null
 	if ResourceLoader.exists("res://assets/fonts/Fredoka.ttf"):
 		var fv := FontVariation.new()
 		fv.base_font = load("res://assets/fonts/Fredoka.ttf")
-		fv.variation_opentype = {"wght": 600}
+		fv.variation_opentype = {"wght": 400}
 		font = fv
+		thin = FontVariation.new()
+		thin.base_font = fv.base_font
+		thin.variation_opentype = {"wght": 300}
+		thin.spacing_glyph = 9
 	var box := VBoxContainer.new()
 	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	box.custom_minimum_size = Vector2(560, 0)
 	box.position = Vector2(-280, -90)
 	box.add_theme_constant_override("separation", 18)
 	add_child(box)
-	var title := Label.new()
-	title.text = "Lo-Fi Dryfter"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 64)
-	title.add_theme_color_override("font_color", Color(0.97, 0.96, 0.94))
-	if font: title.add_theme_font_override("font", font)
-	box.add_child(title)
+	# the wordmark, as the game writes it (kit.gd wordmark): LO-FI in pink, DRYFTER in white, thin and spaced
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 24)
+	box.add_child(row)
+	for w in [["LO-FI", Color("ff4f8b")], ["DRYFTER", Color("f2f0f7")]]:
+		var title := Label.new()
+		title.text = w[0]
+		title.add_theme_font_size_override("font_size", 56)
+		title.add_theme_color_override("font_color", w[1])
+		if thin: title.add_theme_font_override("font", thin)
+		row.add_child(title)
 	_label = Label.new()
 	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_label.add_theme_font_size_override("font_size", 26)
-	_label.add_theme_color_override("font_color", Color(0.75, 0.73, 0.7))
+	_label.add_theme_color_override("font_color", Color(0.65, 0.64, 0.71))
 	if font: _label.add_theme_font_override("font", font)
 	box.add_child(_label)
 	_bar = ProgressBar.new()
@@ -60,10 +70,10 @@ func _ready() -> void:
 	_bar.show_percentage = false
 	_bar.visible = false
 	var fill := StyleBoxFlat.new()
-	fill.bg_color = Color(0.91, 0.88, 0.83)
+	fill.bg_color = Color("ff4f8b")
 	fill.set_corner_radius_all(11)
 	var back := StyleBoxFlat.new()
-	back.bg_color = Color(0.35, 0.34, 0.32)
+	back.bg_color = Color(1, 1, 1, 0.12)
 	back.set_corner_radius_all(11)
 	_bar.add_theme_stylebox_override("fill", fill)
 	_bar.add_theme_stylebox_override("background", back)
