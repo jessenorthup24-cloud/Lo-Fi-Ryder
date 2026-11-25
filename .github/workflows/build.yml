@@ -118,6 +118,22 @@ jobs:
             echo "no SFX_KEY secret: building with the built-in sounds"
           fi
 
+      - name: Fetch the licensed gun models (only with the ASSETS_TOKEN secret; without it the guns are plain stand-ins)
+        env:
+          ASSETS_TOKEN: ${{ secrets.ASSETS_TOKEN }}
+        run: |
+          # PIXEL ARSENAL may ship inside the built game but not be handed out on its own, so the baked models
+          # live in a private repo and only ever reach the build here (never this public repo)
+          if [ -n "$ASSETS_TOKEN" ]; then
+            git clone -q --depth 1 "https://x-access-token:${ASSETS_TOKEN}@github.com/jessenorthup24-cloud/lo-fi-assets-private.git" /tmp/private
+            mkdir -p assets/guns
+            cp /tmp/private/guns/*.res /tmp/private/guns/guns_meta.json assets/guns/
+            rm -rf /tmp/private
+            echo "guns: $(ls assets/guns/*.res | wc -l) models"
+          else
+            echo "no ASSETS_TOKEN secret: building with stand-in guns"
+          fi
+
       - name: Import assets
         run: ~/godot/${GODOT_BIN} --headless --path . --import
 

@@ -127,7 +127,7 @@ func hud() -> Dictionary:
 func tick(dt: float) -> void:
 	if held:
 		return
-	var you: Car = game.car
+	var you: Node3D = game.you()
 	var cp := you.global_position
 	_ram_cd -= dt
 	_spawn_cd -= dt
@@ -180,7 +180,7 @@ func tick(dt: float) -> void:
 			if float(tc.get("pull", 0.0)) > 0.5:
 				pulled += 1
 		var line := "COPS t=%.1f heat=%d pts=%.2f seen=%s unseen=%.1f bust=%.2f you=%.0fkmh lim=%d heli=%s pulled=%d pits=%d" % [game.time, heat, heat_pts, seen, unseen, bust,
-			absf(you.speed) * 3.6, limit, "sees" if heli and heli.sees(cp) else ("yes" if heli else "no"), pulled, int(stats["pits"])]
+			game.you_speed() * 3.6, limit, "sees" if heli and heli.sees(cp) else ("yes" if heli else "no"), pulled, int(stats["pits"])]
 		for u in units:
 			if is_instance_valid(u["car"]):
 				var uc3: Car = u["car"]
@@ -211,7 +211,7 @@ func _look_around(cp: Vector3) -> void:
 		var r: Dictionary = island.roads[int(me[0])]
 		if float(me[2]) < float(r["w"]) * 0.5 + 3.0:
 			limit = int(LIMIT.get(r["kind"], 0))
-	var kmh := absf(game.car.speed) * 3.6
+	var kmh: float = game.you_speed() * 3.6
 	patrol_near = false
 	for c in traffic.cars:
 		if String(c["model"]) != "k_car_police" or int(c["mode"]) >= 2:
@@ -255,13 +255,13 @@ func rammed(body: Node) -> void:
 	var c: Dictionary = traffic._car_of(body)
 	if c.is_empty() or _ram_cd > 0.0:
 		return
-	var cp: Vector3 = game.car.global_position
+	var cp: Vector3 = game.you().global_position
 	if String(c["model"]) == "k_car_police":
 		if not game.chase_ok_or_chase():
 			return
 		_ram_cd = 2.5
 		if heat == 0:
-			start(2.0 if absf(game.car.speed) > 11.0 else 1.0, "Hit a police car")
+			start(2.0 if game.you_speed() > 11.0 else 1.0, "Hit a police car")
 		else:
 			heat_pts += 0.4
 			_spotted(cp)
@@ -279,7 +279,7 @@ func _hits() -> void:
 	var who = h.get("who")
 	if who == null or not is_instance_valid(who) or not (who is Node) or not (who as Node).has_meta("police"):
 		return
-	var rel: float = (game.car.linear_velocity - (who as RigidBody3D).linear_velocity).length()
+	var rel: float = (game.you_vel() - (who as RigidBody3D).linear_velocity).length()
 	if rel < 5.0 or _ram_cd > 0.0:
 		return
 	_ram_cd = 2.5
@@ -294,7 +294,7 @@ func _hits() -> void:
 func ped_hit(at: Vector3) -> void:
 	if not game.chase_ok_or_chase():
 		return
-	var cp: Vector3 = game.car.global_position
+	var cp: Vector3 = game.you().global_position
 	if heat > 0:
 		heat_pts += 0.7
 		_spotted(cp)
@@ -312,7 +312,7 @@ func start(pts: float, why: String) -> void:
 	var was := heat
 	heat_pts = maxf(heat_pts, pts)
 	heat = clampi(int(heat_pts), 1, 5)
-	_spotted(game.car.global_position)
+	_spotted(game.you().global_position)
 	if was == 0:
 		chase_t = 0.0
 		bust = 0.0
@@ -370,7 +370,7 @@ func _chase(dt: float, cp: Vector3) -> void:
 		if float(u["eye_t"]) <= 0.0:
 			u["eye_t"] = 0.2
 			u["sees"] = _cone(c.global_position, -c.global_transform.basis.z, cp, SPOT_R, SPOT_ANG, CLOSE_R)
-		if u["sees"] and u["target"] == game.car:
+		if u["sees"] and u["target"] == game.you():
 			any = true
 			_sighted = true
 	if heli and heli.sees(cp):
@@ -401,7 +401,7 @@ func _chase(dt: float, cp: Vector3) -> void:
 		game.police_heat_up(heat)
 	game.save.max_stat("max_heat", heat)
 	# boxed in and stopped
-	var boxed := absf(game.car.speed) < 2.0 and nearest < 7.0 and seen
+	var boxed: bool = game.you_speed() < 2.0 and nearest < 7.0 and seen
 	bust = clampf(bust + (dt / BUST_T if boxed else -dt / BUST_T * 0.7), 0.0, 1.0)
 	if bust >= 1.0:
 		_busted()
@@ -410,7 +410,7 @@ func _chase(dt: float, cp: Vector3) -> void:
 	var want: int = UNITS[heat] + (1 if race_chase and game.race != null else 0)
 	if _active() < want and _spawn_cd <= 0.0:
 		_spawn_cd = 3.5
-		_spawn_near(cp if seen else last_seen, game.car, seen)
+		_spawn_near(cp if seen else last_seen, game.you(), seen)
 
 func _escaped() -> void:
 	var bounty := 40 * heat + int(chase_t) * 2
@@ -452,7 +452,7 @@ func _leave(u: Dictionary, wait: float) -> void:
 
 ## A spot on a road well away from you (where a police car that's done drives off to).
 func _somewhere_away(from: Vector3) -> Vector3:
-	var you: Vector3 = game.car.global_position
+	var you: Vector3 = game.you().global_position
 	var out := Vector3(from.x - you.x, 0, from.z - you.z)
 	if out.length() < 1.0:
 		out = Vector3(1, 0, 0)
@@ -507,20 +507,20 @@ func clear() -> void:
 ## where you're going (put there out of your sight). Get through or round them; when you're close they
 ## join in.
 func _roadblocks() -> void:
-	if heat < 3 or not seen or _block_cd > 0.0 or absf(game.car.speed) < 12.0 or game.race != null:
+	if heat < 3 or not seen or _block_cd > 0.0 or game.you_speed() < 12.0 or game.race != null:
 		return
 	for u in units:
 		if u["state"] == "block":
 			return
 	_block_cd = BLOCK_CD
-	var you: Car = game.car
+	var you: Node3D = game.you()
 	var cp := you.global_position
-	var dirv := Vector3(you.linear_velocity.x, 0, you.linear_velocity.z).normalized()
+	var dirv: Vector3 = Vector3(game.you_vel().x, 0, game.you_vel().z).normalized()
 	var path: PackedVector3Array = game.router.find(cp, cp + dirv * 280.0, true)
 	if path.size() < 3:
 		return
 	var walked := 0.0
-	var want := clampf(absf(you.speed) * 5.5, 130.0, 210.0)
+	var want: float = clampf(game.you_speed() * 5.5, 130.0, 210.0)
 	for k in range(1, path.size()):
 		var seg := Vector2(path[k].x - path[k - 1].x, path[k].z - path[k - 1].z).length()
 		walked += seg
@@ -567,7 +567,7 @@ func _heli_tick(dt: float, cp: Vector3) -> void:
 		heli.look = cp
 	if heli == null:
 		return
-	var focus: Vector3 = cp + (game.car as RigidBody3D).linear_velocity * 0.8 if seen else last_seen + Vector3(cos(chase_t * 0.3), 0, sin(chase_t * 0.3)) * 45.0
+	var focus: Vector3 = cp + game.you_vel() * 0.8 if seen else last_seen + Vector3(cos(chase_t * 0.3), 0, sin(chase_t * 0.3)) * 45.0
 	var aim: Vector3 = cp if seen else focus
 	heli.tick(dt, focus, aim, game.atmos.night)
 	if heli.gone:
@@ -598,13 +598,13 @@ func _race_watch() -> void:
 		start(2.0, "The police are onto the race")
 		# they come in from round about: some after you, the rest after whoever's nearest them
 		for i in 3:
-			_spawn_near(game.car.global_position, game.car, true)
+			_spawn_near(game.you().global_position, game.you(), true)
 		_spawn_cd = 4.0
 
 func _pick_target(u: Dictionary) -> void:
 	if u.get("npc", false):
 		return          # (after one of the drivers: stays on them)
-	u["target"] = game.car
+	u["target"] = game.you()
 	var r = game.race
 	if not race_chase or r == null or r.state != 1 or int(u["idx"]) % 2 == 0:
 		return
@@ -625,7 +625,7 @@ func _pick_target(u: Dictionary) -> void:
 ## behind you, while they've got you in sight).
 func _spawn_near(p: Vector3, target: Node3D, behind := false) -> void:
 	var cam: Camera3D = game.cam
-	var you: Vector3 = game.car.global_position
+	var you: Vector3 = game.you().global_position
 	var back := Vector2(cam.global_transform.basis.z.x, cam.global_transform.basis.z.z).normalized()
 	for tries in 36:
 		var dirn := Vector2.from_angle(randf() * TAU)
@@ -670,14 +670,14 @@ func patrol_hit(c: Dictionary, impulse: Vector3, at: Vector3) -> bool:
 		return false
 	_ram_cd = 2.5
 	if heat == 0:
-		start(2.0 if absf(game.car.speed) > 11.0 else 1.0, "Hit a police car")
+		start(2.0 if game.you_speed() > 11.0 else 1.0, "Hit a police car")
 	else:
 		heat_pts += 0.4
-		_spotted(game.car.global_position)
+		_spotted(game.you().global_position)
 	var b: Node3D = c["body"]
 	var f := -b.global_transform.basis.z
 	var xf: Transform3D = game.on_ground(Transform3D(Basis(Vector3.UP, atan2(-f.x, -f.z)), b.global_position + Vector3(0, 0.25, 0)))
-	var u := _unit(xf, Vector3(f.x, 0, f.z) * float(c["v"]), game.car)
+	var u: Dictionary = _unit(xf, Vector3(f.x, 0, f.z) * float(c["v"]), game.you())
 	_patrol_away(c)
 	var uc: Car = u["car"]
 	# the knock, as a car takes it (shared with the 1150 kg traffic body it was: scaled to this one's weight)
@@ -693,13 +693,13 @@ func _join(c: Dictionary) -> void:
 	var f := -b.global_transform.basis.z
 	var p := b.global_position
 	var xf: Transform3D = game.on_ground(Transform3D(Basis(Vector3.UP, atan2(-f.x, -f.z)), p + Vector3(0, 0.7, 0)))
-	_unit(xf, Vector3(f.x, 0, f.z) * float(c["v"]), game.car)
+	_unit(xf, Vector3(f.x, 0, f.z) * float(c["v"]), game.you())
 	_patrol_away(c)
 
 ## The patrol car that's just pulled out after someone: the traffic gets it back somewhere well out of sight
 ## (further afield if there's nowhere nearer), so there are never two of it.
 func _patrol_away(c: Dictionary) -> void:
-	var cp: Vector3 = game.car.global_position
+	var cp: Vector3 = game.you().global_position
 	var view: Vector3 = -game.cam.global_transform.basis.z
 	if traffic._place_random(c, cp, 160.0, 260.0, view):
 		return
@@ -806,7 +806,15 @@ func _drive(u: Dictionary, dt: float) -> void:
 		return
 	if c.freeze:
 		return
-	var you: Car = game.car
+	if u.get("foot_out", false):
+		if game.on_foot:
+			# its officers are out on foot: it stands where it stopped, lights going
+			c.throttle = 0.0
+			c.brake = 1.0
+			c.steer_in = 0.0
+			return
+		u["foot_out"] = false
+	var you: Node3D = game.you()
 	var pos := c.global_position
 	var v := c.linear_velocity.length()
 	var fwd := -c.global_transform.basis.z
@@ -865,7 +873,7 @@ func _drive(u: Dictionary, dt: float) -> void:
 			u["replan"] = 0.0
 	else:
 		goal = tgt.global_position
-		tv = (tgt as RigidBody3D).linear_velocity
+		tv = _vel_of(tgt)
 		# heading you off: some go for where you'll be in a few seconds (down the road you're on), not where you are
 		if u["role"] == "cut" and tv.length() > 12.0 and pos.distance_to(goal) > 45.0:
 			goal = _down_the_road(tgt, tv, tv.length() * clampf(pos.distance_to(goal) / 35.0, 1.5, 4.0))
@@ -1070,6 +1078,14 @@ func _ob(out: Array, p: Vector3, vel: Vector3, pos: Vector3, fwd: Vector3, rgt: 
 	out.append([ahead, lat, vel.dot(fwd)])
 
 ## Where someone going this fast will be in `metres`, down the road they're on (or straight on, off the roads).
+## How fast something's going: a car's or a walking person's.
+static func _vel_of(n: Node3D) -> Vector3:
+	if n is RigidBody3D:
+		return (n as RigidBody3D).linear_velocity
+	if n is CharacterBody3D:
+		return (n as CharacterBody3D).velocity
+	return Vector3.ZERO
+
 func _down_the_road(tgt: Node3D, tv: Vector3, metres: float) -> Vector3:
 	var tp := tgt.global_position
 	var R = game.router
@@ -1088,7 +1104,7 @@ func _down_the_road(tgt: Node3D, tv: Vector3, metres: float) -> Vector3:
 func _close_in(u: Dictionary, c: Car, tgt: Node3D, v: float) -> Vector2:
 	var pos := c.global_position
 	var tp := tgt.global_position
-	var tv := (tgt as RigidBody3D).linear_velocity
+	var tv := _vel_of(tgt)
 	var tf := -tgt.global_transform.basis.z
 	var tr := tgt.global_transform.basis.x
 	tf.y = 0.0

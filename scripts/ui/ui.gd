@@ -31,7 +31,9 @@ var wipe_mat: ShaderMaterial
 var ctl := {}                 # left, right, gas, brake, hand -> Control
 var speed_lbl: Label
 var speedo: Control
-var foot_mode := false       # on foot: the stick, jump and sprint instead of the car's controls
+var foot_mode := false
+var hp_bar: ProgressBar
+var aim_mark: Control       # on foot: the stick, jump and sprint instead of the car's controls
 var gear_lbl: Label
 var rpm_bar: ProgressBar
 var drift_card: PanelContainer
@@ -77,6 +79,8 @@ var title_go: Button
 var g_root3d: Node3D
 var g_car: Node3D
 const Avatar := preload("res://scripts/game/avatar.gd")
+const Weapons := preload("res://scripts/game/weapons.gd")
+const Gunplay := preload("res://scripts/game/gunplay.gd")
 var g_turn: Node3D
 var g_mat: ShaderMaterial
 var g_index := 0
@@ -562,8 +566,25 @@ func _build_hud() -> void:
 	ctl["stick"] = _pad("stick", Vector2(60, -300), Vector2(240, 240), true, K.PAPER)
 	ctl["jump"] = _pad("jump", Vector2(-214, -256), Vector2(132, 132), false, K.PAPER)
 	ctl["sprint"] = _pad("sprint", Vector2(-372, -204), Vector2(120, 120), false, K.PAPER)
-	for k in ["stick", "jump", "sprint"]:
+	ctl["fire"] = _pad("fire", Vector2(-424, -392), Vector2(160, 160), false, K.PAPER)
+	ctl["swap"] = _pad("swap", Vector2(-610, -330), Vector2(170, 70), false, K.PAPER)
+	for k in ["stick", "jump", "sprint", "fire", "swap"]:
 		ctl[k].visible = false
+	# your health, on foot: a slim bar under the minimap
+	hp_bar = K.bar(196, 10, Color("ff4f6b"), Color(0, 0, 0, 0.35))
+	hp_bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	hp_bar.position = Vector2(-222, 362)
+	hp_bar.visible = false
+	hud.add_child(hp_bar)
+	# where the gun's pointing: a little ring on whoever you'd hit
+	aim_mark = Control.new()
+	aim_mark.size = Vector2(40, 40)
+	aim_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	aim_mark.visible = false
+	aim_mark.draw.connect(func():
+		aim_mark.draw_arc(Vector2(20, 20), 15.0, 0, TAU, 32, Color(1.0, 0.31, 0.55, 0.95), 2.5, true)
+		aim_mark.draw_circle(Vector2(20, 20), 2.5, Color(1, 1, 1, 0.95)))
+	hud.add_child(aim_mark)
 	reset_hint = K.button("Stuck? Reset car", K.SUN, K.SUN_DK, 28, 0, 72, "home")
 	reset_hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	reset_hint.position = Vector2(-160, 60)
@@ -673,6 +694,26 @@ func _draw_foot_pad(c: Control, name: String) -> void:
 				var x := -10.0 + k * 14.0
 				c.draw_polyline(PackedVector2Array([cc + Vector2(x - 6, -12), cc + Vector2(x + 6, 0), cc + Vector2(x - 6, 12)]), w, 4.0, true)
 			_pad_text(c, "RUN", cc + Vector2(0, 40), 13, Color(1, 1, 1, 0.7))
+		"fire":
+			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
+			c.draw_circle(cc, c.size.x * 0.46, Color(1.0, 0.31, 0.55, 0.22 if not on else 0.45))
+			c.draw_arc(cc, 22.0, 0, TAU, 32, w, 3.0, true)
+			for k in 4:
+				var a := TAU * k / 4.0
+				var dv := Vector2(cos(a), sin(a))
+				c.draw_line(cc + dv * 14.0, cc + dv * 32.0, w, 3.0)
+			c.draw_circle(cc, 3.5, w)
+			_pad_text(c, "FIRE", cc + Vector2(0, 58), 14, Color(1, 1, 1, 0.75))
+		"swap":
+			var r := Rect2(Vector2(4, 4), c.size - Vector2(8, 8))
+			_rrect(c, r, 18, Color(0.06, 0.055, 0.09, 0.62), Color(1, 1, 1, 0.3), 1)
+			var lines := String(c.get_meta("txt", "")).split("\n")
+			var f := K.font(650)
+			if lines.size() > 0:
+				c.draw_string(f, Vector2(18, 32), lines[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 19, w)
+			if lines.size() > 1:
+				c.draw_string(K.font(500), Vector2(18, 54), lines[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 1, 1, 0.6))
+			c.draw_polyline(PackedVector2Array([Vector2(c.size.x - 30, 24), Vector2(c.size.x - 20, 35), Vector2(c.size.x - 30, 46)]), Color(1, 1, 1, 0.6), 2.5, true)
 		"door":
 			var foot: bool = c.get_meta("foot", false)
 			var near: bool = c.get_meta("near", false)
@@ -692,7 +733,7 @@ func _draw_foot_pad(c: Control, name: String) -> void:
 			_pad_text(c, "EXIT" if not foot else "ENTER", cc + Vector2(0, 40), 12, Color(1, 1, 1, 0.7 if (not foot or near) else 0.35))
 
 func _draw_pad(c: Control, name: String) -> void:
-	if name in ["stick", "jump", "sprint", "door"]:
+	if name in ["stick", "jump", "sprint", "door", "fire", "swap"]:
 		_draw_foot_pad(c, name)
 		return
 	var s := c.size
@@ -907,7 +948,7 @@ func impact_flash(k: float) -> void:
 	tw.tween_property(_flash, "color:a", 0.0, 0.25)
 
 ## Busted: the picture drains of colour, BUSTED across it, the fine under it; then it all fades back.
-func busted_fx(fine: int) -> void:
+func busted_fx(fine: int, word := "BUSTED", line := "") -> void:
 	var lay := Control.new()
 	lay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	lay.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -920,14 +961,14 @@ func busted_fx(fine: int) -> void:
 	sm.set_shader_parameter("k", 0.0)
 	grey.material = sm
 	lay.add_child(grey)
-	var big := K.outlined(K.label("BUSTED", 104, Color("eef0f3"), 800), Color(0.05, 0.06, 0.1), 16)
+	var big := K.outlined(K.label(word, 104, Color("eef0f3") if word == "BUSTED" else Color("ff4f6b"), 800), Color(0.05, 0.06, 0.1), 16)
 	big.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	big.position = Vector2(-400, -110)
 	big.size = Vector2(800, 140)
 	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	big.pivot_offset = big.size * 0.5
 	lay.add_child(big)
-	var sub := K.outlined(K.label(("Fined %d coins" % fine) if fine > 0 else "Let off with a warning", 26, Color.WHITE, 700), Color(0.05, 0.06, 0.1), 8)
+	var sub := K.outlined(K.label(line if line != "" else (("Fined %d coins" % fine) if fine > 0 else "Let off with a warning"), 26, Color.WHITE, 700), Color(0.05, 0.06, 0.1), 8)
 	sub.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	sub.position = Vector2(-300, 34)
 	sub.size = Vector2(600, 40)
@@ -1085,7 +1126,7 @@ func control_at(pos: Vector2) -> String:
 		var hub := wheel.get_global_rect().position + _wheel_hub()
 		if pos.distance_to(hub) < 250.0:
 			return "wheel"
-	for k in (["door", "jump", "sprint", "stick"] if foot_mode else ["rewind", "door", "nos", "cruise", "hand", "gas", "brake", "left", "right"]):
+	for k in (["door", "fire", "swap", "jump", "sprint", "stick"] if foot_mode else ["rewind", "door", "nos", "cruise", "hand", "gas", "brake", "left", "right"]):
 		var c: Control = ctl[k]
 		if not c.visible:
 			continue
@@ -1104,8 +1145,10 @@ func set_foot(on: bool) -> void:
 		wheel.visible = wheel_mode()
 		ctl["left"].visible = not wheel_mode()
 		ctl["right"].visible = not wheel_mode()
-	for k in ["stick", "jump", "sprint"]:
+	for k in ["stick", "jump", "sprint", "fire", "swap"]:
 		ctl[k].visible = on
+	hp_bar.visible = on
+	aim_mark.visible = false
 	speedo.visible = not on
 	fuel_g.visible = not on
 	cond_g.visible = not on
@@ -1134,6 +1177,19 @@ func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> 
 		dc.queue_redraw()
 	(ctl["stick"] as Control).set_meta("knob", game.stick)
 	ctl["stick"].queue_redraw()
+	var gp = game.gunplay
+	hp_bar.value = gp.hp / gp.MAX_HP
+	var sw: Control = ctl["swap"]
+	var gtxt: String = String(gp.weapon.get("name", "")) + "\n" + gp.ammo_text()
+	if String(sw.get_meta("txt", "")) != gtxt:
+		sw.set_meta("txt", gtxt)
+		sw.queue_redraw()
+	var cam: Camera3D = game.cam
+	if gp.target_pos != Vector3.INF and not cam.is_position_behind(gp.target_pos):
+		aim_mark.visible = true
+		aim_mark.position = cam.unproject_position(gp.target_pos) - Vector2(20, 20)
+	else:
+		aim_mark.visible = false
 	pressed_controls(game.held)
 
 func pressed_controls(held: Dictionary) -> void:
@@ -2442,7 +2498,7 @@ func _garage_refresh() -> void:
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 8)
 	g_panel.add_child(tabs)
-	for tdef in [["cars", "Cars", "car"], ["paint", "Paint", "star"], ["tune", "Tune", "tire"], ["up", "Upgrades", "gear"], ["driver", "Driver", "group"]]:
+	for tdef in [["cars", "Cars", "car"], ["paint", "Paint", "star"], ["tune", "Tune", "tire"], ["up", "Upgrades", "gear"], ["driver", "Driver", "group"], ["guns", "Guns", "star"]]:
 		var on: bool = g_tab == tdef[0]
 		var b := K.button(tdef[1], K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 18, 0, 62, tdef[2])
 		if not on:
@@ -2455,12 +2511,14 @@ func _garage_refresh() -> void:
 			g_paint = -1
 			_garage_refresh())
 		tabs.add_child(b)
-	if g_tab == "driver":
-		_show_driver()
+	if g_tab == "driver" or g_tab == "guns":
+		_show_driver(g_tab == "guns")
 	else:
 		_show_car(CARS.LIST[g_index])
 	if g_tab == "driver":
 		_driver_tab()
+	elif g_tab == "guns":
+		_guns_tab()
 	elif g_tab == "cars":
 		_cars_tab()
 	elif g_tab == "paint":
@@ -2607,7 +2665,79 @@ func _driver_tab() -> void:
 			_garage_refresh())
 		row.add_child(ab)
 
-func _show_driver() -> void:
+## The Guns tab: buy the six kinds, pick which you carry, and its look (the first look's free).
+func _guns_tab() -> void:
+	var s = game.save.data
+	if not s.has("guns"):
+		s["guns"] = ["pistol"]
+	var owned: Array = s["guns"]
+	var cur := String(s.get("gun", "pistol"))
+	var w: Dictionary = Weapons.by_id(cur)
+	var t := K.label(String(w["name"]), 30, K.INK, 500)
+	t.add_theme_font_override("font", K.font_spaced(500, 3))
+	g_panel.add_child(t)
+	g_panel.add_child(K.label("%d damage · %s · %d rounds" % [int(w["dmg"]) * int(w["pellets"]), "automatic" if w["auto"] else "one a tap", int(w["mag"])], 17, K.INK_SOFT, 500))
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	g_panel.add_child(grid)
+	for gw in Weapons.LIST:
+		var id: String = gw["id"]
+		var have: bool = id in owned
+		var on := id == cur
+		var txt := String(gw["name"]) if have else "%s · %s" % [gw["name"], K.fmt(int(gw["price"]))]
+		var b := K.button(txt, K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 16, 0, 50, "" if have else "coin")
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_tap(b, func():
+			if not (id in owned):
+				if int(s["coins"]) < int(gw["price"]):
+					toast("Not enough coins", "coin")
+					return
+				s["coins"] = int(s["coins"]) - int(gw["price"])
+				owned.append(id)
+				game.sfx("purchase", -4.0)
+			s["gun"] = id
+			game.save.save()
+			_garage_refresh())
+		grid.add_child(b)
+	# its looks
+	g_panel.add_child(K.label("Look" + ("" if Weapons.have_models() else "  (detailed models come with the full build)"), 17, K.INK_SOFT, 500))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	g_panel.add_child(row)
+	if not s.has("gun_looks"):
+		s["gun_looks"] = {}
+	if not s.has("gun_look"):
+		s["gun_look"] = {}
+	var mine: Array = s["gun_looks"].get(cur, [0])
+	var lk := int(s["gun_look"].get(cur, 0))
+	var looks: Array = w["looks"]
+	for i in looks.size():
+		var have2: bool = i in mine
+		var on2 := i == lk
+		var lt := Weapons.look_name(String(looks[i])) if have2 else K.fmt(Weapons.LOOK_PRICE)
+		var lb := K.button(lt, K.CORAL if on2 else K.CREAM, K.CORAL_DK if on2 else K.LINE_DK, 14, 0, 46, "" if have2 else "coin")
+		lb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var ii := i
+		_tap(lb, func():
+			if not (cur in owned):
+				toast("Buy the %s first" % w["name"], "coin")
+				return
+			if not (ii in mine):
+				if int(s["coins"]) < Weapons.LOOK_PRICE:
+					toast("Not enough coins", "coin")
+					return
+				s["coins"] = int(s["coins"]) - Weapons.LOOK_PRICE
+				mine.append(ii)
+				s["gun_looks"][cur] = mine
+				game.sfx("purchase", -4.0)
+			s["gun_look"][cur] = ii
+			game.save.save()
+			_garage_refresh())
+		row.add_child(lb)
+
+func _show_driver(with_gun := false) -> void:
 	for c in g_car.get_children():
 		c.queue_free()
 	g_neon = null
@@ -2616,6 +2746,18 @@ func _show_driver() -> void:
 	av.setup(String(game.save.data.get("avatar", "male-a")), String(game.save.data.get("acc", "")), g_mat)
 	av.scale = Vector3.ONE * 1.55         # (bigger than life on the turntable, facing you)
 	av.play("idle")
+	if with_gun and av.skel:
+		var s = game.save.data
+		var w: Dictionary = Weapons.by_id(String(s.get("gun", "pistol")))
+		var ba := BoneAttachment3D.new()
+		ba.bone_name = "arm-right"
+		av.skel.add_child(ba)
+		var gm := MeshInstance3D.new()
+		gm.mesh = Weapons.mesh(w, int((s.get("gun_look", {}) as Dictionary).get(String(w["id"]), 0)))
+		gm.material_override = g_mat
+		gm.transform = Gunplay.hand_xf(w)
+		ba.add_child(gm)
+		av.play("holding-both" if w["both"] else "holding-right")
 
 func _show_car(d: Dictionary) -> void:
 	for c in g_car.get_children():

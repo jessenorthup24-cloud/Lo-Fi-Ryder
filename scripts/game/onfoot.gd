@@ -21,6 +21,7 @@ var jump_req := false
 var facing := 0.0              # where the character points (yaw)
 var island: Node
 var _air := 0.0
+var aiming := 0.0              # firing: you face the target (gunplay sets facing), not where you walk
 
 func setup(isl: Node, id: String, acc: String, mat: Material) -> void:
 	island = isl
@@ -63,7 +64,8 @@ func _physics_process(dt: float) -> void:
 	jump_req = false
 	move_and_slide()
 	# face where you're going (quickly, but not snapping)
-	if hv.length() > 0.4:
+	aiming = maxf(0.0, aiming - dt)
+	if hv.length() > 0.4 and aiming <= 0.0:
 		facing = lerp_angle(facing, atan2(-hv.x, -hv.z), 1.0 - exp(-dt * 12.0))
 	avatar.rotation.y = facing + PI          # (the Kenney characters face +Z)
 	# below the sea or fallen off the world: back up on land

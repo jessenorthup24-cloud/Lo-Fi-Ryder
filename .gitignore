@@ -12,3 +12,6 @@ assets/audio/music/*
 # the vehicle sound pack: its licence doesn't allow sharing the sound files, so the repo holds it encrypted
 # (assets/audio/pack.tar.enc) and the build unlocks it with the SFX_KEY secret
 assets/audio/pack/
+
+# licensed (PIXEL ARSENAL): baked into the build from the private lo-fi-assets-private repo, never committed here
+assets/guns/

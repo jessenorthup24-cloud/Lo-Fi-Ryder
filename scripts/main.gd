@@ -25,6 +25,7 @@ const Boats := preload("res://scripts/game/boats.gd")
 const Crew := preload("res://scripts/game/crew.gd")
 const Weather := preload("res://scripts/game/weather.gd")
 const OnFoot := preload("res://scripts/game/onfoot.gd")
+const Gunplay := preload("res://scripts/game/gunplay.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
 
@@ -148,6 +149,7 @@ var police: Police
 var boats: Boats
 var crew: Crew               # the drivers out on the island (and the ones driving with you)
 var foot: OnFoot = null      # you, out of the car (null while you're driving)
+var gunplay: Gunplay         # guns, your health, the police on foot
 var on_foot := false
 var stick := Vector2.ZERO    # the on-foot stick: x right, y forward
 var stick_idx := -1          # the finger on it
@@ -212,6 +214,10 @@ func _ready() -> void:
 	atmos = Atmos.new()
 	add_child(atmos)
 	atmos.setup(self, toon)
+	if args.has("gun"):
+		save.data["guns"] = ["pistol", String(args["gun"])]          # (a test: carrying this, in this look)
+		save.data["gun"] = String(args["gun"])
+		save.data["gun_look"] = {String(args["gun"]): int(args.get("look", "0"))}
 	if args.has("avatar"):
 		save.data["avatar"] = String(args["avatar"])        # (a test: who you are, and what's on your head)
 		save.data["acc"] = String(args.get("acc", ""))
@@ -294,6 +300,10 @@ func _build_world() -> void:
 	car.rammed.connect(func(b, _v, _j, _at): police.rammed(b))
 	Car.rails = island.rails
 	car.collision_mask = car.collision_mask | Car.RAIL_LAYER     # (knock into the grind rails)
+	gunplay = Gunplay.new()
+	gunplay.name = "Gunplay"
+	add_child(gunplay)
+	gunplay.setup(self)
 	crew = Crew.new()
 	crew.name = "Crew"
 	add_child(crew)
@@ -417,7 +427,7 @@ func _build_world() -> void:
 				ui.open_achievements()
 	elif args.has("garage"):
 		open_garage()
-		if String(args["garage"]) in ["up", "paint", "tune", "driver"]:
+		if String(args["garage"]) in ["up", "paint", "tune", "driver", "guns"]:
 			ui.g_tab = String(args["garage"])
 			ui.g_paint = int(args.get("paintprev", "-1"))
 			ui._garage_refresh()
@@ -624,6 +634,8 @@ func car_changed() -> void:
 
 ## Straight back in the car, wherever you are (the title, a reset, a challenge starting).
 func _back_in() -> void:
+	if gunplay:
+		gunplay.clear_officers()
 	if foot != null:
 		foot.queue_free()
 		foot = null
@@ -959,6 +971,23 @@ func _crew_tests() -> void:
 		keys.sort_custom(func(a, b): return int(groups[a][1]) > int(groups[b][1]))
 		for k in keys.slice(0, 30):
 			print("PERF %-34s nodes %5d  tris %9d  range %.0f" % [k, groups[k][0], groups[k][1], groups[k][2]])
+	if args.has("guntest") and state == DRIVE:
+		# a test: out at 3 s with the gun given, shoot at whoever's in front for a while; wanted, officers come
+		if not has_meta("gt_out") and time > 3.0:
+			set_meta("gt_out", true)
+			var g := String(args["guntest"]) if String(args["guntest"]) != "true" else "pistol"
+			save.data["guns"] = ["pistol", g]
+			save.data["gun"] = g
+			toggle_foot()
+		if on_foot:
+			keys["fire"] = (time > 3.5 and frames % 8 < 4) if not bool(gunplay.weapon.get("auto", false)) else time > 3.5
+			if time > 7.0 and not args.has("gunfront"):
+				foot_yaw += get_process_delta_time() * 0.6     # (sweep round, to find people)
+			if args.has("gunfront"):
+				look_yaw_t = PI * 0.75                       # (the camera round in front, to see the gun)
+			if frames % 30 == 0:
+				print("GUN t=%.1f gun=%s ammo=%s hp=%.0f heat=%d target=%s people_down=%d cops=%d officers=%d anim=%s" % [time, gunplay.weapon.get("id", "?"), gunplay.ammo_text(), gunplay.hp,
+					police.heat, "yes" if gunplay.target_pos != Vector3.INF else "no", gunplay.kills["people"], gunplay.kills["police"], gunplay.officers.size(), foot.avatar.current()])
 	if args.has("stealtest") and state == DRIVE:
 		# a test: out at 3 s, up to the nearest traffic car, take it, drive it off
 		if not has_meta("st_out") and time > 3.0:
@@ -2413,6 +2442,21 @@ func police_busted(fine: int) -> void:
 		race_end_t = 3.0
 	_save_now()
 
+## Shot down on foot: WASTED. The picture drains, you lose a bit of your coins and any wanted level, and
+## you're back in your car where you left it, healed up.
+func wasted() -> void:
+	var fine := mini(int(save.data["coins"]), 100 + int(save.data["coins"]) / 20)
+	save.data["coins"] = maxi(int(save.data["coins"]) - fine, 0)
+	save.add_stat("wasted", 1)
+	ui.busted_fx(fine, "WASTED", ("Hospital bill: %d coins" % fine) if fine > 0 else "Patched up for free")
+	sfx("body_land", -2.0, 0.8)
+	slowmo(0.35, 1.3)
+	police.clear()
+	get_tree().create_timer(1.6, true, false, true).timeout.connect(func():
+		_back_in()
+		gunplay.hp = gunplay.MAX_HP
+		_save_now())
+
 ## Lost them: the stars fade, and the bounty.
 func police_escaped(bounty: int, heat: int) -> void:
 	save.data["coins"] = int(save.data["coins"]) + bounty
@@ -3186,9 +3230,6 @@ func _exit_car() -> void:
 	if challenge_on():
 		ui.toast("Not in the middle of a challenge", "car")
 		return
-	if police.wanted():
-		ui.toast("Lose the police first", "eye", Color("ff5c7a"))
-		return
 	if absf(car.speed) > 4.0:
 		ui.toast("Slow down to get out", "car")
 		return
@@ -3204,6 +3245,7 @@ func _exit_car() -> void:
 	foot.setup(island, String(save.data.get("avatar", "male-a")), String(save.data.get("acc", "")), toon)
 	foot.place(p, atan2(side.x, side.z) + PI)
 	on_foot = true
+	gunplay.equip()
 	cruise_on = false
 	nos_toggle = false
 	car.throttle = 0.0
@@ -3228,6 +3270,7 @@ func _enter_car() -> void:
 			_swap_into(t["pk"]["def"], int(t["pk"]["paint"]), (t["pk"]["node"] as Node3D).global_transform, t["pk"])
 		"traffic":
 			_take_traffic(t["c"])
+	gunplay.clear_officers()
 	foot.queue_free()
 	foot = null
 	on_foot = false
@@ -3236,6 +3279,20 @@ func _enter_car() -> void:
 	ui.set_foot(false)
 	_cam(0.016, true)
 	sfx("door", -6.0) if sound._stream("door") else sfx("bump", -10.0, 1.4)
+
+## You, whichever you are just now: on foot, or the car.
+func you() -> Node3D:
+	return foot if on_foot and foot != null else car
+
+func you_speed() -> float:
+	if on_foot and foot != null:
+		return Vector3(foot.velocity.x, 0, foot.velocity.z).length()
+	return absf(car.speed)
+
+func you_vel() -> Vector3:
+	if on_foot and foot != null:
+		return foot.velocity
+	return car.linear_velocity
 
 ## Near enough to a car to get in.
 func near_car() -> bool:
@@ -3366,6 +3423,15 @@ func _foot_tick(dt: float) -> void:
 		ui_tap()
 		toggle_foot()
 		return
+	if _pressed("swap") or (keys.get("swap", false) and not foot.get_meta("sk", false)):
+		gunplay.cycle()
+	foot.set_meta("sk", keys.get("swap", false))
+	var fire_now: bool = held.get("fire", false) or keys.get("fire", false)
+	var fire_edge: bool = _pressed("fire") or (keys.get("fire", false) and not foot.get_meta("fk", false))
+	foot.set_meta("fk", keys.get("fire", false))
+	gunplay.tick(dt, fire_now if bool(gunplay.weapon.get("auto", false)) else fire_edge, keys.get("reload", false))
+	if not on_foot:
+		return
 	_foot_cam(dt)
 	ui.foot_hud(foot.global_position, foot.facing, atmos.clock_text() + (("  ·  " + weather.label()) if weather and weather.label() != "" else ""), int(save.data["coins"]), near_car())
 
@@ -3447,6 +3513,12 @@ func _unhandled_input(e: InputEvent) -> void:
 			KEY_F, KEY_ENTER:
 				if on and state == DRIVE:
 					toggle_foot()
+			KEY_J, KEY_CTRL:
+				keys["fire"] = on
+			KEY_X:
+				keys["reload"] = on
+			KEY_TAB, KEY_V:
+				keys["swap"] = on
 			KEY_N, KEY_E:
 				held["nos"] = on
 			KEY_Q:
@@ -3540,7 +3612,7 @@ func _pressed(k: String) -> bool:
 	return on and not was
 
 func _touch_held() -> void:
-	for k in ["left", "right", "gas", "brake", "hand", "nos", "rewind", "cruise", "jump", "sprint", "door"]:
+	for k in ["left", "right", "gas", "brake", "hand", "nos", "rewind", "cruise", "jump", "sprint", "door", "fire", "swap"]:
 		var on := false
 		for t in touches.values():
 			if t == k:

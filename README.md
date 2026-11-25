@@ -204,6 +204,18 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   runs, and it's yours to drive (a truck's slow and heavy, a sports car quick). The car you were in stays
   parked where you left it, and you can go back to it. Take a police car, or take one with a patrol car
   looking on, and you're wanted.
+- Guns, on foot: six kinds (pistol, revolver, SMG, shotgun, rifle, sniper), each with five looks, bought
+  and picked in the garage's Guns tab (you start with a pistol; the first look's free). FIRE aims itself
+  at the nearest person or officer in front of you (a pink ring shows who), or straight ahead; the swap
+  pill (left of FIRE, or Tab) changes gun and shows what's left in the magazine; X reloads. Shots fired
+  bring the police; shooting people and officers brings more. When you're wanted and on foot, police
+  cars that reach you stop and the officers get out and come at you with pistols. Your health's the red
+  bar under the minimap (it comes back once you're out of a fight). Run out and you're WASTED: a
+  hospital bill, the wanted level gone, back in your car.
+- The guns are PIXEL ARSENAL models (a paid pack: they ship only inside the built game, fetched by the
+  build from a private repo with the `ASSETS_TOKEN` secret, never committed here). Without them (a local
+  checkout, or a build without the secret) each gun's a plain blocky stand-in. Gun sounds are made by the
+  game (no samples).
 - Your driver is one of 20 Kenney mini characters (garage, Driver tab), with glasses or shades if you like.
   They're rigged and animated (idle, walk, run, jump, fall), drawn in the game's toon style.
 - The HUD: the phone, camera and rewind are one column of matching round buttons beside the minimap
@@ -363,6 +375,9 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `scripts/game/onfoot.gd` | You on foot: walking, running, jumping, the animation (main.gd drives it and the camera) |
 | `scripts/game/avatar.gd` | A playable character: the baked Kenney mini character, its animations, an accessory on its head |
 | `tools/chars/bake_chars.gd` | Bakes the Kenney Mini Characters 2.0 (CC0) to `assets/chars/`: rig, animations, colours in the vertices |
+| `scripts/game/gunplay.gd` | Guns on foot: firing, auto-aim, hits, your health, officers on foot, WASTED |
+| `scripts/game/weapons.gd` | The six guns: stats, looks, models (or blocky stand-ins without the licensed pack) |
+| `tools/guns/bake_guns.gd` | Bakes PIXEL ARSENAL presets to game meshes (run against the private pack; output goes to the private repo) |
 | `scripts/game/green.gd` | Southside Green, the park along the south edge of town |
 | `scripts/game/street_stunts.gd` | Grind rails, kickers, low ramps and a boost pad on the town's open lots (the car's hop and grind are in `drift_car.gd`) |
 | `tools/kenney/bake_klyo.gd` | Bakes the Klyo stunt kit models (and their simple collision meshes, `_col`) into `assets/kenney/k_klyo_*` |
@@ -398,6 +413,8 @@ godot --path . -- --drive --grindtest=0          # line up on grind rail 0, hop 
 godot --path . -- --drive --ramcop               # drive into the nearest patrol car (--ramcop_v=12 to coast in at 12 m/s)
 godot --path . -- --drive --perfdump=2           # what's drawn, grouped and biggest first (--perfshadow: just what casts shadows)
 godot --path . -- --drive --foottest             # out of the car, walk, run, jump, turn, back in (logged)
+godot --path . -- --drive --guntest=rifle --at=square   # out with a gun, shooting; police come (logged)
+godot --path . -- --garage=guns --gun=shotgun --look=1    # the Guns tab, holding this gun
 godot --path . -- --drive --stealtest=k_car_taxi # out, take the nearest taxi, drive it, back to your own car (logged)
 godot --path . -- --garage=driver --avatar=robot --acc=glasses   # the Driver tab, as this character
 godot --path . -- --drive --perfdraws=3          # what's in view and in range right now, grouped (each at least a draw call)
