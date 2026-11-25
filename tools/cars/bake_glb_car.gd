@@ -6,6 +6,7 @@ extends SceneTree
 ## atlas (assets/cars/<key>_detail.png) that the toon shader reads through the car_detail global, and are
 ## tagged with vertex alpha 0.9. Lamps ("light" front, "red" back) are tagged to glow.
 ##   GLB=/path/car.glb KEY=hoon LEN=4.25 ONE_SIDED=1 KEEP=0.35 COARSE=1 godot --headless --path . -s tools/cars/bake_glb_car.gd
+##   (the Trunoh 86: KEY=ae86 LEN=4.2 NOTEX=1, the rest the same: only one car can use the texture atlas)
 ## Expects the glTF's front along -X, its left along +Z, wheel nodes named Wheel_Front_L and so on.
 
 const OUT := "res://assets/cars/"
@@ -25,6 +26,7 @@ func _init() -> void:
 	var doc := GLTFDocument.new()
 	var st := GLTFState.new()
 	two_sided = OS.get_environment("ONE_SIDED") == ""
+	notex = OS.get_environment("NOTEX") != ""
 	if OS.get_environment("KEEP") != "":
 		keep = float(OS.get_environment("KEEP"))
 	if OS.get_environment("KEEP_WHEEL") != "":
@@ -48,7 +50,8 @@ func _init() -> void:
 		hi = hi.max(ab.end)
 	var s := want_len / (hi.x - lo.x) / GAME_SCALE
 	to_game = Transform3D(Basis(Vector3.UP, -PI * 0.5).scaled(Vector3.ONE * s), Vector3.ZERO)
-	_build_atlas(body_parts)
+	if not notex:
+		_build_atlas(body_parts)
 	# the body
 	var bm := _bake(body_parts, true)
 	ResourceSaver.save(bm, OUT + key + "_body.res", ResourceSaver.FLAG_COMPRESS)
@@ -196,13 +199,22 @@ func _bake(parts: Array, lamps: bool, centred := false) -> ArrayMesh:
 				base_col = (mat as BaseMaterial3D).albedo_color
 			var mname := String(mat.resource_name) if mat else ""
 			var t := _tex_of(mat)
+			if t and notex:
+				# (no atlas for this one: a small texture, a number plate, say, as its average colour)
+				var im: Image = t.get_image()
+				im.decompress()
+				im.resize(1, 1, Image.INTERPOLATE_BILINEAR)
+				base_col = base_col * im.get_pixel(0, 0)
+				t = null
 			var rect: Rect2 = atlas_rects.get(t.get_rid(), Rect2()) if t else Rect2()
-			var glow := lamps and (mname == "light" or mname == "red")
+			var glow := lamps and (mname in ["light", "red", "Warm headlight lens"])
 			var v0 := verts.size()
 			var i0 := idx.size()
 			if OS.get_environment("DEBUG") != "":
 				print("PART ", mi.name, " mat '", mname, "' tex ", t != null, " glow ", glow, " verts ", (a[Mesh.ARRAY_VERTEX] as PackedVector3Array).size())
 			var src: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
+			if mname == "spring" and keep < 1.0:
+				continue     # (coil springs, thousands of triangles, up inside the arches where you can't see them)
 			if mname == "Grille mesh" and keep < 1.0:
 				# a perforated grille, thousands of tiny holes: drawn as its dark backing panel
 				var ab := AABB(xf * src[0], Vector3.ZERO)
@@ -302,6 +314,7 @@ func _bake(parts: Array, lamps: bool, centred := false) -> ArrayMesh:
 ## `keep` of them, then the vertices nothing uses any more dropped. Dents and the GPU both pay per vertex.
 var keep := 1.0
 var keep_wheel := 1.0
+var notex := false     # NOTEX=1: no texture atlas (the toon shader has one, the Hoon's): textures as flat colour
 
 func _simplify(arr: Array, want: float) -> Array:
 	var im := ImporterMesh.new()

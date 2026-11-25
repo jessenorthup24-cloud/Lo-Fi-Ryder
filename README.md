@@ -179,8 +179,11 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   you can hop off the road onto one; kickers, low ramps and a boost pad
   from the stunt kit are dotted round the beach car park, the Bowl, the harbour lot and the farmyard.
   The drivers on the road don't hop.
-- The garage: 19 cars (each with its own power, top speed, grip and drift), plus four upgrades that
+- The garage: 20 cars (each with its own power, top speed, grip and drift), plus four upgrades that
   work on every car you own (engine, turbo, tyres, steering angle).
+- The legendary Trunoh 86 (14,000 coins): a panda-coloured hatch, white over black, with pop-up lamps
+  and a louvred back window. Light and high-revving: not the fastest in a straight line, but the
+  tightest, quickest-switching drifter there is.
 - The legendary Hoon-Again (15,000 coins, last in the garage): a black widebody with gold fracture
   livery, the 00 roundel and taped-X headlamps. The quickest car in the game (0-100 in 4.8 s) and the
   slidiest: it holds drifts about 10 degrees deeper than anything else, and still doesn't spin.
@@ -340,7 +343,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `scripts/game/crew.gd` | The drivers: roaming, swapping numbers, your crew following your line, tandem drifts, the police after them |
 | `scripts/ui/phone.gd` | The phone: your contacts, Call and Send off |
 | `scripts/game/race.gd` | Races: the racing line (the streets' middle, or a route along the roads, pulled tight within their width, with a speed for every metre and crests capped), the difficulty levels, the CPU drivers (follow, pass, back off, recover), checkpoints, laps and places |
-| `tools/cars/bake_glb_car.gd` | Bakes a car made as a glTF (the Hoon-Again) the same way: vertex colours, wheels split out, big plain parts simplified, its livery kept as UVs into one atlas (`assets/cars/<key>_detail.png`) that the toon shader reads through the `car_detail` global |
+| `tools/cars/bake_glb_car.gd` | Bakes a car made as a glTF (the Hoon-Again, the Trunoh 86) the same way: vertex colours, wheels split out, big plain parts simplified, its livery kept as UVs into one atlas (`assets/cars/<key>_detail.png`) that the toon shader reads through the `car_detail` global |
 | `tools/cars/export_paints.gd` | Bakes each car's other liveries as per-vertex colour rows (`assets/cars/*_paints.res`) |
 
 There are no autoloads and no `class_name`s, so an update pack can replace any script before it loads.
