@@ -107,7 +107,7 @@ func setup(isl: Node, material: Material) -> void:
 		body.add_child(cs)
 		body.add_child(mi)
 		add_child(body)
-		var c := {"id": i, "body": body, "mode": ROAD, "r": 0, "s": 0.0, "dir": 1, "v": 0.0, "len": ab.size.z, "w": ab.size.x,
+		var c := {"base_mesh": mi.mesh, "mi_xf": mi.transform, "id": i, "body": body, "mode": ROAD, "r": 0, "s": 0.0, "dir": 1, "v": 0.0, "len": ab.size.z, "w": ab.size.x,
 			"wait": 0.0, "hit": 0.0, "honked": false, "plan": {}, "turn": {}, "model": nm, "mi": mi, "shape": cs, "anim": body}
 		if not wheel_nodes.is_empty():
 			# (a patrol car's wheels are its own: they roll with the distance it goes and the front pair turn
@@ -358,7 +358,7 @@ func _release(c: Dictionary) -> void:
 
 # ------------------------------------------------------------------ placing cars
 
-func _place_random(c: Dictionary, near: Vector3, rmin: float, rmax: float, view: Vector3) -> void:
+func _place_random(c: Dictionary, near: Vector3, rmin: float, rmax: float, view: Vector3) -> bool:
 	_release(c)
 	_unwreck(c, true)
 	var roads: Array = island.roads
@@ -415,7 +415,8 @@ func _place_random(c: Dictionary, near: Vector3, rmin: float, rmax: float, view:
 		c["jumped"] = true
 		_put(c)
 		stats["respawns"] += 1
-		return
+		return true
+	return false
 
 func _put(c: Dictionary) -> void:
 	var p := Vector2.ZERO
@@ -529,7 +530,7 @@ func knock(body: Node, its_velocity: Vector3, impulse: Vector3, at: Vector3) -> 
 	w.reset_physics_interpolation()
 	# the bodywork goes with it (dented where you hit)
 	if not c.has("dents"):
-		c["dents"] = Dents.own(M.get_mesh(c["model"]))
+		c["dents"] = Dents.own(c["base_mesh"])
 		(c["mi"] as MeshInstance3D).mesh = c["dents"]["mesh"]
 	var mi: MeshInstance3D = c["mi"]
 	anim.remove_child(mi)
@@ -631,7 +632,7 @@ func _unwreck(c: Dictionary, fresh: bool) -> void:
 		var w: Node3D = c["body"]
 		w.remove_child(mi)
 		anim.add_child(mi)
-		mi.transform = Transform3D()
+		mi.transform = c["mi_xf"]        # (a patrol car's body sits up on its wheels)
 		anim.global_transform = w.global_transform
 		w.queue_free()
 		c["body"] = anim
@@ -639,7 +640,7 @@ func _unwreck(c: Dictionary, fresh: bool) -> void:
 	anim.visible = true
 	if fresh and c.has("dents"):
 		c.erase("dents")
-		mi.mesh = M.get_mesh(c["model"])
+		mi.mesh = c["base_mesh"]         # (a patrol car stays the patrol car, not the kit's police car)
 	if fresh and int(c["mode"]) >= KNOCKED:
 		c["mode"] = ROAD
 

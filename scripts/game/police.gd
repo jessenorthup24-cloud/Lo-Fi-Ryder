@@ -353,7 +353,7 @@ func chase_npc(c: Dictionary, target: Node3D) -> void:
 	u["npc"] = true
 	u["target"] = target
 	u["lost_t"] = 0.0
-	traffic._place_random(c, game.car.global_position, 160.0, 260.0, -game.cam.global_transform.basis.z)
+	_patrol_away(c)
 
 func _chase(dt: float, cp: Vector3) -> void:
 	chase_t += dt
@@ -631,7 +631,7 @@ func _spawn_near(p: Vector3, target: Node3D, behind := false) -> void:
 		var dirn := Vector2.from_angle(randf() * TAU)
 		if behind and tries < 24:
 			dirn = back.rotated(randf_range(-1.1, 1.1))
-		var q := Vector2(p.x, p.z) + dirn * (randf_range(55.0, 105.0) if behind else randf_range(80.0, 150.0))
+		var q := Vector2(p.x, p.z) + dirn * (randf_range(75.0, 125.0) if behind else randf_range(90.0, 160.0))
 		var loc: Array = game.router.nearest_near(q, 20.0)
 		if int(loc[0]) < 0 or not LIMIT.has(island.roads[int(loc[0])]["kind"]):
 			continue
@@ -639,15 +639,17 @@ func _spawn_near(p: Vector3, target: Node3D, behind := false) -> void:
 		var s := float(loc[1])
 		var pt: Vector2 = game.router.road_at(ri, s)
 		var pos := Vector3(pt.x, island.height_at(pt.x, pt.y) + 0.7, pt.y)
-		if pos.distance_to(you) < (45.0 if behind else 65.0):
+		if pos.distance_to(you) < (60.0 if behind else 75.0):
 			continue
-		# (in plain view: no)
-		if cam.is_position_in_frustum(pos) and pos.distance_to(cam.global_position) < 220.0 and _sees(cam.global_position, pos + Vector3(0, 0.6, 0)):
+		# (anywhere you might see it turn up: no. Not even half hidden: it'd pop into being in front of you)
+		if cam.is_position_in_frustum(pos) and pos.distance_to(cam.global_position) < 260.0:
+			continue
+		if cam.is_position_in_frustum(pos + Vector3(0, 0, 0)) and _sees(cam.global_position, pos + Vector3(0, 0.6, 0)):
 			continue
 		var clear := true
 		for u in units:
-			if is_instance_valid(u["car"]) and (u["car"] as Node3D).global_position.distance_to(pos) < 12.0:
-				clear = false
+			if is_instance_valid(u["car"]) and (u["car"] as Node3D).global_position.distance_to(pos) < 30.0:
+				clear = false     # (nor right by another police car: one would seem to come out of the other)
 		for c in traffic.cars:
 			if (c["body"] as Node3D).global_position.distance_to(pos) < 10.0:
 				clear = false
@@ -669,7 +671,18 @@ func _join(c: Dictionary) -> void:
 	var p := b.global_position
 	var xf: Transform3D = game.on_ground(Transform3D(Basis(Vector3.UP, atan2(-f.x, -f.z)), p + Vector3(0, 0.7, 0)))
 	_unit(xf, Vector3(f.x, 0, f.z) * float(c["v"]), game.car)
-	traffic._place_random(c, game.car.global_position, 160.0, 260.0, -game.cam.global_transform.basis.z)
+	_patrol_away(c)
+
+## The patrol car that's just pulled out after someone: the traffic gets it back somewhere well out of sight
+## (further afield if there's nowhere nearer), so there are never two of it.
+func _patrol_away(c: Dictionary) -> void:
+	var cp: Vector3 = game.car.global_position
+	var view: Vector3 = -game.cam.global_transform.basis.z
+	if traffic._place_random(c, cp, 160.0, 260.0, view):
+		return
+	if traffic._place_random(c, cp, 200.0, 480.0, Vector3.ZERO):
+		return
+	traffic._place_random(c, Vector3.ZERO, 0.0, 2000.0, Vector3.ZERO)
 
 func _unit(xf: Transform3D, vel: Vector3, target: Node3D) -> Dictionary:
 	var d := CARS.by_id("police")
@@ -828,9 +841,9 @@ func _drive(u: Dictionary, dt: float) -> void:
 	else:
 		goal = tgt.global_position
 		tv = (tgt as RigidBody3D).linear_velocity
-		# heading you off: some go for where you'll be in a few seconds, not where you are
+		# heading you off: some go for where you'll be in a few seconds (down the road you're on), not where you are
 		if u["role"] == "cut" and tv.length() > 12.0 and pos.distance_to(goal) > 45.0:
-			goal += tv * clampf(pos.distance_to(goal) / 35.0, 1.5, 4.0)
+			goal = _down_the_road(tgt, tv, tv.length() * clampf(pos.distance_to(goal) / 35.0, 1.5, 4.0))
 	var tpos := tgt.global_position
 	var d_t := Vector2(pos.x, pos.z).distance_to(Vector2(tpos.x, tpos.z))
 	u["look"] = float(u["look"]) - dt
@@ -856,43 +869,73 @@ func _drive(u: Dictionary, dt: float) -> void:
 		if path.size() < 2:
 			aim = Vector2(goal.x, goal.z)
 		else:
+			# where it is along the way: its nearest point on the next stretch (projected, so the point it
+			# steers for is always down the road, never one it's circling round)
 			var p2 := Vector2(pos.x, pos.z)
 			var pi: int = u["pi"]
-			while pi < path.size() - 1:
-				var a := Vector2(path[pi].x, path[pi].z)
-				var b := Vector2(path[pi + 1].x, path[pi + 1].z)
+			var nd := INF
+			var proj := p2
+			for k in range(pi, mini(pi + 16, path.size() - 1)):
+				var a := Vector2(path[k].x, path[k].z)
+				var b := Vector2(path[k + 1].x, path[k + 1].z)
 				var ab := b - a
-				var t := (p2 - a).dot(ab) / maxf(ab.length_squared(), 0.01)
-				if t > 1.0 or a.distance_to(p2) < 3.0:
-					pi += 1
-				else:
-					break
+				var t := clampf((p2 - a).dot(ab) / maxf(ab.length_squared(), 0.01), 0.0, 1.0)
+				var q := a + ab * t
+				if p2.distance_to(q) < nd - 0.01:
+					nd = p2.distance_to(q)
+					pi = k
+					proj = q
 			u["pi"] = pi
-			aim = _ahead(path, pi, p2, 6.0 + v * 0.45)
+			if nd > 14.0:
+				u["replan"] = 0.0          # (knocked off the way: a new one)
+			aim = _ahead(path, pi + 1, proj, 7.0 + v * 0.42)
 			vt = _corner_speed(path, pi, p2)
 		if patrol:
 			vt = minf(vt, 13.0)
 		elif not know:
 			vt = minf(vt, 24.0)       # (looking for you: not flat out)
-	# the traffic: steer round anything in the way (on the side with more room), slow for it if it's close
+	# the traffic (and the drivers about): past it if there's room, looking out for what's coming the other
+	# way; if there isn't, sit behind it till there is (most of it pulls over for the siren anyway)
 	var dodge := 0.0
-	var look_d := 8.0 + v * 1.1
+	var look_d := 10.0 + v * 1.4
+	var obs := []
 	for tc in traffic.cars:
 		var tb: Node3D = tc["body"]
-		var rel := tb.global_position - pos
-		var ahead := rel.dot(fwd)
-		if ahead < 1.5 or ahead > look_d:
+		_ob(obs, tb.global_position, -tb.global_transform.basis.z * float(tc["v"]), pos, fwd, rgt, look_d)
+	if game.crew:
+		for dd in game.crew.drivers:
+			if is_instance_valid(dd["car"]) and dd["car"] != tgt:
+				_ob(obs, (dd["car"] as Node3D).global_position, (dd["car"] as RigidBody3D).linear_velocity, pos, fwd, rgt, look_d)
+	var block := []
+	for o in obs:
+		if float(o[0]) < 0.5 or absf(float(o[1])) > 2.4:
 			continue
-		var lat := rel.dot(rgt)
-		if absf(lat) < 2.8:
-			var side := -signf(lat) if absf(lat) > 0.3 else -1.0
-			var need := (3.0 - absf(lat)) * side
-			if absf(need) > absf(dodge):
-				dodge = need
-			if ahead < 7.0 and absf(lat) < 1.6:
-				vt = minf(vt, float(tc["v"]) + 3.0)
-	if dodge != 0.0 and not (close and String(u["mode"]) == "pit"):
-		aim += Vector2(rgt.x, rgt.z) * dodge * 1.4
+		var closing: float = v - float(o[2])
+		if float(o[0]) / maxf(closing, 0.5) < 3.0 or float(o[0]) < 8.0:
+			if block.is_empty() or float(o[0]) < float(block[0]):
+				block = o
+	if not block.is_empty() and not (close and String(u["mode"]) == "pit"):
+		var went := false
+		for side in [-1.0, 1.0]:
+			var want_lat: float = float(block[1]) + float(side) * 3.2
+			if absf(want_lat) > 5.0:
+				continue
+			var free := true
+			for o in obs:
+				if o == block:
+					continue
+				var reach: float = float(block[0]) + 12.0 + maxf(float(block[2]) - float(o[2]), 0.0) * 2.0
+				if float(o[0]) > -6.0 and float(o[0]) < reach and absf(float(o[1]) - want_lat) < 2.4:
+					free = false
+					break
+			if free:
+				dodge = want_lat
+				went = true
+				break
+		if not went:
+			vt = minf(vt, float(block[2]) + clampf((float(block[0]) - 8.0) * 0.6, -8.0, 4.0))
+	if dodge != 0.0:
+		aim += Vector2(rgt.x, rgt.z) * dodge
 	# another police car just ahead, going the same way: stay behind it (they'd only pile into each other)
 	for o in units:
 		if o == u or o["state"] != "chase" or not is_instance_valid(o["car"]):
@@ -989,6 +1032,31 @@ func _drive(u: Dictionary, dt: float) -> void:
 					game.crew.npc_busted(tgt)
 		else:
 			u["bust"] = maxf(0.0, float(u["bust"]) - dt)
+
+## Something on the road near this car: [metres ahead, metres to the right, its speed along our way].
+func _ob(out: Array, p: Vector3, vel: Vector3, pos: Vector3, fwd: Vector3, rgt: Vector3, look_d: float) -> void:
+	var rel := p - pos
+	var ahead := rel.dot(fwd)
+	if ahead < -8.0 or ahead > look_d * 1.6:
+		return
+	var lat := rel.dot(rgt)
+	if absf(lat) > 9.0:
+		return
+	out.append([ahead, lat, vel.dot(fwd)])
+
+## Where someone going this fast will be in `metres`, down the road they're on (or straight on, off the roads).
+func _down_the_road(tgt: Node3D, tv: Vector3, metres: float) -> Vector3:
+	var tp := tgt.global_position
+	var R = game.router
+	var nr: Array = R.nearest_near(Vector2(tp.x, tp.z), 10.0)
+	if int(nr[0]) < 0:
+		return tp + tv.normalized() * metres
+	var ri := int(nr[0])
+	var s := float(nr[1])
+	var t: Vector2 = (R.road_at(ri, s + 0.6) - R.road_at(ri, s - 0.6)).normalized()
+	var dir := 1.0 if t.dot(Vector2(tv.x, tv.z)) >= 0.0 else -1.0
+	var q: Vector2 = R.road_at(ri, s + dir * metres / R.STEP)
+	return Vector3(q.x, 0, q.y)
 
 ## Right there with nothing in between: what to do about it. Sets u["vt"] (speed to aim for) and u["mode"];
 ## returns the point to drive at.

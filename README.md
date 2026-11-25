@@ -62,6 +62,11 @@ on cars and upgrades. The day runs in real time on the island and the season fol
     light bar. The traffic pulls over to the kerb for them. They follow you along the roads, some head
     you off where you're going, they weave round the traffic, sit on your tail and (from two stars) line
     up a PIT to spin you out, and when you stop they pen you in front and back.
+  - They drive well: they keep to the way they've worked out (and work out a new one if they're knocked
+    off it), pass the traffic when there's room and sit behind it when there isn't, and the ones heading you
+    off go for where you'll be down the road you're on. New cars only ever turn up out of view, well away
+    from the ones already after you, and a patrol car that pulls out after you leaves no copy of itself
+    behind (patrol cars are always the patrol model, knocked about or not).
   - Getting worse: a star more every minute they've had you in sight, and for ramming or wrecking them.
     New cars come in out of sight. From three stars there are roadblocks (two cars parked across the road
     ahead of you, set up out of sight); from four a helicopter joins in, built in code, with a

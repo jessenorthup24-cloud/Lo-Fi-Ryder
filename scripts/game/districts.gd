@@ -43,7 +43,7 @@ const STATIONS := [
 const HOUSES := ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u"]
 const SHOPS := ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n"]
 const TOWNHOUSES := ["house-a", "house-b", "house-c", "tower-a", "tower-b", "tower-c", "tower-d"]
-const PARKED := ["sedan", "sedan-sports", "hatchback-sports", "suv", "suv-luxury", "taxi", "van", "police", "delivery"]
+const PARKED := ["sedan", "sedan-sports", "hatchback-sports", "suv", "suv-luxury", "taxi", "van", "sedan", "delivery"]   # (no kit police cars: the police drive the patrol car)
 
 # ---------------------------------------------------------------- the plan
 
