@@ -97,6 +97,8 @@ var nitro := 0.0             # nitrous going (0..1; main sets it while there's s
 var hold := false            # waiting on a start line: sitting on its wheels with the brake on (not frozen in the air)
 var neon_node: Node3D
 const NEON := ["", "ff3fd0", "35e7ff", "9b5cff", "4dff7a", "ff8a2a", "ffffff", "ff3344", "3a6bff"]
+## Tyre smoke colours (garage, Tune tab; 0 is plain white)
+const SMOKE := ["f5f5f8", "ff5fb0", "45cfff", "a070ff", "5fe890", "ffad45", "ff5050", "3a3838", "ffe066"]
 const OFFROAD := [0, 3, 4, 6, 8]   # (island surfaces: grass, dirt, sand, field, forest)
 const CAMBER_MAX := 10.0     # degrees
 var _straight_t := 0.0

@@ -96,6 +96,7 @@ var close_shown := false
 var prox_t := 0.0
 var skid_acc := {}
 var smoke_t := 0.0
+var smoke_col := Color(0.96, 0.96, 0.98)   # the tyre smoke on tarmac (garage, Tune tab)
 # challenges
 var zone := {}             # the attempt in progress
 var zone_t := 0.0
@@ -347,7 +348,8 @@ func _build_world() -> void:
 		# a test: this tuning on the car you drive (camber,height,neon), with the neon kit
 		var tq := String(args["tunetest"]).split(",")
 		save.data["neon_kit"] = true
-		save.data["tune"][String(save.data["car"])] = {"camber": int(tq[0]), "height": int(tq[1]), "neon": int(tq[2])}
+		save.data["tune"][String(save.data["car"])] = {"camber": int(tq[0]), "height": int(tq[1]), "neon": int(tq[2]),
+			"smoke": int(tq[3]) if tq.size() > 3 else 0}
 		car_changed()
 	if args.has("aim"):
 		# a test: lined up 22 m from a tree, a street lamp or a traffic light, with a clear run at it
@@ -551,6 +553,8 @@ func close_garage(back_to: int) -> void:
 
 func car_changed() -> void:
 	var d := CARS.by_id(String(save.data["car"]))
+	var sm := int((save.data["tune"].get(String(d["id"]), {}) as Dictionary).get("smoke", 0))
+	smoke_col = Color(Car.SMOKE[clampi(sm, 0, Car.SMOKE.size() - 1)])
 	var xf := car.global_transform if car.is_inside_tree() and car.wheels.size() > 0 else Transform3D()
 	var dmg := car.damage
 	var edmg := car.engine_dmg
@@ -1461,7 +1465,7 @@ func _effects(dt: float) -> void:
 				skid_acc[i] = wp
 			if not wd["front"] and smoke_t > 0.05:
 				var surf2: int = wd["surf"]
-				var col := Color(0.96, 0.96, 0.98)
+				var col := smoke_col
 				if surf2 in [island.S_DIRT, island.S_FIELD]:
 					col = Color("c9a27e")
 				elif surf2 == island.S_SAND:

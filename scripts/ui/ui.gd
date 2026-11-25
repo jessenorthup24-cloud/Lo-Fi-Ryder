@@ -2444,6 +2444,24 @@ func _tune_tab() -> void:
 			_tap(sw, func(): set_tn.call("neon", nv))
 			nr.add_child(sw)
 		g_panel.add_child(nr)
+	# tyre smoke: any colour you like (free)
+	var sr := HBoxContainer.new()
+	sr.add_theme_constant_override("separation", 6)
+	sr.add_child(K.label("Smoke", 20, K.INK_SOFT, 650))
+	var cur_s := int(tn.get("smoke", 0))
+	for si in CarScript.SMOKE.size():
+		var sw2 := Button.new()
+		sw2.focus_mode = Control.FOCUS_NONE
+		sw2.custom_minimum_size = Vector2(40, 40)
+		var sb2 := K.box(Color(CarScript.SMOKE[si]), 20, 0, Color.TRANSPARENT, 0)
+		sb2.border_color = K.INK if si == cur_s else K.LINE_DK
+		sb2.set_border_width_all(4 if si == cur_s else 1)
+		for st in ["normal", "hover", "pressed", "hover_pressed"]:
+			sw2.add_theme_stylebox_override(st, sb2)
+		var sv := si
+		_tap(sw2, func(): set_tn.call("smoke", sv))
+		sr.add_child(sw2)
+	g_panel.add_child(sr)
 
 ## A tuning setting with - and + either side of where it's set.
 func _tune_row(label: String, value: String, v: int, lo: int, hi: int, col: Color, on_set: Callable) -> Control:

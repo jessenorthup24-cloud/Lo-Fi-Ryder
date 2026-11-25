@@ -43,7 +43,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   trade-off as you go. Neon underglow (a one-off kit for all cars) in eight colours: real light in the
   toon shader (global shader values `neon_pos`, `neon_fwd`, `neon_col`), so it lies on whatever's under
   the car (road, kerb, grass, the sills) with nothing to clip into the ground; it fades as the car leaves
-  the ground or tips over, brighter at night, with the tubes themselves only visible from underneath. In
+  the ground or tips over, brighter at night, with the tubes themselves only visible from underneath. Tyre smoke in nine colours (free, per car): it's
+  the smoke your tyres make on tarmac (dirt, sand and grass still throw up their own dust). In
   the garage a swipe on the car turns it; the arrows change cars.
 - Settings → Show FPS puts the frame rate and the slowest frame of the last second by the clock.
 - Rewind: hold REWIND (by the camera button; Backspace or Z on a keyboard) to take back the last 10
