@@ -57,7 +57,9 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   (and anything right beside it). Speed past one more than 15 km/h over the limit (a limit sign comes
   up by the speedo while one's about: 50 in town, 70 on the main roads, 80 on the ring road, 40 on
   lanes), hit one, or crash into someone in front of one, and the patrol car just pulls out after you
-  (it's the same model as the cars that chase you). No banners: wanted stars come up under the minimap
+  (it's the same model as the cars that chase you). Ram one and it takes the hit like a police car, not
+  a bit of traffic: it rocks, stays on its wheels and comes straight after you. Police cars are built
+  heavy: shoved side-on they lean and right themselves rather than going over. No banners: wanted stars come up under the minimap
   with a crackle of police radio and a line saying what for, and the minimap's rim flashes red and blue.
   - The chase: each police car has its own siren (you hear it pass, the pitch dropping) and a flashing
     light bar. The traffic pulls over to the kerb for them. They follow you along the roads, some head
@@ -165,12 +167,16 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   over a boost pad into a corkscrew loop; Big Air on the south side (boost, kicker, a gold hoop to fly
   through); two half-pipes end to end; a raised platform run with a jump across the gap; a container
   jump, cones and a tunnel. Crash in there and you're put back at the start of the nearest run.
-- Bunny hops and grind rails, Mario Kart style. Tap DRIFT (a quick tap, under a fifth of a second)
-  with the wheel straight and the car hops about half a metre. Hop onto one of the yellow-and-black
+- Bunny hops and grind rails, Mario Kart style. Tap DRIFT (a quick tap, under a quarter of a second)
+  with the wheel straight and the car pops up about two thirds of a metre, nose kicked up, and comes
+  down quick. Hop onto one of the yellow-and-black
   grind rails lined up with it and you lock on and slide along it with sparks flying, a little slower
   all the time, until you shoot off the end (or tap DRIFT again to hop off). A grind scores by how long
-  and how fast, and keeps the combo going. Rails are in the Drift Bowl, the harbour lot, the skate
-  park, the Courts' parking court and along the Stunt Yard's run-up; kickers, low ramps and a boost pad
+  and how fast, and keeps the combo going. There are 25 rails round the island, marked with yellow
+  dashes on the minimap and a yellow-and-black pole at each end: in the Drift Bowl, the harbour lot,
+  the skate park, the Courts' parking court and the Stunt Yard's run-up, down the middle of the
+  bigger car parks and yards, and along the side of the straight streets, just past the pavement, so
+  you can hop off the road onto one; kickers, low ramps and a boost pad
   from the stunt kit are dotted round the beach car park, the Bowl, the harbour lot and the farmyard.
   The drivers on the road don't hop.
 - The garage: 19 cars (each with its own power, top speed, grip and drift), plus four upgrades that
@@ -349,6 +355,7 @@ godot --path . -- --drive --put=-108,284,90 --stunt=backflip   # exactly here (x
 godot --path . -- --drive --season=3             # 0 spring, 1 summer, 2 autumn, 3 winter
 godot --path . -- --drive --weather=storm         # clear, cloudy, rain, storm, fog, snow
 godot --path . -- --drive --grindtest=0          # line up on grind rail 0, hop on, ride it off the end (logged)
+godot --path . -- --drive --ramcop               # drive into the nearest patrol car (--ramcop_v=12 to coast in at 12 m/s)
 godot --path . -- --drive --race=downtown --raceauto --racelog   # straight into a race, CPU drives you too
 godot --path . -- --drive --crashtest=tbone --crashv=20   # crash tests (tbone, wall, front, swipe, swipe0, ped), logged
 godot --path . -- --drive --damage=90 --engine=95          # start battered, the engine on fire

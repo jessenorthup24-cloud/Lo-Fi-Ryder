@@ -1316,11 +1316,13 @@ func add_stunt_collider(name: String, xf: Transform3D) -> void:
 
 func add_box_collider(xf: Transform3D, size: Vector3) -> void:
 	PhysicsServer3D.body_add_shape(_props_body(), _shape_box(size).get_rid(), xf)
+	_prop_note(Vector2(xf.origin.x, xf.origin.z), Vector2(size.x, size.z).length() * 0.5)
 
 ## (returns the collider's index on the props body, so it can be switched off if the thing falls over)
 func add_cyl_collider(p: Vector3, r: float, h: float) -> int:
 	var i := PhysicsServer3D.body_get_shape_count(_props_body())
 	PhysicsServer3D.body_add_shape(_props_body(), _shape_cyl(r, h).get_rid(), Transform3D(Basis(), p + Vector3(0, h * 0.5, 0)))
+	_prop_note(Vector2(p.x, p.z), r)
 	return i
 
 ## The exact shape of a mesh (ramps, half-pipes) to drive on.

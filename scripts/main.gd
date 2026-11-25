@@ -263,7 +263,7 @@ func _build_world() -> void:
 	car.rolled.connect(_on_roll)
 	car.misfired.connect(_on_misfire)
 	car.shifted.connect(func(_g): sound.rev(0.82); sound.shift())
-	car.rammed.connect(func(b, v, j, at): traffic.knock(b, v, j, at))
+	car.rammed.connect(func(b, v, j, at): traffic.knock(b, v, j, at, true))
 	if args.has("car"):
 		save.data["car"] = String(args["car"])      # (a test: drive this one)
 	car_changed()
@@ -278,6 +278,7 @@ func _build_world() -> void:
 	police.name = "Police"
 	add_child(police)
 	police.setup(self, island, traffic)
+	traffic.patrol_hit = police.patrol_hit
 	car.rammed.connect(func(b, _v, _j, _at): police.rammed(b))
 	Car.rails = island.rails
 	car.collision_mask = car.collision_mask | Car.RAIL_LAYER     # (knock into the grind rails)
@@ -846,6 +847,34 @@ func _crew_tests() -> void:
 			cruise_v = 16.0
 		held["gas"] = true
 		held["hand"] = time > 6.0
+	if args.has("ramcop"):
+		# a test: line up head-on with the nearest patrol car in the traffic and drive into it
+		if not has_meta("rc_put") and time > 3.0:
+			var best := {}
+			var bd := INF
+			for tc in traffic.cars:
+				if String(tc["model"]) == "k_car_police" and int(tc["mode"]) < traffic.KNOCKED:
+					var dd := (tc["body"] as Node3D).global_position.distance_to(car.global_position)
+					if dd < bd:
+						bd = dd
+						best = tc
+			if not best.is_empty():
+				set_meta("rc_put", true)
+				var bb: Node3D = best["body"]
+				var bf := -bb.global_transform.basis.z
+				var st := bb.global_position + bf * 30.0
+				car.place(Transform3D(Basis(Vector3.UP, atan2(bf.x, bf.z)), Vector3(st.x, island.height_at(st.x, st.z) + 0.6, st.z)))
+				car.linear_velocity = -bf * float(args.get("ramcop_v", "14"))
+				print("RAMCOP lined up on traffic car ", best["id"])
+		if has_meta("rc_put"):
+			held["gas"] = time < 6.5 and not args.has("ramcop_v")
+			if frames % 15 == 0:
+				var ln := "RAMCOP t=%.1f heat=%d you=%.0f" % [time, police.heat, car.linear_velocity.length() * 3.6]
+				for u in police.units:
+					if is_instance_valid(u["car"]):
+						var uc: RigidBody3D = u["car"]
+						ln += " | %s d=%.0f v=%.0f up=%.2f" % [u["state"], uc.global_position.distance_to(car.global_position), uc.linear_velocity.length() * 3.6, uc.global_transform.basis.y.y]
+				print(ln)
 	if args.has("grindtest") and island.rails.size() > 0:
 		# a test: line up on a rail, run at it, hop on, ride it off the end
 		var rl: Array = island.rails[clampi(int(args["grindtest"]), 0, island.rails.size() - 1)]

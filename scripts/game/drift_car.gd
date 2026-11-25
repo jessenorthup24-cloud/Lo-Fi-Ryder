@@ -95,14 +95,17 @@ var drift_k := 0.0           # how much easier drifting is (-0.3 .. 0.9)
 static var rails: Array = []   # grind rails: [a, b] the top of each (street_stunts.gd puts them about)
 const RAIL_LAYER := 64
 const UNDER := 0.2             # the underside of the body, above the car's origin (the bottom of its wheels)
-const HOP_V := 3.1             # a bunny hop: about half a metre up
+const HOP_V := 4.6             # a bunny hop: two thirds of a metre up, quick (heavier gravity on the way)
+const HOP_G := 1.6
 var grind := {}                # on a rail: {i, t (along it), v, dir, time}
 var last_grind := {}           # the one just finished (main scores it): {time, v}
 var hops := 0                  # (counted: main puffs a little dust)
 var can_hop := true
+var sturdy := false          # (police cars: hard to tip over)
 var hop_cd := 0.0
 var _hb_down := 0.0
 var _hb_prev := false
+var _hop_t := -1.0           # in a hop: time since it left (gravity's heavier, for a snappy hop)
 static var wet_k := 1.0      # the weather: wet roads, a little less grip for everyone (weather.gd sets it)
 var nitro := 0.0             # nitrous going (0..1; main sets it while there's some in the bottle)
 var hold := false            # waiting on a start line: sitting on its wheels with the brake on (not frozen in the air)
@@ -380,12 +383,23 @@ func _physics_process(dt: float) -> void:
 	if hb_on:
 		_hb_down += dt
 	elif _hb_prev:
-		if can_hop and _hb_down < 0.2 and absf(steer_in) < 0.3 and grounded >= 3 and absf(speed) > 4.0 and hop_cd <= 0.0:
-			apply_central_impulse(global_transform.basis.y * mass * HOP_V)
-			hop_cd = 0.5
+		if can_hop and _hb_down < 0.25 and absf(steer_in) < 0.35 and grounded >= 2 and absf(speed) > 3.0 and hop_cd <= 0.0:
+			if linear_velocity.y < 0.0:
+				linear_velocity.y = 0.0
+			apply_central_impulse(Vector3.UP * mass * HOP_V)
+			# a little kick of the nose up as it goes
+			apply_torque_impulse(global_transform.basis.x * mass * 0.35)
+			gravity_scale = HOP_G
+			_hop_t = 0.0
+			hop_cd = 0.45
 			hops += 1
 		_hb_down = 0.0
 	_hb_prev = hb_on
+	if _hop_t >= 0.0:
+		_hop_t += dt
+		if (_hop_t > 0.15 and grounded >= 2) or _hop_t > 2.0:
+			_hop_t = -1.0
+			gravity_scale = 1.0
 	if not rails.is_empty() and can_hop:
 		_rail_catch()
 	var xf := global_transform
@@ -783,6 +797,12 @@ func _physics_process(dt: float) -> void:
 		var tilt2 := up.cross(Vector3.UP)
 		if tilt2.length() > 0.12 and grounded > 0:
 			apply_torque(tilt2 * 14000.0)
+	# a police car is built for it: shoved side-on it leans, but rights itself rather than going over
+	# (short of a proper roll: past 70 degrees, it's gone)
+	if sturdy and up.y > 0.34:
+		var tilt3 := up.cross(Vector3.UP)
+		if tilt3.length() > 0.08:
+			apply_torque(tilt3 * 26000.0 - angular_velocity.project(xf.basis.z) * 2500.0)
 
 func _process(dt: float) -> void:
 	if not is_physics_interpolated_and_enabled():
@@ -919,7 +939,7 @@ func _rail_catch() -> void:
 		if t <= 0.03 or t >= 0.97:
 			continue
 		var q := a + ab * t
-		if Vector2(p.x - q.x, p.z - q.z).length() > 0.95:
+		if Vector2(p.x - q.x, p.z - q.z).length() > 1.3:
 			continue
 		var under := p.y + UNDER
 		if under < q.y - 0.05 or under > q.y + 1.4:
@@ -929,6 +949,7 @@ func _rail_catch() -> void:
 			continue
 		grind = {"i": i, "t": t, "v": maxf(hv.length() * absf(al), 6.0), "dir": signf(al), "time": 0.0}
 		gravity_scale = 0.0
+		_hop_t = -1.0
 		collision_mask &= ~RAIL_LAYER
 		drift_mode = false
 		return
@@ -952,6 +973,9 @@ func _grind_step(dt: float) -> void:
 		gravity_scale = 1.0
 		collision_mask |= RAIL_LAYER
 		linear_velocity = d * v + Vector3(0, HOP_V if hop_off else 1.0, 0)
+		if hop_off:
+			gravity_scale = HOP_G
+			_hop_t = 0.0
 		angular_velocity = Vector3.ZERO
 		hop_cd = 0.4
 		return

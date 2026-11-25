@@ -662,6 +662,29 @@ func _spawn_near(p: Vector3, target: Node3D, behind := false) -> void:
 		_unit(xf, Vector3(t.x, 0, t.y) * 12.0, target)
 		return
 
+## You hit a patrol car in the traffic: rather than tumbling off like any other car, it's a police car,
+## so it takes the knock as one (the same weight and build as yours) and comes straight after you.
+## False if there's no chasing just now (in a race, say): then it's knocked about like the rest.
+func patrol_hit(c: Dictionary, impulse: Vector3, at: Vector3) -> bool:
+	if not game.chase_ok_or_chase():
+		return false
+	_ram_cd = 2.5
+	if heat == 0:
+		start(2.0 if absf(game.car.speed) > 11.0 else 1.0, "Hit a police car")
+	else:
+		heat_pts += 0.4
+		_spotted(game.car.global_position)
+	var b: Node3D = c["body"]
+	var f := -b.global_transform.basis.z
+	var xf: Transform3D = game.on_ground(Transform3D(Basis(Vector3.UP, atan2(-f.x, -f.z)), b.global_position + Vector3(0, 0.25, 0)))
+	var u := _unit(xf, Vector3(f.x, 0, f.z) * float(c["v"]), game.car)
+	_patrol_away(c)
+	var uc: Car = u["car"]
+	# the knock, as a car takes it (shared with the 1150 kg traffic body it was: scaled to this one's weight)
+	var j := impulse * clampf(uc.mass / 1150.0, 0.6, 1.2) * 0.8
+	uc.apply_impulse(j, at - uc.global_position)
+	return true
+
 ## A patrol car in the traffic that's seen you: it becomes a police car after you, right where it is and
 ## going as it was (the same model, so it just pulls out after you), and the traffic gets a new car somewhere
 ## out of sight in its place.
@@ -696,6 +719,7 @@ func _unit(xf: Transform3D, vel: Vector3, target: Node3D) -> Dictionary:
 	c.tune(d, game.save.data["up"])
 	c.assist = 1.0
 	c.can_hop = false
+	c.sturdy = true
 	c.collision_layer = LAYER
 	c.collision_mask = 1 | 2 | 4 | 8 | LAYER
 	c.place(xf)

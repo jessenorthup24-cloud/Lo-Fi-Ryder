@@ -495,12 +495,16 @@ func _car_of(body: Node) -> Dictionary:
 			return c
 	return {}
 
+var patrol_hit: Callable          # police.gd: you hit a patrol car (it comes after you instead of tumbling)
+
 ## You rammed a traffic car: it turns into a real tumbling body for a bit, with the knock you gave it.
-func knock(body: Node, its_velocity: Vector3, impulse: Vector3, at: Vector3) -> void:
+func knock(body: Node, its_velocity: Vector3, impulse: Vector3, at: Vector3, by_you := false) -> void:
 	var c := _car_of(body)
 	if c.is_empty():
 		return
 	if int(c["mode"]) >= KNOCKED:
+		return
+	if by_you and String(c["model"]) == "k_car_police" and patrol_hit.is_valid() and patrol_hit.call(c, impulse, at):
 		return
 	_release(c)
 	last_knock = int(c["id"])
