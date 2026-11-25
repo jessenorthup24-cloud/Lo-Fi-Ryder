@@ -252,6 +252,8 @@ func _apply() -> void:
 		elev = sin(nt * PI) * 45.0 + 12.0
 		az = lerpf(-60.0, 240.0, nt)
 	sun.rotation_degrees = Vector3(-elev, az, 0)
+	# (at night the light is the moon's: the sky doesn't draw a disc for it, which came out as a dark blot)
+	sun.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_AND_SKY if day else DirectionalLight3D.SKY_MODE_LIGHT_ONLY
 	# with the sun (or the moon) low, shadows are long and grazing, and that's when they turn speckled and
 	# patchy: they fade back as it gets low, rather than glitch
 	sun.shadow_opacity = clampf((elev - 6.0) / 16.0, 0.35, 1.0)

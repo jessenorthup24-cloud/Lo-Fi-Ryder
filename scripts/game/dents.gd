@@ -50,8 +50,10 @@ static func dent(d: Dictionary, p: Vector3, n: Vector3, radius: float, depth: fl
 			if has_cols:
 				# scraped paint round the dent; a lamp hit hard goes dark
 				var c: Color = cols[i]
-				var scuff := clampf(f * depth * 4.0, 0.0, 0.55)
-				var nc := Color(c.r, c.g, c.b).lerp(Color(0.36, 0.34, 0.32), scuff)
+				# (a light scrape towards bare metal, kept faint: on a low-poly panel a strong one spreads across
+				# a whole triangle and reads as a smudge of shadow, not a scratch)
+				var scuff := clampf((f - 0.35) * depth * 3.0, 0.0, 0.22)
+				var nc := Color(c.r, c.g, c.b).lerp(Color(0.66, 0.66, 0.68), scuff)
 				var a := c.a
 				if a < 0.75 and f > 0.45 and depth > 0.08:
 					a = 1.0

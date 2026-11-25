@@ -57,6 +57,7 @@ var far_statics := {}              # landmarks seen from anywhere: mesh name -> 
 var pools := {}
 var ghost := {}                    # the cemetery's ghost (an anim; only out after dark)
 var night := 0.0                   # how dark it is (main sets it): for the ghost
+var placed_log: Array = []         # (audits only) every put(): [name, transform]
 var breakables: Array = []         # {pool, slot, pos, yaw, sc, r, kind, home, state, t}
 var lamp_heads: Array = []         # the ground under each street lamp's head (where its light falls)
 var lamp_on := PackedByteArray()   # (a knocked-down lamp's light goes out)
@@ -1334,6 +1335,8 @@ func put(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, col := "box", 
 				y = minf(y, height_at(x + w.x, z + w.z))
 			y -= 0.05
 	var xf := Transform3D(bs, Vector3(x, y, z))
+	if audit_on:
+		placed_log.append([name, xf])        # (for tools/test/float_audit.gd)
 	var ckey := Vector2i(int(floor(x / CHUNK)), int(floor(z / CHUNK)))
 	if audit_on and col != "":
 		var pts := [Vector2(x + cen.x, z + cen.z)]

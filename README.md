@@ -340,6 +340,7 @@ godot --path . -- --auto --wanted=4 --shot_t=14:heli.png        # a screenshot a
 xvfb-run godot --path . -- --drive --shot=/tmp/x.png --shot_at=200 --quit_after=30
 godot --headless --path . -s res://tools/test/handling.gd -- bug,hotrod all   # handling report
 godot --headless --path . -s res://tools/test/road_audit.gd                  # props in the road
+godot --headless --path . -s res://tools/test/float_audit.gd                 # anything floating, or sunk in the ground
 godot --headless --path . -s res://tools/test/track_audit.gd                 # the Raceway's loops: kinks, folds, seams
 xvfb-run godot --path . -s res://tools/look/shadow_flicker.gd -- street 60   # pixels that change frame to frame
 godot --headless --path . -s res://tools/test/traffic_soak.gd -- 300         # five minutes of traffic

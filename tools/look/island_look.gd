@@ -8,6 +8,10 @@ const Island := preload("res://scripts/game/island.gd")
 
 const VIEWS := {
 	"top": [Vector3(0, 900, 0.1), Vector3(0, 0, 0), 75.0],
+	"eastpad": [Vector3(400, 12, 188), Vector3(432, 2, 160), 60.0],
+	"cliffpad": [Vector3(-398, 12, 60), Vector3(-428, 2, 30), 60.0],
+	"eastpoint": [Vector3(430, 40, 260), Vector3(510, 10, 120), 60.0],
+	"southshore": [Vector3(-160, 40, 400), Vector3(-275, 10, 482), 60.0],
 	"hoodtop": [Vector3(20, 230, -135.1), Vector3(20, 0, -135), 60.0],
 	"palmer": [Vector3(-92, 16, -86), Vector3(-20, 3, -102), 60.0],
 	"sac": [Vector3(-10, 14, -88), Vector3(25, 2, -100), 60.0],

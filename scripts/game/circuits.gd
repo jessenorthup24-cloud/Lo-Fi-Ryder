@@ -189,11 +189,12 @@ static func _dress(I, s: Dictionary, rr: RandomNumberGenerator) -> void:
 	var al := (j - prev).normalized()
 	var sd3 := Vector2(-al.y, al.x)
 	var pc := j - al * 26.0 + sd3 * 13.0
-	I.put("k_race_tentLong", pc.x - al.x * 5.0, pc.y - al.y * 5.0, atan2(-sd3.x, -sd3.y), 1.0, "box", y)
+	# (on the ground where they stand: the paddock's beside the built-up track, not on it)
+	I.put("k_race_tentLong", pc.x - al.x * 5.0, pc.y - al.y * 5.0, atan2(-sd3.x, -sd3.y), 1.0, "box")
 	var rcars := ["k_race_raceCarRed", "k_race_raceCarGreen", "k_race_raceCarOrange", "k_race_raceCarWhite"]
 	for k in 2:
 		var cp := pc + al * (2.0 + k * 6.0) + sd3 * 2.0
-		I.put(rcars[(k + rr.randi_range(0, 3)) % 4], cp.x, cp.y, atan2(-al.x, -al.y) + rr.randf_range(-0.2, 0.2), 1.0, "box", y)
+		I.put(rcars[(k + rr.randi_range(0, 3)) % 4], cp.x, cp.y, atan2(-al.x, -al.y) + rr.randf_range(-0.2, 0.2), 1.0, "box", I.height_at(cp.x, cp.y) - 0.02)
 	# trees round the edge of the headland, clear of the track and the way in
 	var cs: Vector2 = s["c"]
 	var hs: Vector2 = s["hs"]
