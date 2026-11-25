@@ -166,6 +166,17 @@ func _draw() -> void:
 			draw_rect(Rect2(o + Vector2(s * 0.32, s * 0.18), Vector2(s * 0.3, s * 0.16)), color)
 			draw_circle(c + Vector2(0, s * 0.08), s * 0.19, color2)
 			draw_circle(c + Vector2(0, s * 0.08), s * 0.1, color)
+		"group":
+			# two little cars side by side, a frame round them
+			for ox in [0.08, 0.52]:
+				_round_rect(Rect2(o + Vector2(s * ox, s * 0.42), Vector2(s * 0.4, s * 0.2)), s * 0.06, color)
+				_round_rect(Rect2(o + Vector2(s * (ox + 0.08), s * 0.3), Vector2(s * 0.24, s * 0.16)), s * 0.05, color)
+				draw_circle(o + Vector2(s * (ox + 0.1), s * 0.64), s * 0.06, color)
+				draw_circle(o + Vector2(s * (ox + 0.3), s * 0.64), s * 0.06, color)
+			for cn in [[0.02, 0.12, 1, 1], [0.98, 0.12, -1, 1], [0.02, 0.88, 1, -1], [0.98, 0.88, -1, -1]]:
+				var pc := o + Vector2(s * cn[0], s * cn[1])
+				draw_line(pc, pc + Vector2(s * 0.16 * cn[2], 0), color, s * 0.06)
+				draw_line(pc, pc + Vector2(0, s * 0.16 * cn[3]), color, s * 0.06)
 		"phone":
 			# a handset: the body, the screen, the button
 			_round_rect(Rect2(o + Vector2(s * 0.26, s * 0.06), Vector2(s * 0.48, s * 0.88)), s * 0.1, color)

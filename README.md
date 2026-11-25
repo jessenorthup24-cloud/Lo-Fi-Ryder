@@ -208,6 +208,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   sight, they turn up behind you again). Send off from the phone lets them go. They're green on the minimap.
 - Now and then a patrol car sees one of them fly past and goes after them (no stars for you): they run
   for it, and lose them or get busted. One of your crew they're after keeps driving with you.
+- Group ride view: with a crew, a button by the phone (or G) pulls the camera back and up to keep you and
+  your crew in the picture (centred between you, you counting double), easing back when they're gone.
 - During a challenge or a race they're off the streets; your crew come back once it's over.
 
 ## The world

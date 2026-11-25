@@ -59,6 +59,8 @@ var cam_yaw := 0.0
 var cam_look := Vector3.ZERO   # which way the camera aims along the car (eased every frame: see _cam)
 var cam_pos := Vector3.ZERO
 var cam_mode := 0           # 0 near, 1 far, 2 close and low
+var group_cam := false      # the group ride view: pulled out to keep you and your crew in the picture
+var group_k := 0.0          # (how far into it the camera is)
 # looking round: drag a finger anywhere off the buttons to swing the camera round the car, pinch to zoom
 var look_yaw := 0.0
 var look_pitch := 0.0
@@ -822,6 +824,8 @@ func _crew_tests() -> void:
 				var d := crew._spawn(who, true)
 				if not d.is_empty():
 					crew._join_crew(d)
+	if args.has("groupcam") and not group_cam:
+		group_cam = true
 	if args.has("phone_at") and not has_meta("phone_done") and time > float(args["phone_at"]):
 		set_meta("phone_done", true)
 		ui.toggle_phone()
@@ -2740,6 +2744,11 @@ func _cam(dt: float, snap := false) -> void:
 		var k := smoothstep(0.0, 1.0, loop_cam)
 		cam.position = cam_pos.lerp(side_pos, k)
 		look = look.lerp(xf.origin, k)
+	# the group ride view: back and up over you all, the middle of the group in the middle of the picture
+	var gk := _group_view(dt, xf.origin, yaw_v)
+	if gk.size() > 0:
+		cam.position = cam.position.lerp(gk[0], group_k)
+		look = look.lerp(gk[1], group_k)
 	if shake > 0.0:
 		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * shake * 0.18
 		shake = maxf(0.0, shake - dt * 2.5)
@@ -2807,6 +2816,45 @@ func _title_cam(dt: float) -> void:
 	cam_yaw = car.global_rotation.y
 	cam_pos = cam.position
 
+## The group ride view: [where the camera goes, where it looks] to keep you and your crew in the frame
+## (empty while it's off and settled back); eases group_k in and out.
+func _group_view(dt: float, you: Vector3, yaw: float) -> Array:
+	var pts := [you]
+	if group_cam and crew and not challenge_on():
+		for d in crew.drivers:
+			if d["mode"] == "crew" and is_instance_valid(d["car"]):
+				var p: Vector3 = (d["car"] as Node3D).global_position
+				if p.distance_to(you) < 80.0:
+					pts.append(p)
+	var on := pts.size() > 1
+	group_k = move_toward(group_k, 1.0 if on else 0.0, dt * (0.9 if on else 1.4))
+	if group_k <= 0.0:
+		_group_c = you
+		_group_r = 6.0
+		return []
+	# the middle of the group (you count double), and how far out everyone is from it
+	var c := you * 2.0
+	for p in pts:
+		c += p
+	c /= float(pts.size() + 2)
+	var r := 5.0
+	for p in pts:
+		r = maxf(r, Vector2(p.x - c.x, p.z - c.z).length() + 4.0)
+	_group_c = _group_c.lerp(c, 1.0 - exp(-dt * 4.0))
+	_group_r = lerpf(_group_r, r, 1.0 - exp(-dt * 2.0))
+	var dist := clampf(_group_r / tan(deg_to_rad(cam.fov * 0.5)) * 1.15, 11.0, 48.0)
+	var back := Vector3(sin(yaw), 0, cos(yaw))
+	var pos := _group_c + back * dist * 0.85 + Vector3(0, dist * 0.5 + 2.0, 0)
+	pos.y = maxf(pos.y, island.height_at(pos.x, pos.z) + 3.0)
+	return [pos, _group_c + Vector3(0, 0.8, 0)]
+
+var _group_c := Vector3.ZERO
+var _group_r := 6.0
+
+func toggle_group_cam() -> void:
+	group_cam = not group_cam
+	ui.popup_text("Group ride view" if group_cam else "Group view off")
+
 func toggle_cam() -> void:
 	cam_mode = (cam_mode + 1) % 3
 	save.data["settings"]["cam"] = cam_mode
@@ -2858,6 +2906,9 @@ func _unhandled_input(e: InputEvent) -> void:
 			KEY_T:
 				if on and state == DRIVE:
 					ui.toggle_phone()
+			KEY_G:
+				if on and state == DRIVE:
+					toggle_group_cam()
 			KEY_ESCAPE, KEY_P:
 				if on:
 					if state == DRIVE:

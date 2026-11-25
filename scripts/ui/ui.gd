@@ -103,6 +103,7 @@ var limit_sign: PanelContainer   # the speed limit, by the speedo while a patrol
 var limit_lbl: Label
 var phone: Phone                 # the phone: your contacts (the drivers), to call them to drive with you
 var phone_btn: Button
+var group_btn: Button            # the group ride view (only there while you've a crew)
 
 func setup(g: Node) -> void:
 	game = g
@@ -381,6 +382,12 @@ func _build_hud() -> void:
 	phone_btn.position = Vector2(-300, 152)
 	_tap(phone_btn, func(): toggle_phone())
 	hud.add_child(phone_btn)
+	group_btn = K.round_button("group", K.PAPER, K.LINE, 64)
+	group_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	group_btn.position = Vector2(-376, 152)
+	group_btn.visible = false
+	_tap(group_btn, func(): game.toggle_group_cam())
+	hud.add_child(group_btn)
 	phone = Phone.new()
 	phone.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
 	phone.position = Vector2(26, 204)
@@ -1471,6 +1478,9 @@ func toggle_phone() -> void:
 func tick(dt: float) -> void:
 	if phone and phone.visible and hud.visible:
 		phone.tick(dt)
+	if group_btn and hud.visible and game.crew:
+		group_btn.visible = game.crew.crew_count() > 0 or game.group_cam
+		group_btn.modulate = Color(0.75, 1.0, 0.82) if game.group_cam else Color.WHITE
 	if title.visible:
 		_title_tick(Time.get_ticks_msec() / 1000.0)
 	if garage.visible:
