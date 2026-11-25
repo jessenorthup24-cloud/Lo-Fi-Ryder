@@ -9,6 +9,7 @@ const P := preload("res://scripts/core/palette.gd")
 const CARS := preload("res://scripts/game/cars.gd")
 const Raceway := preload("res://scripts/game/raceway.gd")
 const Circuits := preload("res://scripts/game/circuits.gd")
+const Hood := preload("res://scripts/game/hood.gd")
 
 const CASTLE := Vector2(-30, -362)
 const SQUARE := Vector2(-110, 30)
@@ -115,6 +116,7 @@ static func plan(I) -> void:
 	I.add_lot(Vector2(-46, -132), Vector2(13, 12), I.S_CONCRETE)          # gas station
 	I.add_lot(Vector2(246, -246), Vector2(14, 10), I.S_DIRT)              # campsite
 	I.add_lot(STUNT, STUNT_HS, I.S_CONCRETE)                              # the stunt yard
+	Hood.plan(I)                                                          # Palmer Street, the Courts, the cemetery, Sycamore Heights
 	Raceway.plan(I)                                                       # the Raceway, on its peninsula
 	Circuits.plan(I)                                                      # three more circuits on headlands
 	for st in STATIONS:
@@ -138,6 +140,7 @@ static func plan(I) -> void:
 		{"name": "Lighthouse Point", "pos": Vector3(-300, 0, 322), "r": 40.0},
 		{"name": "Stunt Yard", "pos": Vector3(STUNT.x, 0, STUNT.y), "r": 62.0},
 	]
+	I.places.append_array(Hood.places())
 
 ## Crop fields: ploughed soil with rows of something growing (districts._crops).
 static func fields(_I) -> Array:
@@ -391,6 +394,7 @@ static func populate(I) -> void:
 	rc.seed = 4242             # (their own seed: the rest of the island comes out as it always has)
 	Circuits.populate(I, rc)
 	_roadside(I, rr)
+	Hood.populate(I, load("res://scripts/game/districts.gd"))
 	challenges(I)
 
 const STYLE := {
@@ -1395,11 +1399,12 @@ static func scatter(I) -> void:
 					x2, z2, rr.randf() * TAU, 1.0, 0.6)
 
 static func _in_town(x: float, z: float) -> bool:
-	return _in_city(Vector2(x, z)) or Vector2(x, z).distance_to(Vector2(-215, -158)) < 88.0
+	return _in_city(Vector2(x, z)) or Vector2(x, z).distance_to(Vector2(-215, -158)) < 88.0 or Hood.in_hood(x, z)
 
 # ---------------------------------------------------------------- moving bits
 
 static func tick_anims(I, dt: float, car_pos: Vector3) -> void:
+	Hood.ghost_tick(I, I.night)
 	var t: float = I.time
 	for an in I.anims:
 		var pos: Vector3 = an["pos"]

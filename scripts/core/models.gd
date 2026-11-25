@@ -1551,7 +1551,8 @@ static func parked(def: Dictionary) -> ArrayMesh:
 # Each kit has its own scale; these bring them in line with the toy world (tile 1.6 m, people about 1 m tall).
 
 const K_PACK_SCALE := {"sub": 7.5, "com": 10.0, "mod": 5.0, "retro": 4.6, "arena": 4.0, "car": 1.75, "skate": 4.0, "surv": 3.8,
-	"forest": 5.5, "castle": 8.0, "holi": 1.6, "chars": 2.3, "train": 2.4, "race": 8.0, "boat": 1.0}
+	"forest": 5.5, "castle": 8.0, "holi": 1.6, "chars": 2.3, "train": 2.4, "race": 8.0, "boat": 1.0,
+	"grave": 2.2, "urb": 4.6, "sub2": 7.5, "hood": 4.0}
 const K_SCALE := {
 	"k_surv_tree": 6.4, "k_surv_tree-tall": 6.4, "k_surv_tree-autumn": 6.4, "k_surv_tree-autumn-tall": 6.4, "k_surv_tree-trunk": 5.0,
 	"k_surv_tent": 4.4, "k_surv_tent-canvas": 4.4, "k_surv_campfire-pit": 4.0, "k_surv_patch-grass": 5.0,
@@ -1575,6 +1576,12 @@ const K_SCALE := {
 	"k_pirate_rocks-sand-a": 1.0, "k_pirate_rocks-sand-b": 1.0, "k_pirate_rocks-sand-c": 1.0, "k_pirate_boat-row-large": 1.4,
 	"k_pirate_boat-row-small": 1.4, "k_pirate_tower-watch": 1.8, "k_pirate_structure": 2.2, "k_pirate_structure-roof": 2.2,
 	"k_pirate_flag-high-pennant": 2.0,
+	"k_grave_pine": 4.2, "k_grave_pine-crooked": 4.2, "k_grave_pine-fall": 4.2, "k_grave_pine-fall-crooked": 4.2,
+	"k_grave_character-keeper": 1.35, "k_grave_character-ghost": 2.8, "k_grave_crypt-large": 2.6, "k_grave_crypt-large-roof": 2.6,
+	"k_grave_crypt-large-door": 2.6, "k_grave_crypt-small": 2.6, "k_grave_crypt-small-roof": 2.6,
+	"k_urb_detail-dumpster-open": 3.0, "k_urb_detail-barrier-strong-damaged": 3.0, "k_urb_detail-barrier-strong-type-b": 3.0,
+	"k_urb_pallet-small": 1.3, "k_urb_planks": 2.0, "k_urb_detail-bricks-type-a": 2.0, "k_urb_detail-bricks-type-b": 2.0,
+	"k_urb_detail-block": 2.0, "k_urb_truck-green-cargo": 4.0, "k_urb_truck-grey-cargo": 4.0,
 	"k_race_raceCarRed": 3.3, "k_race_raceCarGreen": 3.3, "k_race_raceCarOrange": 3.3, "k_race_raceCarWhite": 3.3,
 }
 # pets: heights in metres

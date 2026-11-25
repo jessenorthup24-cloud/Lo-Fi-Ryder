@@ -73,12 +73,18 @@ const PICK := {
 		"character-male-f", "character-male-g", "character-worker"],
 }
 var images := {}
+# (kits painted with tiling textures, like the Retro Urban Kit: each material gets one flat colour instead of
+# what the texture happens to have under each vertex; glass_mats are window glass, lit at night)
+var mat_colors := {}
+var glass_mats: Array = []
 # (the racing kit colours its parts with plain material colours, which come in brightened: put them back as
 # the kit drew them)
 var linear_tint := false
 const TURN := Basis(Vector3.UP, PI)   # Kenney models face +Z; the game's face -Z
 
 func _init():
+	if not (get_script() as Script).resource_path.ends_with("bake_kenney.gd"):
+		return          # (a tool built on this one, like bake_hood.gd: it does its own baking)
 	var meta := {}
 	var only := []
 	for a in OS.get_cmdline_user_args():
@@ -200,7 +206,10 @@ func _bake(root: Node, part: String, off: Vector3, lit_glass := false, lit_bulbs
 			var mat = mi.get_active_material(si)
 			var tint := Color.WHITE
 			var im: Image = null
-			if mat is BaseMaterial3D:
+			var mname := String(mat.resource_name) if mat != null else ""
+			if mat_colors.has(mname):
+				tint = mat_colors[mname]
+			elif mat is BaseMaterial3D:
 				tint = (mat as BaseMaterial3D).albedo_color
 				if linear_tint and (mat as BaseMaterial3D).albedo_texture == null:
 					tint = tint.srgb_to_linear()
@@ -272,7 +281,7 @@ func _bake(root: Node, part: String, off: Vector3, lit_glass := false, lit_bulbs
 				elif cc != null and (cc as PackedColorArray).size() > k:
 					c = c * (cc as PackedColorArray)[k]
 				# house windows light up at night
-				var glass := lit_glass and c.b > c.r + 0.25 and c.b > c.g + 0.1 and c.r > 0.35
+				var glass := (lit_glass and c.b > c.r + 0.25 and c.b > c.g + 0.1 and c.r > 0.35) or mname in glass_mats
 				if lit_bulbs and c.s > 0.45 and c.v > 0.75:
 					glass = true
 				cols.append(Color(c.r, c.g, c.b, 0.45 if glass else 0.7))

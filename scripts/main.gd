@@ -695,6 +695,7 @@ func _process(dt: float) -> void:
 	boats.tick(dt)
 	if island.rail and (state == DRIVE or state == TITLE):
 		island.rail.tick(dt, cam.global_position)
+	island.night = atmos.night
 	island.tick(dt, cp, car.linear_velocity)
 	if state == DRIVE:
 		var half := Vector3(float(car.info["width"]) * 0.5, float(car.info["height"]) * 0.5, float(car.info["length"]) * 0.5)

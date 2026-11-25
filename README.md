@@ -139,7 +139,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   - CPU drivers ease off over crests (fast enough to keep the wheels on the road), back off and go
     round a post or wall they've nosed into, and are put back on the line if they're stuck or off.
   - Each has bronze, silver and gold medals that pay out once.
-  - Hidden coins are tucked around the island (a few hang in the Stunt Yard's air), and finding all 13
+  - Hidden coins are tucked around the island (a few hang in the Stunt Yard's air), and finding all 17
     places counts toward trophies.
 - Stunts, GTA style. In the air, GAS tips the nose down and BRAKE pulls it up (hold to flip); steering
   spins the car round, and DRIFT + steering barrel-rolls it. Let go and it eases its spin and levels
@@ -227,6 +227,17 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   you already, it adds to the heat. They're back on their feet a while later, once you're well away.
 - Seasons: autumn colours from September, snow and decorations in winter, blossom in spring. Windows
   and lamps light up after dusk.
+- North of downtown, off Castle Road, the rough side of town: Palmer Street, a cul-de-sac of little stucco
+  duplexes and bungalows in faded pastels with fenced front yards, palms, cars pulled up on the kerb,
+  people hanging out on the corner, a corner store, and a vacant lot with a burning barrel; Low Street;
+  and the Courts on Court Street, brick and stucco walk-ups with balconies and fire escapes, a parking
+  court with rows of garages, dumpsters, a building under scaffolding, broken walls. The buildings are the
+  Retro Urban Kit's wall blocks put together by `tools/kenney/bake_hood.gd` (one mesh each, painted).
+- Old Hill Cemetery, at the end of Court Street: iron railings, a cobbled drive in through the gate between
+  rows of headstones (pumpkins on the graves in autumn, candles on some), crypts at the far end, lamps,
+  crooked pines, the groundskeeper with his shovel, and after dark a ghost drifting about by the crypts.
+- Sycamore Heights, east of downtown (off Bay Avenue and Main Street): a loop of suburban houses with
+  drives, back-yard fences, stepping-stone paths and a green in the middle.
 - Farm fields are ploughed in ridges with crops growing along them (wheat, cabbages, corn, sunflowers,
   potatoes), coloured with the seasons. Dirt tracks stop at the edge of the paved roads they join, and a
   field stops at any road that runs through it (a corner cut off by a road is left as plain verge).
@@ -271,6 +282,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `scripts/ui/` | All screens (built in code), icons drawn in code |
 | `shaders/` | Toon shader with the season palette, sea, wipe |
 | `tools/kenney/bake_kenney.gd` | Bakes the chosen Kenney kit models into `assets/kenney/` (people posed, arms loose) |
+| `tools/kenney/bake_hood.gd` | Bakes the Graveyard Kit, more of the Retro Urban Kit and some City Kit Suburban pieces (`k_grave_*`, `k_urb_*`, `k_sub2_*`), and builds the hood's buildings from the Retro Urban Kit's wall blocks (`k_hood_*`) |
+| `scripts/game/hood.gd` | Palmer Street, the Courts, Low Street, Old Hill Cemetery, Sycamore Heights |
 | `tools/kenney/bake_klyo.gd` | Bakes the Klyo stunt kit models (and their simple collision meshes, `_col`) into `assets/kenney/k_klyo_*` |
 | `tools/look/` | Look-dev: `island_look.gd` photographs parts of the island, `kgrid.gd` makes a model contact sheet, `piece_look.gd` photographs one model from four sides on a 1 m grid |
 | `tools/test/` | `handling.gd` (handling report), `road_audit.gd` (nothing in roads or pavements), `road_surface.gd` (roads meet the ground and each other), `road_net.gd` (junctions and loose ends), `traffic_soak.gd` (overlaps, jams, cars off the road), `collide_test.gd`, `probe.gd` |
@@ -347,7 +360,7 @@ helicopter and someone being hit are always synthesized). The buildings, people,
 ships and props are from Kenney's CC0 kits (kenney.nl: City Kit
 Suburban and Commercial, Modular Buildings, Retro Urban Kit, Car Kit, Mini Characters, Cube Pets,
 Mini Skate, Survival Kit, Mini Forest, Castle Kit, Holiday Kit, Mini Arena, Pirate Kit, Train Kit, Racing
-Kit, Watercraft Pack). The player cars
+Kit, Watercraft Pack, Graveyard Kit). The player cars
 are the Tiny Car Pack. The Stunt Yard's ramps, platforms, half-pipes, gap jump, boost pads, gate, hoop,
 tunnel and yard props are "Stunt arena 3D models: ramps, hoop, barriers (GLB)" and "Stunt arena 3D
 expansion: loop, half-pipe, tunnel, obstacles" by Klyo Games (https://games.klyo.pl/free-game-assets/),
