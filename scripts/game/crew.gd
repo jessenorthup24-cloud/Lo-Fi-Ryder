@@ -45,6 +45,9 @@ const STYLE := {
 }
 ## Where your crew sit behind you: [metres back, metres to the side].
 const SLOTS := [[8.5, -2.4], [8.5, 2.4], [16.0, 0.0]]
+## Pace on each kind of road (m/s): quick, but not daft in town.
+const KIND_V := {"street": 21.0, "lane": 16.0, "main": 24.0, "road": 29.0, "ring": 40.0, "mountain": 26.0, "dirt": 15.0, "yard": 14.0}
+const SIDE_GAP := 3.4         # beside you: this far over (centre to centre)
 
 var game: Node
 var island: Node
@@ -679,14 +682,44 @@ func _drive(d: Dictionary, dt: float) -> void:
 	var bend := 0.0           # the turn coming up (radians, + right), and how far off it starts
 	var bend_at := INF
 	var on_trail := {}
+	var form := {}
 	if mode == "crew":
 		d["look"] = float(d["look"]) - dt
 		if float(d["look"]) <= 0.0:
 			d["look"] = 0.3
 			d["clear"] = d_you < 70.0 and _sees(pos, yp)
-		on_trail = _on_trail(d, p2)
-		close = not on_trail.is_empty() or (bool(d["clear"]) and d_you < 30.0)
-	if close:
+		if d_you < 75.0:
+			form = _formation(d, p2, v, vmax, you, yv, yspd, float(st["lat"]))
+		if form.is_empty():
+			on_trail = _on_trail(d, p2)
+		close = not form.is_empty() or not on_trail.is_empty() or (bool(d["clear"]) and d_you < 30.0)
+	if not form.is_empty():
+		stats["form_t"] = float(stats.get("form_t", 0.0)) + dt
+		if d_you < 7.0 and bool(d.get("side_ok", false)):
+			stats["beside_t"] = float(stats.get("beside_t", 0.0)) + dt
+		# riding with you, on your road: beside you (or just behind, if there's no room), in our own lane,
+		# round the bends with the road, at your speed
+		aim = form["aim"]
+		var gap: float = form["gap"]            # (+: our place is ahead of us)
+		var v_corner: float = form["vc"]
+		vt = minf(v_corner, yspd + clampf(gap * 0.6, -8.0, 12.0))
+		if gap > 25.0:
+			vt = minf(v_corner, maxf(vt, yspd + 10.0))
+		bend = form["bend"]
+		bend_at = form["bend_at"]
+		if yspd < 2.0:
+			# you've stopped: pull up in our place and wait
+			var sp: Vector2 = form["slot"]
+			var ds := p2.distance_to(sp)
+			aim = sp
+			vt = 0.0 if ds < 3.0 else clampf(ds * 0.8, 2.0, 10.0)
+		var to_you := yp - pos
+		if to_you.length() < 7.5 and to_you.normalized().dot(fwd) > 0.55:
+			vt = minf(vt, yspd - 1.5)          # (never into the back of you)
+		if gap > 30.0 and absf(bend) < 0.3 and v > 12.0:
+			c.nitro = 1.0
+		d["path"] = PackedVector3Array()
+	elif close:
 		# with you: along the line you drove (so round the corners as you took them), sat off your back
 		# quarter at your speed
 		var sl: Array = SLOTS[int(d["slot"])]
@@ -799,6 +832,20 @@ func _drive(d: Dictionary, dt: float) -> void:
 					_plan(d, _chaser_pos(d))     # (still got them on its tail: keep running)
 				else:
 					_roam(d)
+		# fast but sensible: each kind of road has its pace, and junctions are taken carefully
+		d["kind_t"] = float(d.get("kind_t", 0.0)) - dt
+		if float(d["kind_t"]) <= 0.0:
+			d["kind_t"] = 0.4
+			var nr: Array = game.router.nearest_near(p2, 10.0)
+			d["cap"] = float(KIND_V.get(String(island.roads[int(nr[0])]["kind"]), 30.0)) if int(nr[0]) >= 0 else 30.0
+			var nj := INF
+			for nd in island.nodes:
+				nj = minf(nj, (nd["c"] as Vector2).distance_to(p2))
+			d["junc"] = nj
+		var cap: float = float(d.get("cap", 30.0)) * (1.1 if d["style"] == "wild" else 1.0) * (1.15 if mode == "crew" else 1.0)
+		vt = minf(vt, cap)
+		if float(d.get("junc", INF)) < 20.0:
+			vt = minf(vt, 15.0 if mode != "crew" else 18.0)
 		if mode == "crew":
 			# catching up: flat out, with a squirt of nitrous on the straights
 			vt = minf(vmax * 1.1, vt * 1.06)
@@ -849,6 +896,8 @@ func _drive(d: Dictionary, dt: float) -> void:
 			var want_lat: float = b_lat + float(side) * (pass_w + 0.9)
 			if absf(want_lat) > 5.5:
 				continue
+			if not form.is_empty() and absf(float(form["mylat"]) + want_lat) > float(form["half"]) + 0.3:
+				continue           # (that'd be off the road)
 			var free := true
 			for o in obs:
 				if o == block:
@@ -866,11 +915,20 @@ func _drive(d: Dictionary, dt: float) -> void:
 				went = true
 				break
 		if not went:
-			# no way by: sit behind it, closing the gap gently
+			# no way by: sit behind it, closing the gap gently (and riding with you, drop in behind you a moment)
 			vt = minf(vt, b_v + clampf((b_ahead - 9.0) * 0.6, -8.0, 4.0))
+			if not form.is_empty():
+				d["side_block"] = 2.5
 	d["lane"] = move_toward(float(d["lane"]), lane_want, dt * 3.0)
 	if dodge != 0.0:
 		aim += Vector2(rgt.x, rgt.z) * dodge
+	if not form.is_empty():
+		# (never off the road to get round something: if there's no room, sit behind it)
+		var rn2: Array = island.road_nearest(int(form["ri"]), aim)
+		var q: Vector2 = rn2[2]
+		var off := aim - q
+		if off.length() > float(form["half"]):
+			aim = q + off.normalized() * float(form["half"])
 	var to := Vector3(aim.x - pos.x, 0, aim.y - pos.z)
 	var ang := atan2(fwd.z * to.x - fwd.x * to.z, fwd.x * to.x + fwd.z * to.z)
 	var steer := clampf(-ang * 2.4, -1.0, 1.0)
@@ -1022,6 +1080,82 @@ func _drive(d: Dictionary, dt: float) -> void:
 		d["flip"] = 0.0
 		c.right_up()
 		stats["rights"] += 1
+
+## Riding with you on the road you're on: where our place is (beside you on the side with more room, the
+## next of us on the other side, the third behind; behind you whenever the road's too narrow), and where
+## to steer to get there and stay in it, along the road's own curve. Empty when you're off the roads, or
+## we're not on your road (then we come by the roads, or along your line).
+func _formation(d: Dictionary, p2: Vector2, v: float, vmax: float, you: Car, yv: Vector3, yspd: float, lat_acc: float) -> Dictionary:
+	var R = game.router
+	var yp2 := Vector2(you.global_position.x, you.global_position.z)
+	var nr: Array = R.nearest_near(yp2, 9.0)
+	if int(nr[0]) < 0:
+		return {}
+	var ri := int(nr[0])
+	var road: Dictionary = island.roads[ri]
+	if not KIND_V.has(String(road["kind"])):
+		return {}
+	var s := float(nr[1])
+	var n_pts := float((road["pts"] as PackedVector2Array).size())
+	var closed: bool = road["closed"]
+	var w := float(road["w"])
+	var half := w * 0.5 - 1.3
+	var t: Vector2 = (R.road_at(ri, s + 0.6) - R.road_at(ri, s - 0.6)).normalized()
+	var yf2 := Vector2(yv.x, yv.z) if yspd > 2.0 else Vector2(-you.global_transform.basis.z.x, -you.global_transform.basis.z.z)
+	var dir := 1.0 if t.dot(yf2) >= 0.0 else -1.0
+	var nf := Vector2(-t.y, t.x) * dir                 # (to your right, the way you're going)
+	var ylat: float = (yp2 - R.road_at(ri, s)).dot(nf)
+	# our place
+	var first := 1.0 if (half - ylat) >= (half + ylat) else -1.0
+	var slot := int(d["slot"])
+	var lat := ylat
+	var along := -10.0
+	var wants: float = [first, -first, 0.0][slot]
+	var side_ok := false
+	d["side_block"] = maxf(0.0, float(d.get("side_block", 0.0)) - get_process_delta_time())
+	if wants != 0.0 and float(d["side_block"]) <= 0.0:
+		var l: float = ylat + wants * SIDE_GAP
+		if absf(l) <= half + 0.4:
+			lat = clampf(l, -half, half)
+			along = -1.5
+			side_ok = true
+	if not side_ok:
+		# (behind you: the first behind at 10 m, the next at 18)
+		var ahead_of_us := 0
+		for o in drivers:
+			if o != d and o["mode"] == "crew" and int(o["slot"]) < slot and not bool(o.get("side_ok", true)):
+				ahead_of_us += 1
+		along = -10.0 - 8.5 * ahead_of_us
+		lat = clampf(ylat, -half, half)
+	d["side_ok"] = side_ok
+	# us, on your road?
+	var rn: Array = island.road_nearest(ri, p2)
+	if float(rn[0]) > w * 0.5 + 0.8:
+		return {}        # (not on it yet, e.g. coming round a junction: along your line till we are)
+	var sc := float(rn[1])
+	var ds := s - sc
+	if closed:
+		ds = fposmod(ds + n_pts * 0.5, n_pts) - n_pts * 0.5
+	var step: float = R.STEP
+	var gap := ds * dir * step + along
+	var la := 7.0 + v * 0.4
+	var sa := sc + dir * la / step
+	var ta: Vector2 = (R.road_at(ri, sa + 0.6) - R.road_at(ri, sa - 0.6)).normalized()
+	var aim: Vector2 = R.road_at(ri, sa) + Vector2(-ta.y, ta.x) * dir * lat
+	var ss := s + dir * along / step
+	var tsl: Vector2 = (R.road_at(ri, ss + 0.6) - R.road_at(ri, ss - 0.6)).normalized()
+	var slot_p: Vector2 = R.road_at(ri, ss) + Vector2(-tsl.y, tsl.x) * dir * lat
+	# the bends coming up (along the road, at our lateral)
+	var pts := PackedVector3Array()
+	for k in 18:
+		var sk := sc + dir * float(k) * 1.2
+		var tk: Vector2 = (R.road_at(ri, sk + 0.6) - R.road_at(ri, sk - 0.6)).normalized()
+		var q: Vector2 = R.road_at(ri, sk) + Vector2(-tk.y, tk.x) * dir * lat
+		pts.append(Vector3(q.x, 0, q.y))
+	var vc := _corner_speed(pts, 0, p2, lat_acc, vmax * 1.1)
+	var bd := _bend(pts, 0, p2)
+	var mylat: float = (p2 - R.road_at(ri, sc)).dot(nf)
+	return {"aim": aim, "gap": gap, "vc": vc, "bend": bd[0], "bend_at": bd[1], "ri": ri, "half": half, "slot": slot_p, "mylat": mylat}
 
 ## Where we are on your line, if we're on it: {i (segment), p (the nearest point on it), left (metres
 ## from there along it to you)}; empty if we're not near it.

@@ -190,13 +190,15 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 
 ## The drivers
 
-- Named street drivers roam the island in cars like yours (tuned up), fast and loose but skilled: flat out
-  on the straights, braking for the bends, past the traffic when there's room (looking out for what's
+- Named street drivers roam the island in cars like yours (tuned up), quick but skilled: a pace for each
+  kind of road (sensible in town, flat out on the ring road), easing off for junctions, braking for the bends, past the traffic when there's room (looking out for what's
   coming), and drifting corners, some much more than others (drifters, grip drivers, wild ones). Their
   names float over their cars and they're orange dots on the minimap.
 - Drive up close to one and you swap numbers. The phone (the handset button under the coins, or T) lists
-  your contacts: Call one and they come and find you (up to three at once). Your crew follow the line you
-  drove (so round the corners the way you went), sit off your back quarters at your speed, drift when you
+  your contacts: Call one and they come and find you (up to three at once). Your crew ride in formation on
+  the road you're on: beside you in their own lane when there's room (the side with more road first), just
+  behind you when there isn't or there's traffic in the way, following the road's curves at your speed, never
+  passing off the road; round a junction, or off the roads, they follow the line you drove. They drift when you
   drift, park up round you when you stop, and catch up with a squirt of nitrous (left far behind and out of
   sight, they turn up behind you again). Send off from the phone lets them go. They're green on the minimap.
 - Now and then a patrol car sees one of them fly past and goes after them (no stars for you): they run
