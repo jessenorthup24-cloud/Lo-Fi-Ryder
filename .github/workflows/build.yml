@@ -125,11 +125,17 @@ jobs:
           # PIXEL ARSENAL may ship inside the built game but not be handed out on its own, so the baked models
           # live in a private repo and only ever reach the build here (never this public repo)
           if [ -n "$ASSETS_TOKEN" ]; then
-            git clone -q --depth 1 "https://x-access-token:${ASSETS_TOKEN}@github.com/jessenorthup24-cloud/lo-fi-assets-private.git" /tmp/private
-            mkdir -p assets/guns
-            cp /tmp/private/guns/*.res /tmp/private/guns/guns_meta.json assets/guns/
-            rm -rf /tmp/private
-            echo "guns: $(ls assets/guns/*.res | wc -l) models"
+            # (a token that can't read the repo shouldn't stop the update going out: say why and build without)
+            code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${ASSETS_TOKEN}" https://api.github.com/repos/jessenorthup24-cloud/lo-fi-assets-private)
+            echo "assets repo, as the token sees it: HTTP $code"
+            if git clone -q --depth 1 "https://x-access-token:${ASSETS_TOKEN}@github.com/jessenorthup24-cloud/lo-fi-assets-private.git" /tmp/private; then
+              mkdir -p assets/guns
+              cp /tmp/private/guns/*.res /tmp/private/guns/guns_meta.json assets/guns/
+              rm -rf /tmp/private
+              echo "guns: $(ls assets/guns/*.res | wc -l) models"
+            else
+              echo "::warning::ASSETS_TOKEN can't read lo-fi-assets-private (HTTP $code): building with stand-in guns. The token needs Contents: Read-only on that repo."
+            fi
           else
             echo "no ASSETS_TOKEN secret: building with stand-in guns"
           fi
