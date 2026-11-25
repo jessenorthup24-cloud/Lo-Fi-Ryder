@@ -581,7 +581,8 @@ func _ground_slot(idx: int, x: float, z: float, slope: float) -> int:
 	var h := heights[idx]
 	if h < -0.15:
 		return P.SAND
-	if slope > 0.55:
+	# rock only on a real cliff (past ~57 degrees); a road's cutting or embankment is grassed over (moss)
+	if slope > 0.9:
 		return P.ROCK
 	match s:
 		S_SAND:
