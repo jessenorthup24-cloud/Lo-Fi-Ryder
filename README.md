@@ -190,6 +190,12 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - 46 trophies, each paying coins once (among them winning a race on Hard and winning every race,
   grinding rails, riding with your crew and owning a legendary car; the "every zone / trial / place /
   race" ones count however many there are on the island).
+- The look is "lo-fi night": dark glass panels with a hairline edge, near-white type, one neon-pink
+  accent (the main button on each screen glows with it). The title sits at dusk (the island's own clock
+  carries on from where it was once you drive): a thin, letter-spaced LO-FI DRYFTER, one DRIVE button,
+  and Garage, Map, Trophies and Settings as quiet text links, over a slow orbit of your car with a dark
+  wash and letterbox bars. The garage is a night studio, a neon rim round the turntable. Toasts are
+  dark pills, their colour on the icon. The in-car controls keep their illustrated sticker look.
 - The HUD: the phone, camera and rewind are one column of matching round buttons beside the minimap
   (the group view sits beside the phone while you've a crew); wanted stars are gold, under the minimap;
   the bars either side of the speedo are fuel and the car's condition (a spanner). Menus hide the

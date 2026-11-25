@@ -429,6 +429,7 @@ func _build_world() -> void:
 			police.start(float(args["wanted"]), "A test")
 	else:
 		state = TITLE
+		_title_mood(true)
 		ui.show_title()
 	if save.data.get("migrated", false):
 		save.data.erase("migrated")
@@ -481,6 +482,7 @@ func _road_spot(p: Vector3, yaw: float) -> Transform3D:
 func start_drive() -> void:
 	if state == TITLE:
 		sound.start_engine()
+		_title_mood(false)
 	state = DRIVE
 	ui.show_hud()
 	car.freeze = false
@@ -488,12 +490,26 @@ func start_drive() -> void:
 		save.data["seen_help"] = true
 		ui.show_help()
 
+## The title is always at dusk, the city's lights coming on as it sits there; the island's own clock picks
+## up where it was when you drive.
+var _title_hour_back := -1.0
+func _title_mood(on: bool) -> void:
+	if args.has("hour"):
+		return
+	if on and _title_hour_back < 0.0:
+		_title_hour_back = atmos.hour
+		atmos.hour = 19.3
+	elif not on and _title_hour_back >= 0.0:
+		atmos.hour = _title_hour_back
+		_title_hour_back = -1.0
+
 func go_title() -> void:
 	_save_now()
 	state = TITLE
 	_end_challenges()
 	police.clear()
 	crew.clear()
+	_title_mood(true)
 	ui.show_title()
 
 func pause() -> void:

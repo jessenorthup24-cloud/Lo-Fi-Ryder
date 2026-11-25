@@ -6,8 +6,8 @@ extends PanelContainer
 const K := preload("res://scripts/ui/kit.gd")
 const Icon := preload("res://scripts/ui/icon.gd")
 
-const BODY := Color("1d1c1a")
-const SCREEN := Color("f7f5f1")
+const BODY := Color("0c0b10")
+const SCREEN := Color("17151f")         # (a dark screen, like the rest of the UI)
 const GO := Color("54b87a")
 const GO_DK := Color("3e9460")
 const STYLE_COL := {"drift": Color("ff8a5c"), "grip": Color("5cc8ff"), "wild": Color("c38bff")}
@@ -29,7 +29,9 @@ func setup(u: Node, g: Node) -> void:
 	var sb := K.box(BODY, 34, 0, Color.TRANSPARENT, 10)
 	sb.content_margin_top = 12
 	sb.content_margin_bottom = 16
-	sb.shadow_color = Color(0, 0, 0, 0.3)
+	sb.set_border_width_all(1)
+	sb.border_color = Color(1, 1, 1, 0.14)
+	sb.shadow_color = Color(0, 0, 0, 0.4)
 	sb.shadow_size = 16
 	sb.shadow_offset = Vector2(0, 6)
 	add_theme_stylebox_override("panel", sb)
@@ -138,7 +140,7 @@ func _rebuild(cs: Array, n: int, busy: bool) -> void:
 		var who := int(e["who"])
 		var st := String(e["state"])
 		var row := PanelContainer.new()
-		var rsb := K.box(Color("eae5dd") if st != "crew" else Color("dff3e6"), 18, 0, Color.TRANSPARENT, 8)
+		var rsb := K.box(Color(1, 1, 1, 0.06) if st != "crew" else Color(0.33, 0.72, 0.48, 0.22), 18, 0, Color.TRANSPARENT, 8)
 		rsb.content_margin_top = 6
 		rsb.content_margin_bottom = 6
 		row.add_theme_stylebox_override("panel", rsb)

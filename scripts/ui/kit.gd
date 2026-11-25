@@ -3,25 +3,33 @@ extends RefCounted
 
 const Icon := preload("res://scripts/ui/icon.gd")
 
-# a calm, neutral palette: warm whites, stone greys and charcoal (names kept from the old colourful kit)
-const CREAM := Color("efebe5")
-const PAPER := Color("f7f5f1")
-const INK := Color("2f2d2a")
-const INK_SOFT := Color("7a756f")
-const CORAL := Color("34322f")      # primary: charcoal
-const CORAL_DK := Color("1d1c1a")
-const TEAL := Color("7d8780")       # sage grey
-const TEAL_DK := Color("5e6862")
-const SUN := Color("bfae90")        # sand
-const SUN_DK := Color("9c8c70")
-const LILAC := Color("9e978f")      # taupe
-const LILAC_DK := Color("7f7871")
-const SKY := Color("8995a0")        # slate
-const SKY_DK := Color("6a7580")
-const LEAF := Color("8b9681")
-const LINE := Color("dcd6cd")       # light edges and empty pips
-const LINE_DK := Color("c3bcb2")
-const DIM := Color(0.08, 0.08, 0.08, 0.45)
+# Lo-fi night: dark glass panels, near-white type, one warm neon accent. (The names are kept from the old
+# pastel kit, so every screen picks the new look up: PAPER is the glass, INK the type on it, CORAL the accent;
+# the other colours are quieter glass for secondary buttons.)
+const CREAM := Color(1, 1, 1, 0.06)  # a row on a panel: a shade lighter than the glass
+const PAPER := Color(0.075, 0.07, 0.105, 0.86)
+const INK := Color("f2f0f7")
+const INK_SOFT := Color("a6a2b4")
+const CORAL := Color("ff4f8b")      # the accent: neon pink
+const CORAL_DK := Color("ff8db4")
+const TEAL := Color(0.2, 0.19, 0.26, 0.92)
+const TEAL_DK := Color(1, 1, 1, 0.16)
+const SUN := Color(0.2, 0.19, 0.26, 0.92)
+const SUN_DK := Color(1, 1, 1, 0.16)
+const LILAC := Color(0.2, 0.19, 0.26, 0.92)
+const LILAC_DK := Color(1, 1, 1, 0.16)
+const SKY := Color(0.2, 0.19, 0.26, 0.92)
+const SKY_DK := Color(1, 1, 1, 0.16)
+const LEAF := Color(0.2, 0.19, 0.26, 0.92)
+const LINE := Color(1, 1, 1, 0.12)  # hairlines and empty pips
+const LINE_DK := Color(1, 1, 1, 0.22)
+const DIM := Color(0.02, 0.02, 0.05, 0.62)
+const AMBER := Color("ffb347")      # a second, warm highlight (coins, warnings)
+const SHADE := Color("17151d")      # dark, for outlines round type over the 3D view
+# the in-car controls keep their illustrated sticker colours (they're art, not panels)
+const STK_INK := Color("2f2d2a")
+const STK_PAPER := Color("f7f5f1")
+const STK_LINE := Color("dcd6cd")
 static var _fonts := {}
 
 static func font(weight := 600) -> Font:
@@ -32,6 +40,59 @@ static func font(weight := 600) -> Font:
 	fv.variation_opentype = {"wght": weight}
 	_fonts[weight] = fv
 	return fv
+
+## The same face with the letters spread (titles, the DRIVE button).
+static func font_spaced(weight: int, spacing: int) -> Font:
+	var key := weight * 1000 + spacing
+	if _fonts.has(key):
+		return _fonts[key]
+	var fv := FontVariation.new()
+	fv.base_font = load("res://assets/fonts/Fredoka.ttf")
+	fv.variation_opentype = {"wght": weight}
+	fv.spacing_glyph = spacing
+	_fonts[key] = fv
+	return fv
+
+## A quiet text link (icon and word, no box): soft grey, white when pressed.
+static func link(text: String, icon := "", size := 26) -> Button:
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.flat = true
+	b.text = ""
+	for st in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
+		b.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+	var hb := HBoxContainer.new()
+	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	hb.add_theme_constant_override("separation", 10)
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(hb)
+	var ic: Control = null
+	if icon != "":
+		ic = Icon.new(icon, INK_SOFT, size * 1.05)
+		(ic as Icon).color2 = SHADE
+		hb.add_child(ic)
+	var l: Label = null
+	if text != "":
+		l = label(text, size, INK_SOFT, 500)
+		l.add_theme_font_override("font", font_spaced(500, 2))
+		hb.add_child(l)
+	# (sized from its contents: an icon, the gap, the word)
+	var w := (size * 1.05 + 10.0 if icon != "" else 0.0) + (font_spaced(500, 2).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x if text != "" else 0.0)
+	b.custom_minimum_size = Vector2(w + 8.0, size * 2.2)
+	hb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var tint := func(on: bool):
+		var c := INK if on else INK_SOFT
+		if l:
+			l.add_theme_color_override("font_color", c)
+		if ic:
+			(ic as Icon).color = c
+			ic.queue_redraw()
+	b.button_down.connect(func(): tint.call(true))
+	b.button_up.connect(func(): tint.call(false))
+	b.mouse_entered.connect(func(): tint.call(true))
+	b.mouse_exited.connect(func(): tint.call(false))
+	squishy(b)
+	return b
 
 static func label(text: String, size := 32, col := INK, weight := 600, align := HORIZONTAL_ALIGNMENT_CENTER) -> Label:
 	var l := Label.new()
@@ -44,8 +105,11 @@ static func label(text: String, size := 32, col := INK, weight := 600, align := 
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
 
-static func outlined(l: Label, outline := INK, w := 10) -> Label:
-	l.add_theme_color_override("font_outline_color", outline)
+static func outlined(l: Label, outline := SHADE, w := 10) -> Label:
+	# (always a dark outline: type over the 3D view is light)
+	if outline.get_luminance() > 0.5:
+		outline = SHADE
+	l.add_theme_color_override("font_outline_color", Color(outline, 0.85))
 	l.add_theme_constant_override("outline_size", w)
 	return l
 
@@ -63,12 +127,14 @@ static func box(bg: Color, radius := 28, lip := 0, lip_col := Color.TRANSPARENT,
 		sb.border_color = lip_col
 	return sb
 
-static func card(bg := PAPER, radius := 36) -> PanelContainer:
+static func card(bg := PAPER, radius := 28) -> PanelContainer:
 	var p := PanelContainer.new()
-	var sb := box(bg, radius, 8, LINE_DK, 28)
-	sb.shadow_color = Color(0.1, 0.1, 0.1, 0.18)
-	sb.shadow_size = 18
-	sb.shadow_offset = Vector2(0, 8)
+	var sb := box(bg if bg.get_luminance() < 0.5 else PAPER, radius, 0, Color.TRANSPARENT, 30)
+	sb.set_border_width_all(1)
+	sb.border_color = Color(1, 1, 1, 0.13)
+	sb.shadow_color = Color(0, 0, 0, 0.35)
+	sb.shadow_size = 24
+	sb.shadow_offset = Vector2(0, 10)
 	p.add_theme_stylebox_override("panel", sb)
 	return p
 
@@ -80,14 +146,18 @@ static func button(text: String, bg := CORAL, dk := CORAL_DK, size := 38, min_w 
 	b.custom_minimum_size = Vector2(min_w, h)
 	b.add_theme_font_override("font", font(650))
 	b.add_theme_font_size_override("font_size", size)
+	var accent := bg == CORAL
+	if bg.get_luminance() > 0.6 and not accent:
+		bg = TEAL      # (an old light button colour: quiet glass now)
+	var fg := Color("1a0f16") if accent else INK
 	for st in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
-		b.add_theme_color_override(st, Color.WHITE if bg != PAPER and bg != CREAM else INK)
-	b.add_theme_color_override("font_disabled_color", Color(1, 1, 1, 0.75))
-	var normal := box(bg, int(h * 0.5), 8, dk, 26)
-	var hover := box(bg.lightened(0.05), int(h * 0.5), 8, dk, 26)
-	var pressed := box(bg.darkened(0.04), int(h * 0.5), 2, dk, 26)
-	pressed.content_margin_top += 6
-	var disabled := box(Color("d6d1ca"), int(h * 0.5), 8, Color("bdb7af"), 26)
+		b.add_theme_color_override(st, fg)
+	b.add_theme_color_override("font_disabled_color", Color(1, 1, 1, 0.5))
+	var normal := _glass(bg, int(h * 0.5), accent)
+	var hover := _glass(bg.lightened(0.06), int(h * 0.5), accent)
+	var pressed := _glass(bg.darkened(0.12), int(h * 0.5), accent)
+	pressed.content_margin_top += 3
+	var disabled := _glass(Color(1, 1, 1, 0.05), int(h * 0.5), false)
 	b.add_theme_stylebox_override("normal", normal)
 	b.add_theme_stylebox_override("hover", hover)
 	b.add_theme_stylebox_override("pressed", pressed)
@@ -96,7 +166,6 @@ static func button(text: String, bg := CORAL, dk := CORAL_DK, size := 38, min_w 
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	if icon != "":
 		# icon + text centered together; the button keeps its text for later updates via set_meta
-		var fg: Color = Color.WHITE if bg != PAPER and bg != CREAM else INK
 		var hb := HBoxContainer.new()
 		hb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		hb.offset_bottom = -6
@@ -112,6 +181,16 @@ static func button(text: String, bg := CORAL, dk := CORAL_DK, size := 38, min_w 
 	squishy(b)
 	return b
 
+## A glass pill: the colour, a hairline round it; the accent ones glow softly.
+static func _glass(bg: Color, radius: int, accent: bool) -> StyleBoxFlat:
+	var sb := box(bg, radius, 0, Color.TRANSPARENT, 26)
+	sb.set_border_width_all(1)
+	sb.border_color = Color(1, 1, 1, 0.35) if accent else Color(1, 1, 1, 0.14)
+	if accent:
+		sb.shadow_color = Color(CORAL, 0.45)
+		sb.shadow_size = 14
+	return sb
+
 ## Buttons shrink a touch while held, like pressing a toy.
 static func squishy(b: Control) -> void:
 	b.resized.connect(func(): b.pivot_offset = b.size * 0.5)
@@ -126,14 +205,19 @@ static func round_button(icon: String, bg := PAPER, dk := LINE, d := 96.0, icol 
 	var b := Button.new()
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(d, d)
-	var normal := box(bg, int(d * 0.5), 7, dk, 0)
-	var pressed := box(bg.darkened(0.04), int(d * 0.5), 2, dk, 0)
+	if bg.get_luminance() > 0.6:
+		bg = PAPER
+	if icol.get_luminance() < 0.3:
+		icol = INK
+	var normal := _glass(Color(bg, minf(bg.a, 0.62)), int(d * 0.5), false)
+	var pressed := _glass(Color(bg.darkened(0.2), 0.8), int(d * 0.5), false)
 	b.add_theme_stylebox_override("normal", normal)
 	b.add_theme_stylebox_override("hover", normal)
 	b.add_theme_stylebox_override("pressed", pressed)
 	b.add_theme_stylebox_override("hover_pressed", pressed)
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	var ic := Icon.new(icon, icol, d * 0.46)
+	ic.color2 = SHADE            # (the cut-outs in an icon: dark, so a white icon keeps its details)
 	ic.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ic.offset_left = d * 0.27
 	ic.offset_right = -d * 0.27
@@ -147,7 +231,9 @@ static func round_button(icon: String, bg := PAPER, dk := LINE, d := 96.0, icol 
 ## A pill showing an icon and a value (coins in the corner).
 static func pill(icon: String, text: String, size := 34) -> PanelContainer:
 	var p := PanelContainer.new()
-	var sb := box(PAPER, 40, 6, LINE, 18)
+	var sb := _glass(Color(PAPER, 0.62), 40, false)
+	sb.content_margin_left = 18
+	sb.content_margin_right = 18
 	sb.content_margin_top = 8
 	sb.content_margin_bottom = 8
 	p.add_theme_stylebox_override("panel", sb)
@@ -167,6 +253,8 @@ static func bar(w: float, h: float, fill: Color, back := LINE) -> ProgressBar:
 	pb.show_percentage = false
 	pb.max_value = 1.0
 	pb.step = 0.0
+	if fill.get_luminance() < 0.35 or fill.a < 0.95:
+		fill = CORAL     # (a dark fill would vanish on the glass)
 	var f := box(fill, int(h * 0.5), 0, Color.TRANSPARENT, 0)
 	var b := box(back, int(h * 0.5), 0, Color.TRANSPARENT, 0)
 	pb.add_theme_stylebox_override("fill", f)
@@ -182,10 +270,10 @@ static func slider(value: float) -> HSlider:
 	s.value = value
 	s.custom_minimum_size = Vector2(300, 60)
 	s.focus_mode = Control.FOCUS_NONE
-	var track := box(Color("eadccd"), 10, 0, Color.TRANSPARENT, 0)
+	var track := box(Color(1, 1, 1, 0.14), 10, 0, Color.TRANSPARENT, 0)
 	track.content_margin_top = 8
 	track.content_margin_bottom = 8
-	var fill := box(TEAL, 10, 0, Color.TRANSPARENT, 0)
+	var fill := box(CORAL, 10, 0, Color.TRANSPARENT, 0)
 	fill.content_margin_top = 8
 	fill.content_margin_bottom = 8
 	s.add_theme_stylebox_override("slider", track)
@@ -197,7 +285,7 @@ static func slider(value: float) -> HSlider:
 		for x in 44:
 			var d := Vector2(x - 21.5, y - 21.5).length()
 			if d < 21.0:
-				img.set_pixel(x, y, Color.WHITE if d < 15.0 else TEAL_DK)
+				img.set_pixel(x, y, Color.WHITE if d < 15.0 else CORAL)
 	var tex := ImageTexture.create_from_image(img)
 	s.add_theme_icon_override("grabber", tex)
 	s.add_theme_icon_override("grabber_highlight", tex)

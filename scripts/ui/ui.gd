@@ -71,6 +71,7 @@ var title_coins: PanelContainer
 
 # garage
 var g_view: SubViewport
+var title_go: Button
 var g_root3d: Node3D
 var g_car: Node3D
 var g_turn: Node3D
@@ -253,53 +254,85 @@ func world_ready(isl: Node) -> void:
 func _build_title() -> void:
 	title = _full(Control.MOUSE_FILTER_IGNORE)
 	title.visible = false
-	var shade := ColorRect.new()
-	shade.color = Color(0.1, 0.08, 0.2, 0.0)
-	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	title.add_child(shade)
+	# a dark wash from the left (so the type reads over any scene) and thin letterbox bars: a film still
+	var wash := TextureRect.new()
+	var gt := GradientTexture2D.new()
+	var gr := Gradient.new()
+	gr.set_color(0, Color(0.035, 0.03, 0.06, 0.92))
+	gr.set_color(1, Color(0.035, 0.03, 0.06, 0.0))
+	gr.add_point(0.42, Color(0.035, 0.03, 0.06, 0.6))
+	gt.gradient = gr
+	gt.width = 256
+	gt.height = 4
+	gt.fill_to = Vector2(1, 0)
+	wash.texture = gt
+	wash.stretch_mode = TextureRect.STRETCH_SCALE
+	wash.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
+	wash.anchor_right = 0.72
+	wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title.add_child(wash)
+	for top in [true, false]:
+		var bar := ColorRect.new()
+		bar.color = Color(0.02, 0.02, 0.035, 0.9)
+		bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE if top else Control.PRESET_BOTTOM_WIDE)
+		bar.custom_minimum_size = Vector2(0, 26)
+		if top:
+			bar.offset_bottom = 26
+		else:
+			bar.offset_top = -26
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		title.add_child(bar)
 	var left := VBoxContainer.new()
 	left.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
-	left.offset_left = 64
-	left.offset_right = 640
-	left.offset_top = 70
-	left.offset_bottom = -50
-	left.add_theme_constant_override("separation", 16)
+	left.offset_left = 88
+	left.offset_right = 760
+	left.offset_top = 0
+	left.offset_bottom = 0
+	left.alignment = BoxContainer.ALIGNMENT_CENTER
+	left.add_theme_constant_override("separation", 14)
 	title.add_child(left)
-	title_logo = Control.new()
-	title_logo.custom_minimum_size = Vector2(560, 120)
+	title_logo = VBoxContainer.new()
+	(title_logo as VBoxContainer).add_theme_constant_override("separation", -6)
 	left.add_child(title_logo)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 0)
-	title_logo.add_child(row)
-	var i := 0
-	for ch in "Lo-Fi Dryfter":
-		var l := K.outlined(K.label(ch, 100, K.PAPER, 700), K.INK, 16)
-		l.set_meta("i", i)
-		row.add_child(l)
-		i += 1
-	left.add_child(K.outlined(K.label("drift the streets of a little island town", 34, Color.WHITE, 650, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 10))
-	left.add_child(K.spacer(26))
-	var go := K.button("Drive", K.CORAL, K.CORAL_DK, 50, 360, 112, "play")
+	var kicker := K.label("LO-FI", 30, K.CORAL, 600, HORIZONTAL_ALIGNMENT_LEFT)
+	kicker.add_theme_font_override("font", K.font_spaced(600, 16))
+	title_logo.add_child(kicker)
+	var big := K.label("DRYFTER", 112, K.INK, 300, HORIZONTAL_ALIGNMENT_LEFT)
+	big.add_theme_font_override("font", K.font_spaced(300, 14))
+	title_logo.add_child(big)
+	var rule := ColorRect.new()
+	rule.color = Color(1, 1, 1, 0.28)
+	rule.custom_minimum_size = Vector2(420, 1)
+	rule.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	left.add_child(rule)
+	var tag := K.label("drift the streets of a little island town", 26, K.INK_SOFT, 400, HORIZONTAL_ALIGNMENT_LEFT)
+	tag.add_theme_font_override("font", K.font_spaced(400, 1))
+	left.add_child(tag)
+	left.add_child(K.spacer(30))
+	var go := K.button("DRIVE", K.CORAL, K.CORAL_DK, 38, 340, 92, "play")
+	(go.get_meta("label") as Label).add_theme_font_override("font", K.font_spaced(650, 8))
 	_tap(go, func(): transition(func(): game.start_drive()))
 	go.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	left.add_child(go)
+	title_go = go
+	left.add_child(K.spacer(8))
 	var row2 := HBoxContainer.new()
-	row2.add_theme_constant_override("separation", 14)
+	row2.add_theme_constant_override("separation", 34)
 	left.add_child(row2)
-	for b in [["car", "Garage", K.TEAL, K.TEAL_DK, func(): game.open_garage()], ["map", "Map", K.SUN, K.SUN_DK, func(): open_map()],
-			["trophy", "Trophies", K.SKY, K.SKY_DK, func(): open_achievements()], ["gear", "", K.LILAC, K.LILAC_DK, func(): open_settings()]]:
-		var bt := K.button(b[1], b[2], b[3], 30, 84 if b[1] == "" else 170, 84, b[0])
-		_tap(bt, b[4])
-		row2.add_child(bt)
+	for b in [["car", "Garage", func(): game.open_garage()], ["map", "Map", func(): open_map()],
+			["trophy", "Trophies", func(): open_achievements()], ["gear", "Settings", func(): open_settings()]]:
+		var lk := K.link(b[1], b[0], 24)
+		_tap(lk, b[2])
+		row2.add_child(lk)
 	title_coins = K.pill("coin", "0")
 	title_coins.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	title_coins.position = Vector2(-260, 36)
+	title_coins.position = Vector2(-250, 48)
 	title.add_child(title_coins)
-	var bl := K.outlined(K.label("", 22, Color.WHITE, 600, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 6)
+	var bl := K.label("", 17, Color(1, 1, 1, 0.38), 500, HORIZONTAL_ALIGNMENT_LEFT)
+	bl.add_theme_font_override("font", K.font_spaced(500, 2))
 	bl.name = "Build"
 	bl.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	bl.position = Vector2(24, -44)
+	bl.position = Vector2(88, -64)
 	title.add_child(bl)
 
 func show_title() -> void:
@@ -309,18 +342,23 @@ func show_title() -> void:
 	close_sheet()
 	title.modulate.a = 1.0
 	title_coins.get_meta("label").text = K.fmt(int(game.save.data["coins"]))
-	(title.get_node("Build") as Label).text = "Lo-Fi Dryfter · %s · %d/%d trophies" % [build_label(), Ach.count(game.save.data), Ach.LIST.size()]
+	(title.get_node("Build") as Label).text = "%s   ·   %d / %d TROPHIES" % [build_label().to_upper(), Ach.count(game.save.data), Ach.LIST.size()]
+	# (a gentle way in: the type rises and fades up)
+	title.modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_property(title, "modulate:a", 1.0, 0.9).set_trans(Tween.TRANS_SINE)
 
 static func build_label() -> String:
 	var v = JSON.parse_string(FileAccess.get_file_as_string("res://version.json")) if FileAccess.file_exists("res://version.json") else null
 	return String(v.get("label", "dev")) if v is Dictionary else "dev"
 
+## The DRIVE button breathes: its glow swells and settles.
 func _title_tick(t: float) -> void:
-	var row: HBoxContainer = title_logo.get_child(0)
-	for ch in row.get_children():
-		var i: int = ch.get_meta("i")
-		ch.position.y = sin(t * 2.2 + i * 0.55) * 7.0
-		ch.rotation = sin(t * 1.6 + i * 0.8) * 0.04
+	if title_go == null:
+		return
+	var sb := title_go.get_theme_stylebox("normal") as StyleBoxFlat
+	if sb:
+		sb.shadow_size = int(10.0 + 8.0 * (0.5 + 0.5 * sin(t * 2.0)))
 
 # ------------------------------------------------------------------ HUD
 
@@ -366,8 +404,8 @@ func _build_hud() -> void:
 	ring.size = Vector2(204, 204)
 	ring.position = Vector2(-226, 86)
 	var rsb := K.box(Color.TRANSPARENT, 102, 0, Color.TRANSPARENT, 0)
-	rsb.border_color = K.PAPER
-	rsb.set_border_width_all(6)
+	rsb.border_color = Color(1, 1, 1, 0.55)
+	rsb.set_border_width_all(3)
 	ring.add_theme_stylebox_override("panel", rsb)
 	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(ring)
@@ -576,7 +614,7 @@ func _sticker(c: Control, pts: PackedVector2Array, fill: Color, lift := 5.0, ink
 		sh.append(q + Vector2(lift * 0.6, lift))
 	c.draw_colored_polygon(sh, Color(0.05, 0.04, 0.03, 0.28))
 	c.draw_colored_polygon(pts, fill)
-	c.draw_polyline(pts + PackedVector2Array([pts[0]]), K.INK, ink, true)
+	c.draw_polyline(pts + PackedVector2Array([pts[0]]), K.STK_INK, ink, true)
 
 ## A rounded box as a polygon (so it can be a sticker).
 func _rbox(r: Rect2, rad: float) -> PackedVector2Array:
@@ -589,7 +627,7 @@ func _rbox(r: Rect2, rad: float) -> PackedVector2Array:
 			out.append((cc[0] as Vector2) + Vector2(cos(a), sin(a)) * rad)
 	return out
 
-func _tag(c: Control, text: String, at: Vector2, size: int, bg: Color, fg := K.INK) -> void:
+func _tag(c: Control, text: String, at: Vector2, size: int, bg: Color, fg := K.STK_INK) -> void:
 	var f := K.font(750)
 	var w := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + 16.0
 	_sticker(c, _rbox(Rect2(at - Vector2(w * 0.5, size * 0.75), Vector2(w, size * 1.3)), size * 0.45), bg, 3.0, 3.0)
@@ -607,8 +645,8 @@ func _draw_pad(c: Control, name: String) -> void:
 				var ox := cx.x + d * (k - 1) * 22.0
 				var pts := PackedVector2Array([Vector2(ox - d * 14, cx.y - 34), Vector2(ox + d * 14, cx.y), Vector2(ox - d * 14, cx.y + 34)])
 				var a := (0.85 if on else 0.42) * (0.55 + 0.22 * k)
-				c.draw_polyline(pts, Color(K.INK, a * 0.6), 13.0, true)
-				c.draw_polyline(pts, Color(K.PAPER, a), 8.0, true)
+				c.draw_polyline(pts, Color(K.STK_INK, a * 0.6), 13.0, true)
+				c.draw_polyline(pts, Color(K.STK_PAPER, a), 8.0, true)
 		"gas":
 			# a drilled aluminium sport pedal on its hinge: tips back when your foot's on it
 			var tilt := 0.86 if on else 1.0
@@ -620,7 +658,7 @@ func _draw_pad(c: Control, name: String) -> void:
 			# rubber strips and drilled holes
 			for k in 3:
 				var x := 40.0 + k * (s.x - 80.0) / 2.0
-				c.draw_line(Vector2(x, top + 12), Vector2(x + (x - s.x * 0.5) * 0.08, hinge.y - 12), K.INK, 10.0, true)
+				c.draw_line(Vector2(x, top + 12), Vector2(x + (x - s.x * 0.5) * 0.08, hinge.y - 12), K.STK_INK, 10.0, true)
 			for row in 4:
 				var y := top + 18.0 + row * (ph - 30.0) / 3.0
 				for k in 2:
@@ -628,7 +666,7 @@ func _draw_pad(c: Control, name: String) -> void:
 					c.draw_circle(Vector2(x2, y), 4.0, Color("9a9ea4"))
 			# the hinge
 			_sticker(c, _rbox(Rect2(Vector2(30, hinge.y - 6), Vector2(s.x - 60, 16)), 8), Color("6f6a64"), 2.0, 3.0)
-			_tag(c, "GAS", Vector2(s.x * 0.5, s.y - 12), 18, Color("8fe0a8") if on else K.PAPER)
+			_tag(c, "GAS", Vector2(s.x * 0.5, s.y - 12), 18, Color("8fe0a8") if on else K.STK_PAPER)
 		"brake":
 			# a wide brake pedal, grooved rubber over steel
 			var tilt2 := 0.84 if on else 1.0
@@ -642,7 +680,7 @@ func _draw_pad(c: Control, name: String) -> void:
 				c.draw_line(Vector2(22, y2), Vector2(s.x - 22, y2), Color(1, 1, 1, 0.16), 4.0)
 				y2 += 11.0
 			_sticker(c, _rbox(Rect2(Vector2(28, hinge2.y - 4), Vector2(s.x - 56, 14)), 7), Color("6f6a64"), 2.0, 3.0)
-			_tag(c, "BRAKE", Vector2(s.x * 0.5, s.y - 12), 16, Color("f19a8c") if on else K.PAPER)
+			_tag(c, "BRAKE", Vector2(s.x * 0.5, s.y - 12), 16, Color("f19a8c") if on else K.STK_PAPER)
 		"hand":
 			# the handbrake: a stitched leather boot, the lever, a red button on the end; pulled up when held
 			var piv := Vector2(36, s.y - 26)
@@ -654,14 +692,14 @@ func _draw_pad(c: Control, name: String) -> void:
 			_sticker(c, arm, Color("d9dbde"), 5.0)
 			var grip := PackedVector2Array([piv + dirv * (s.x * 0.42) + nrm * 12, tip + nrm * 12, tip - nrm * 12, piv + dirv * (s.x * 0.42) - nrm * 12])
 			_sticker(c, grip, Color("3a3734"), 2.0, 3.0)
-			c.draw_circle(tip + dirv * 4, 12.0, K.INK)
+			c.draw_circle(tip + dirv * 4, 12.0, K.STK_INK)
 			c.draw_circle(tip + dirv * 4, 8.5, Color("ef6a55") if not on else Color("ffb3a6"))
 			var boot := PackedVector2Array([Vector2(8, s.y - 8), Vector2(18, s.y - 40), Vector2(58, s.y - 40), Vector2(70, s.y - 8)])
 			_sticker(c, boot, Color("5b4636"), 3.0, 3.0)
 			for k in 4:
 				var yb := s.y - 34 + k * 7
 				c.draw_line(Vector2(20 - k, yb), Vector2(56 + k, yb), Color("c9a27e"), 2.0)
-			_tag(c, "DRIFT", Vector2(s.x - 30, s.y - 12), 15, Color("f2b84b") if on else K.PAPER)
+			_tag(c, "DRIFT", Vector2(s.x - 30, s.y - 12), 15, Color("f2b84b") if on else K.STK_PAPER)
 		"nos":
 			# the nitrous bottle: blue with a red valve, a gauge for what's left, and an arming switch
 			var v: float = c.get_meta("v")
@@ -673,21 +711,21 @@ func _draw_pad(c: Control, name: String) -> void:
 			_sticker(c, _rbox(Rect2(Vector2(bx + bw * 0.3, 14), Vector2(bw * 0.4, 20)), 4), Color("c9ccd2"), 3.0, 3.0)
 			_sticker(c, _rbox(Rect2(Vector2(bx + bw * 0.12, 4), Vector2(bw * 0.76, 12)), 6), Color("ef6a55"), 2.0, 3.0)
 			_sticker(c, _rbox(body, 20), Color("3a7bd5"))
-			_sticker(c, _rbox(Rect2(Vector2(bx + 4, body.position.y + body.size.y * 0.36), Vector2(bw - 8, 22)), 4), K.PAPER, 0.0, 2.5)
-			c.draw_string(K.font(800), Vector2(bx + 8, body.position.y + body.size.y * 0.36 + 17), "NOS", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, K.INK)
+			_sticker(c, _rbox(Rect2(Vector2(bx + 4, body.position.y + body.size.y * 0.36), Vector2(bw - 8, 22)), 4), K.STK_PAPER, 0.0, 2.5)
+			c.draw_string(K.font(800), Vector2(bx + 8, body.position.y + body.size.y * 0.36 + 17), "NOS", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, K.STK_INK)
 			c.draw_line(body.position + Vector2(9, 10), body.position + Vector2(9, body.size.y * 0.3), Color(1, 1, 1, 0.5), 4.0)
 			# the gauge
 			var gc := Vector2(s.x - 40, 40)
 			c.draw_circle(gc + Vector2(2, 3), 22.0, Color(0, 0, 0, 0.25))
-			c.draw_circle(gc, 22.0, K.INK)
-			c.draw_circle(gc, 18.5, K.PAPER)
+			c.draw_circle(gc, 22.0, K.STK_INK)
+			c.draw_circle(gc, 18.5, K.STK_PAPER)
 			c.draw_arc(gc, 13.0, PI * 0.75, PI * 2.25, 16, Color("ef6a55"), 3.0)
 			c.draw_arc(gc, 13.0, PI * 0.75 + PI * 1.5 * 0.2, PI * 2.25, 16, Color("54b87a"), 3.0)
 			var na := PI * 0.75 + PI * 1.5 * clampf(v, 0.0, 1.0)
-			c.draw_line(gc, gc + Vector2(cos(na), sin(na)) * 15.0, K.INK, 3.0, true)
-			c.draw_circle(gc, 3.0, K.INK)
+			c.draw_line(gc, gc + Vector2(cos(na), sin(na)) * 15.0, K.STK_INK, 3.0, true)
+			c.draw_circle(gc, 3.0, K.STK_INK)
 			# on/off, plain: a tag under the gauge
-			_tag(c, "ON" if on else "OFF", Vector2(s.x - 40, s.y - 22), 14, Color("7fd0ff") if on else K.PAPER)
+			_tag(c, "ON" if on else "OFF", Vector2(s.x - 40, s.y - 22), 14, Color("7fd0ff") if on else K.STK_PAPER)
 		"cruise":
 			# a dash button with a little green LCD: the speed it's holding
 			var r := minf(s.x, s.y) * 0.5 - 6
@@ -696,7 +734,7 @@ func _draw_pad(c: Control, name: String) -> void:
 			for k in 28:
 				var a := TAU * k / 28.0
 				circ.append(cc + Vector2(cos(a), sin(a)) * r)
-			_sticker(c, circ, Color("e8dcc4") if on else K.PAPER, 2.0 if on else 5.0)
+			_sticker(c, circ, Color("e8dcc4") if on else K.STK_PAPER, 2.0 if on else 5.0)
 			var lcd := Rect2(cc - Vector2(26, 16), Vector2(52, 26))
 			_sticker(c, _rbox(lcd, 5), Color("1f3324"), 0.0, 3.0)
 			var sv: float = c.get_meta("set", 0.0)
@@ -706,7 +744,7 @@ func _draw_pad(c: Control, name: String) -> void:
 			c.draw_string(f, Vector2(cc.x - tw * 0.5, cc.y + 3), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color("7dff9a") if on else Color("3f6b4a"))
 			var f2 := K.font(750)
 			var w2 := f2.get_string_size("CRUISE", HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
-			c.draw_string(f2, Vector2(cc.x - w2 * 0.5, cc.y + r - 8), "CRUISE", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, K.INK)
+			c.draw_string(f2, Vector2(cc.x - w2 * 0.5, cc.y + r - 8), "CRUISE", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, K.STK_INK)
 
 ## The police, the way GTA does it: five stars under the minimap (none lit, none shown, till they're
 ## after you). The lit ones flash while they've lost sight of you and turn red as they box you in, and the
@@ -763,7 +801,7 @@ func _build_wanted() -> void:
 	limit_sign.pivot_offset = limit_sign.size * 0.5
 	limit_sign.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	limit_sign.visible = false
-	limit_lbl = K.label("50", 30, K.INK, 800)
+	limit_lbl = K.label("50", 30, K.STK_INK, 800)
 	limit_sign.add_child(limit_lbl)
 	hud.add_child(limit_sign)
 
@@ -876,16 +914,16 @@ func _wanted_update2(pd: Dictionary, kmh: float) -> void:
 		if bool(pd["seen"]):
 			_ring_col(Color("ff3044") if phase else Color("3a6bff"))
 		else:
-			_ring_col(Color("c9ccd4") if fmod(now, 0.9) < 0.45 else K.PAPER)
+			_ring_col(Color("c9ccd4") if fmod(now, 0.9) < 0.45 else Color(1, 1, 1, 0.55))
 	elif _wanted_fade > 0.0:
 		_wanted_fade -= dt
 		wanted_box.modulate.a = clampf(_wanted_fade / 1.2, 0.0, 1.0)
 		if _wanted_fade <= 0.0:
 			wanted_box.visible = false
-		_ring_col(K.PAPER)
+		_ring_col(Color(1, 1, 1, 0.55))
 	else:
 		wanted_box.visible = false
-		_ring_col(K.PAPER)
+		_ring_col(Color(1, 1, 1, 0.55))
 	if _why_t > 0.0:
 		_why_t -= dt
 		wanted_why.modulate.a = clampf(_why_t / 0.6, 0.0, 1.0)
@@ -898,7 +936,7 @@ func _wanted_update2(pd: Dictionary, kmh: float) -> void:
 		limit_lbl.text = str(lim)
 		var over := kmh > lim + 10.0
 		limit_sign.scale = Vector2.ONE * ((1.0 + 0.08 * sin(Time.get_ticks_msec() * 0.02)) if over else 1.0)
-		limit_lbl.add_theme_color_override("font_color", Color("e0303e") if over else K.INK)
+		limit_lbl.add_theme_color_override("font_color", Color("e0303e") if over else K.STK_INK)
 
 func _ring_col(col: Color) -> void:
 	if mini_ring:
@@ -949,8 +987,8 @@ func _build_wheel() -> void:
 		var on: bool = wheel.get_meta("on")
 		var c := _wheel_hub()
 		var r := 176.0
-		var rim := Color(K.PAPER, 0.8 if on else 0.62)
-		var edge := Color(K.INK, 0.55)
+		var rim := Color(K.STK_PAPER, 0.8 if on else 0.62)
+		var edge := Color(K.STK_INK, 0.55)
 		# the rim (the top half, turned)
 		wheel.draw_arc(c, r, PI + a - 0.15, TAU + a + 0.15, 48, edge, 40.0, true)
 		wheel.draw_arc(c, r, PI + a - 0.13, TAU + a + 0.13, 48, rim, 34.0, true)
@@ -1022,13 +1060,13 @@ func _gauge(icon: String, at: Vector2) -> Control:
 		var v: float = g.get_meta("v")
 		var bar := Rect2(Vector2(11, 0), Vector2(12, 84))
 		g.draw_rect(bar.grow(3), Color(0.08, 0.08, 0.09, 0.42))
-		var col := K.PAPER if v > 0.35 else (Color("f2b84b") if v > 0.15 else Color("ef6a55"))
+		var col := K.STK_PAPER if v > 0.35 else (Color("f2b84b") if v > 0.15 else Color("ef6a55"))
 		var h := bar.size.y * clampf(v, 0.0, 1.0)
 		g.draw_rect(Rect2(bar.position + Vector2(0, bar.size.y - h), Vector2(bar.size.x, h)), col)
 		for k in range(1, 4):
 			var y := bar.position.y + bar.size.y * k / 4.0
 			g.draw_line(Vector2(bar.position.x, y), Vector2(bar.end.x, y), Color(0, 0, 0, 0.25), 1.0))
-	var ic := Icon.new(icon, K.PAPER, 30)
+	var ic := Icon.new(icon, K.STK_PAPER, 30)
 	ic.position = Vector2(2, 88)
 	g.add_child(ic)
 	hud.add_child(g)
@@ -1283,8 +1321,13 @@ func popup_text(text: String, col := Color.WHITE) -> void:
 	t.tween_callback(l.queue_free)
 
 func toast(text: String, icon := "", col := K.PAPER, icol := K.INK, hold := 2.2) -> void:
+	# (always a dark glass pill: the toast's own colour goes to its icon and a faint edge)
+	var tinted := col.a > 0.95 and col.get_luminance() > 0.08 and col != K.PAPER
 	var p := PanelContainer.new()
-	var sb := K.box(col, 36, 6, col.darkened(0.12), 20)
+	var sb := K.box(Color(0.06, 0.055, 0.085, 0.86), 36, 0, Color.TRANSPARENT, 20)
+	sb.set_border_width_all(1)
+	sb.border_color = Color(col, 0.6) if tinted else Color(1, 1, 1, 0.14)
+	icol = col if tinted else K.INK
 	sb.content_margin_top = 8
 	sb.content_margin_bottom = 8
 	p.add_theme_stylebox_override("panel", sb)
@@ -1296,7 +1339,7 @@ func toast(text: String, icon := "", col := K.PAPER, icol := K.INK, hold := 2.2)
 	p.add_child(hb)
 	if icon != "":
 		hb.add_child(Icon.new(icon, icol, 34))
-	hb.add_child(K.label(text, 26, icol, 650))
+	hb.add_child(K.label(text, 24, K.INK, 600))
 	toasts.add_child(p)
 	p.modulate.a = 0.0
 	var t := create_tween()
@@ -1919,7 +1962,7 @@ func open_achievements(from_pause := false) -> void:
 
 func _ach_row(a: Dictionary, got: bool, prog: float) -> Control:
 	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", K.box(Color("ece4d3") if got else K.CREAM, 20, 0, Color.TRANSPARENT, 10))
+	p.add_theme_stylebox_override("panel", K.box(Color(1.0, 0.31, 0.55, 0.14) if got else K.CREAM, 20, 0, Color.TRANSPARENT, 10))
 	p.custom_minimum_size = Vector2(380, 0)
 	p.mouse_filter = Control.MOUSE_FILTER_PASS
 	var hb := HBoxContainer.new()
@@ -2175,8 +2218,20 @@ func _chal_row(name: String, info: String, medal: int, col: Color, xf: Transform
 func _build_garage() -> void:
 	garage = _full(Control.MOUSE_FILTER_STOP)
 	garage.visible = false
-	var bg := ColorRect.new()
-	bg.color = Color("e4e0d9")
+	# a night studio: a soft violet pool of light behind the car, dark to the edges
+	var bg := TextureRect.new()
+	var gt := GradientTexture2D.new()
+	var gr := Gradient.new()
+	gr.set_color(0, Color("2c2440"))
+	gr.set_color(1, Color("0b0a11"))
+	gt.gradient = gr
+	gt.fill = GradientTexture2D.FILL_RADIAL
+	gt.fill_from = Vector2(0.3, 0.55)
+	gt.fill_to = Vector2(0.95, 1.1)
+	gt.width = 256
+	gt.height = 256
+	bg.texture = gt
+	bg.stretch_mode = TextureRect.STRETCH_SCALE
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	garage.add_child(bg)
@@ -2201,8 +2256,8 @@ func _build_garage() -> void:
 	var env := Environment.new()
 	env.background_mode = Environment.BG_CLEAR_COLOR
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("d8d6d2")
-	env.ambient_light_energy = 0.5
+	env.ambient_light_color = Color("b9b4d6")
+	env.ambient_light_energy = 0.45
 	we.environment = env
 	g_root3d.add_child(we)
 	var sun := DirectionalLight3D.new()
@@ -2225,8 +2280,9 @@ func _build_garage() -> void:
 	g_root3d.add_child(g_turn)
 	var plat := MeshInstance3D.new()
 	var mb := MB.new()
-	mb.cyl(Vector3(0, -0.15, 0), 3.6, 0.3, MB.rgb("b9b3aa"), 48)
-	mb.cyl(Vector3(0, -0.42, 0), 3.75, 0.26, MB.rgb("8f8981"), 48)
+	mb.cyl(Vector3(0, -0.15, 0), 3.6, 0.3, MB.rgb("2b2833"), 48)
+	mb.cyl(Vector3(0, -0.42, 0), 3.75, 0.26, MB.rgb("1b1a21"), 48)
+	mb.cyl(Vector3(0, -0.29, 0), 3.66, 0.04, Color(1.0, 0.31, 0.55, 0.5), 64)      # (a neon rim: alpha 0.5 glows)
 	plat.mesh = mb.commit()
 	plat.material_override = g_mat
 	g_turn.add_child(plat)
@@ -2240,7 +2296,9 @@ func _build_garage() -> void:
 	var back := K.round_button("back", K.PAPER, K.LINE, 72)
 	_tap(back, func(): game.close_garage(g_from))
 	tb.add_child(back)
-	tb.add_child(K.label("Garage", 46, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT))
+	var gl := K.label("GARAGE", 38, K.INK, 400, HORIZONTAL_ALIGNMENT_LEFT)
+	gl.add_theme_font_override("font", K.font_spaced(400, 10))
+	tb.add_child(gl)
 	g_coins = K.pill("coin", "0")
 	g_coins.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	g_coins.position = Vector2(-250, 22)
@@ -2456,7 +2514,7 @@ func _cars_tab() -> void:
 		for k in 6:
 			var pip := Panel.new()
 			pip.custom_minimum_size = Vector2(38, 16)
-			pip.add_theme_stylebox_override("panel", K.box(K.TEAL if k < n else K.LINE, 8, 0, Color.TRANSPARENT, 0))
+			pip.add_theme_stylebox_override("panel", K.box(K.CORAL if k < n else K.LINE, 8, 0, Color.TRANSPARENT, 0))
 			pips.add_child(pip)
 		hb.add_child(pips)
 		g_panel.add_child(hb)
@@ -2620,7 +2678,7 @@ func _tune_row(label: String, value: String, v: int, lo: int, hi: int, col: Colo
 	for k in range(lo, hi + 1):
 		var pip := Panel.new()
 		pip.custom_minimum_size = Vector2(30, 12)
-		pip.add_theme_stylebox_override("panel", K.box(col if k <= v else K.LINE, 6, 0, Color.TRANSPARENT, 0))
+		pip.add_theme_stylebox_override("panel", K.box((K.CORAL if col.get_luminance() < 0.35 or col.a < 0.95 else col) if k <= v else K.LINE, 6, 0, Color.TRANSPARENT, 0))
 		pips.add_child(pip)
 	vb.add_child(pips)
 	var minus := K.round_button("left", K.PAPER, K.LINE, 56)
