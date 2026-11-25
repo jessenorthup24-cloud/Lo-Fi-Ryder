@@ -205,9 +205,16 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   parked where you left it, and you can go back to it. Take a police car, or take one with a patrol car
   looking on, and you're wanted.
 - Guns, on foot: six kinds (pistol, revolver, SMG, shotgun, rifle, sniper), each with five looks, bought
-  and picked in the garage's Guns tab (you start with a pistol; the first look's free). FIRE aims itself
-  at the nearest person or officer in front of you (a pink ring shows who), or straight ahead; the swap
-  pill (left of FIRE, or Tab) changes gun and shows what's left in the magazine; X reloads. Shots fired
+  and picked in the garage's Guns tab (you start with a pistol; the first look's free). Every gun's held
+  in both hands. Holding FIRE (or switching AIM on: the button left of the door, or B) puts you in aim:
+  the camera comes in over your right shoulder and narrows, a reticle sits mid-screen, and it locks on to
+  the person or officer nearest it (red brackets round them; the view drifts onto them); with nobody near,
+  shots go wherever the reticle points. Hits show an X on the reticle (red, with a ding, for a kill), with
+  blood, sparks and bullet holes; the gun kicks and the camera with it. People and officers drop as
+  ragdolls. Cars take hits: they smoke, catch fire (going up a few seconds later on their own) and blow
+  up, knocking down people and officers near them, throwing other cars about (and setting them off) and
+  leaving a burnt-out shell. RELOAD (under the swap pill, or X) lowers and tips the gun while the magazine
+  swaps; an empty gun clicks and reloads itself. The swap pill (left of FIRE, or Tab) changes gun. Shots fired
   bring the police; shooting people and officers brings more. When you're wanted and on foot, police
   cars that reach you stop and the officers get out and come at you with pistols. Your health's the red
   bar under the minimap (it comes back once you're out of a fight). Run out and you're WASTED: a
@@ -375,7 +382,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `scripts/game/onfoot.gd` | You on foot: walking, running, jumping, the animation (main.gd drives it and the camera) |
 | `scripts/game/avatar.gd` | A playable character: the baked Kenney mini character, its animations, an accessory on its head |
 | `tools/chars/bake_chars.gd` | Bakes the Kenney Mini Characters 2.0 (CC0) to `assets/chars/`: rig, animations, colours in the vertices |
-| `scripts/game/gunplay.gd` | Guns on foot: firing, auto-aim, hits, your health, officers on foot, WASTED |
+| `scripts/game/gunplay.gd` | Guns on foot: aim and lock-on, firing, hits and effects, reloads, cars burning and blowing up, your health, officers on foot, WASTED |
+| `scripts/game/aim_mod.gd` | Points a character's arms (both hands on the gun) and upper body at what they're aiming at, over the animation |
 | `scripts/game/weapons.gd` | The six guns: stats, looks, models (or blocky stand-ins without the licensed pack) |
 | `tools/guns/bake_guns.gd` | Bakes PIXEL ARSENAL presets to game meshes (run against the private pack; output goes to the private repo) |
 | `scripts/game/green.gd` | Southside Green, the park along the south edge of town |
@@ -414,6 +422,8 @@ godot --path . -- --drive --ramcop               # drive into the nearest patrol
 godot --path . -- --drive --perfdump=2           # what's drawn, grouped and biggest first (--perfshadow: just what casts shadows)
 godot --path . -- --drive --foottest             # out of the car, walk, run, jump, turn, back in (logged)
 godot --path . -- --drive --guntest=rifle --at=square   # out with a gun, shooting; police come (logged)
+godot --path . -- --drive --guntest=smg --guncar          # shoot the nearest car till it blows (logged)
+godot --path . -- --drive --guntest=rifle --gunhold       # out and aiming, holding still (the pose, the reticle)
 godot --path . -- --garage=guns --gun=shotgun --look=1    # the Guns tab, holding this gun
 godot --path . -- --drive --stealtest=k_car_taxi # out, take the nearest taxi, drive it, back to your own car (logged)
 godot --path . -- --garage=driver --avatar=robot --acc=glasses   # the Driver tab, as this character

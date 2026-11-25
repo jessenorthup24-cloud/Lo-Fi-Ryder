@@ -33,6 +33,10 @@ var speed_lbl: Label
 var speedo: Control
 var foot_mode := false
 var hp_bar: ProgressBar
+const FOOT_PADS := ["stick", "jump", "sprint", "fire", "swap", "aim", "reload"]
+var reticle: Control        # on foot, aiming: the crosshair in the middle (red when it's locked on)
+var _hit_t := 0.0            # a hit marker showing (s left)
+var _hit_kill := false
 var aim_mark: Control       # on foot: the stick, jump and sprint instead of the car's controls
 var gear_lbl: Label
 var rpm_bar: ProgressBar
@@ -568,7 +572,9 @@ func _build_hud() -> void:
 	ctl["sprint"] = _pad("sprint", Vector2(-372, -204), Vector2(120, 120), false, K.PAPER)
 	ctl["fire"] = _pad("fire", Vector2(-424, -392), Vector2(160, 160), false, K.PAPER)
 	ctl["swap"] = _pad("swap", Vector2(-610, -330), Vector2(170, 70), false, K.PAPER)
-	for k in ["stick", "jump", "sprint", "fire", "swap"]:
+	ctl["reload"] = _pad("reload", Vector2(-610, -250), Vector2(170, 58), false, K.PAPER)
+	ctl["aim"] = _pad("aim", Vector2(-652, -470), Vector2(100, 100), false, K.PAPER)     # (left of the door)
+	for k in FOOT_PADS:
 		ctl[k].visible = false
 	# your health, on foot: a slim bar under the minimap
 	hp_bar = K.bar(196, 10, Color("ff4f6b"), Color(0, 0, 0, 0.35))
@@ -576,15 +582,28 @@ func _build_hud() -> void:
 	hp_bar.position = Vector2(-222, 362)
 	hp_bar.visible = false
 	hud.add_child(hp_bar)
-	# where the gun's pointing: a little ring on whoever you'd hit
+	# locked on: a ring of four brackets round whoever you're locked on to
 	aim_mark = Control.new()
-	aim_mark.size = Vector2(40, 40)
+	aim_mark.size = Vector2(72, 72)
+	aim_mark.pivot_offset = Vector2(36, 36)
 	aim_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	aim_mark.visible = false
 	aim_mark.draw.connect(func():
-		aim_mark.draw_arc(Vector2(20, 20), 15.0, 0, TAU, 32, Color(1.0, 0.31, 0.55, 0.95), 2.5, true)
-		aim_mark.draw_circle(Vector2(20, 20), 2.5, Color(1, 1, 1, 0.95)))
+		var red := Color(1.0, 0.25, 0.35, 0.95)
+		for k in 4:
+			var a := TAU * k / 4.0 + PI * 0.25
+			aim_mark.draw_arc(Vector2(36, 36), 26.0, a - 0.38, a + 0.38, 10, Color(0, 0, 0, 0.4), 6.0, true)
+			aim_mark.draw_arc(Vector2(36, 36), 26.0, a - 0.38, a + 0.38, 10, red, 3.0, true))
 	hud.add_child(aim_mark)
+	# the reticle, in the middle of the screen; the hit marker on it
+	reticle = Control.new()
+	reticle.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	reticle.size = Vector2(120, 120)
+	reticle.position = Vector2(-60, -60)
+	reticle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	reticle.visible = false
+	reticle.draw.connect(_draw_reticle)
+	hud.add_child(reticle)
 	reset_hint = K.button("Stuck? Reset car", K.SUN, K.SUN_DK, 28, 0, 72, "home")
 	reset_hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	reset_hint.position = Vector2(-160, 60)
@@ -714,6 +733,24 @@ func _draw_foot_pad(c: Control, name: String) -> void:
 			if lines.size() > 1:
 				c.draw_string(K.font(500), Vector2(18, 54), lines[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 1, 1, 0.6))
 			c.draw_polyline(PackedVector2Array([Vector2(c.size.x - 30, 24), Vector2(c.size.x - 20, 35), Vector2(c.size.x - 30, 46)]), Color(1, 1, 1, 0.6), 2.5, true)
+		"aim":
+			var lit: bool = c.get_meta("set", false)
+			var cc := _draw_glass_disc(c, c.size.x * 0.46, on or lit)
+			var ac := Color(1.0, 0.45, 0.6) if lit else w
+			c.draw_arc(cc, 15.0, 0, TAU, 28, ac, 2.5, true)
+			for k in 4:
+				var a := TAU * k / 4.0
+				var dv := Vector2(cos(a), sin(a))
+				c.draw_line(cc + dv * 9.0, cc + dv * 22.0, ac, 2.5)
+			_pad_text(c, "AIM", cc + Vector2(0, 40), 12, Color(1, 1, 1, 0.75))
+		"reload":
+			var r2 := Rect2(Vector2(4, 4), c.size - Vector2(8, 8))
+			_rrect(c, r2, 16, Color(0.06, 0.055, 0.09, 0.62 if not on else 0.8), Color(1, 1, 1, 0.3), 1)
+			# a magazine, and the word
+			c.draw_rect(Rect2(Vector2(20, 14), Vector2(12, 22)), w, false, 2.5)
+			c.draw_line(Vector2(23, 20), Vector2(29, 20), w, 2.0)
+			c.draw_line(Vector2(23, 26), Vector2(29, 26), w, 2.0)
+			c.draw_string(K.font(650), Vector2(44, 33), "RELOAD", HORIZONTAL_ALIGNMENT_LEFT, -1, 17, w)
 		"door":
 			var foot: bool = c.get_meta("foot", false)
 			var near: bool = c.get_meta("near", false)
@@ -733,7 +770,7 @@ func _draw_foot_pad(c: Control, name: String) -> void:
 			_pad_text(c, "EXIT" if not foot else "ENTER", cc + Vector2(0, 40), 12, Color(1, 1, 1, 0.7 if (not foot or near) else 0.35))
 
 func _draw_pad(c: Control, name: String) -> void:
-	if name in ["stick", "jump", "sprint", "door", "fire", "swap"]:
+	if name in FOOT_PADS or name == "door":
 		_draw_foot_pad(c, name)
 		return
 	var s := c.size
@@ -1126,7 +1163,7 @@ func control_at(pos: Vector2) -> String:
 		var hub := wheel.get_global_rect().position + _wheel_hub()
 		if pos.distance_to(hub) < 250.0:
 			return "wheel"
-	for k in (["door", "fire", "swap", "jump", "sprint", "stick"] if foot_mode else ["rewind", "door", "nos", "cruise", "hand", "gas", "brake", "left", "right"]):
+	for k in (["door", "aim", "fire", "reload", "swap", "jump", "sprint", "stick"] if foot_mode else ["rewind", "door", "nos", "cruise", "hand", "gas", "brake", "left", "right"]):
 		var c: Control = ctl[k]
 		if not c.visible:
 			continue
@@ -1145,10 +1182,11 @@ func set_foot(on: bool) -> void:
 		wheel.visible = wheel_mode()
 		ctl["left"].visible = not wheel_mode()
 		ctl["right"].visible = not wheel_mode()
-	for k in ["stick", "jump", "sprint", "fire", "swap"]:
+	for k in FOOT_PADS:
 		ctl[k].visible = on
 	hp_bar.visible = on
 	aim_mark.visible = false
+	reticle.visible = false
 	speedo.visible = not on
 	fuel_g.visible = not on
 	cond_g.visible = not on
@@ -1185,12 +1223,52 @@ func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> 
 		sw.set_meta("txt", gtxt)
 		sw.queue_redraw()
 	var cam: Camera3D = game.cam
-	if gp.target_pos != Vector3.INF and not cam.is_position_behind(gp.target_pos):
+	if gp.lock_pos != Vector3.INF and gp.aim_k > 0.2 and not cam.is_position_behind(gp.lock_pos):
+		if not aim_mark.visible:
+			aim_mark.scale = Vector2.ONE * 1.8           # (snaps in)
 		aim_mark.visible = true
-		aim_mark.position = cam.unproject_position(gp.target_pos) - Vector2(20, 20)
+		aim_mark.scale = aim_mark.scale.lerp(Vector2.ONE, 0.3)
+		aim_mark.rotation += 0.02
+		aim_mark.position = cam.unproject_position(gp.lock_pos) - Vector2(36, 36)
 	else:
 		aim_mark.visible = false
+	_hit_t = maxf(0.0, _hit_t - get_process_delta_time())
+	reticle.visible = gp.aim_k > 0.05 or _hit_t > 0.0
+	reticle.modulate.a = clampf(gp.aim_k * 1.4, 0.0, 1.0) if _hit_t <= 0.0 else 1.0
+	reticle.queue_redraw()
+	(ctl["aim"] as Control).set_meta("set", game.aim_toggle)
 	pressed_controls(game.held)
+
+## A shot landed: an X on the reticle (red, bigger, if it killed).
+func hit_marker(kill: bool) -> void:
+	_hit_t = 0.32 if kill else 0.18
+	_hit_kill = kill
+
+func _draw_reticle() -> void:
+	var gp = game.gunplay
+	var c := Vector2(60, 60)
+	var locked: bool = gp.lock_pos != Vector3.INF
+	var col := Color(1.0, 0.3, 0.4, 0.95) if locked else Color(1, 1, 1, 0.92)
+	var ink := Color(0, 0, 0, 0.45)
+	# the gap opens with the spread and the kick
+	var gap: float = 7.0 + float(gp.weapon.get("spread", 0.02)) * 260.0 + gp._recoil * 9.0
+	for k in 4:
+		var a := TAU * k / 4.0
+		var dv := Vector2(cos(a), sin(a))
+		reticle.draw_line(c + dv * gap, c + dv * (gap + 10.0), ink, 5.0, true)
+		reticle.draw_line(c + dv * gap, c + dv * (gap + 10.0), col, 2.5, true)
+	reticle.draw_circle(c, 3.0, ink)
+	reticle.draw_circle(c, 1.8, col)
+	if _hit_t > 0.0:
+		var t := _hit_t / (0.32 if _hit_kill else 0.18)
+		var hc := Color(1.0, 0.18, 0.25, t) if _hit_kill else Color(1, 1, 1, t)
+		var r0 := 9.0 + (1.0 - t) * 4.0
+		var r1 := r0 + (14.0 if _hit_kill else 9.0)
+		for k in 4:
+			var a := TAU * k / 4.0 + PI * 0.25
+			var dv := Vector2(cos(a), sin(a))
+			reticle.draw_line(c + dv * r0, c + dv * r1, Color(0, 0, 0, 0.5 * t), 6.0, true)
+			reticle.draw_line(c + dv * r0, c + dv * r1, hc, 3.0, true)
 
 func pressed_controls(held: Dictionary) -> void:
 	for k in ctl:
@@ -2758,6 +2836,18 @@ func _show_driver(with_gun := false) -> void:
 		gm.transform = Gunplay.hand_xf(w)
 		ba.add_child(gm)
 		av.play("holding-both" if w["both"] else "holding-right")
+		# aiming off to the side, gun up (a showroom pose)
+		if av.aim:
+			av.aim.target = av.global_transform * Vector3(4.0, 1.4, 6.0) if av.is_inside_tree() else Vector3(4, 2, 6)
+			av.aim.both = true
+			av.aim.weight = 1.0
+			av.play("holding-both")
+			# (the gun turned onto the same point, once the arms are up)
+			var tw := av.create_tween()
+			tw.tween_interval(0.12)
+			tw.tween_callback(func():
+				if is_instance_valid(gm) and av.aim:
+					Gunplay.aim_gun(gm, w, av.aim.target))
 
 func _show_car(d: Dictionary) -> void:
 	for c in g_car.get_children():

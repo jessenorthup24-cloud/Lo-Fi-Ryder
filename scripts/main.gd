@@ -76,6 +76,8 @@ var look_t := 9.0           # since the last look drag
 var cam_zoom := 1.0
 var look_touches := {}      # touch index -> position
 var shake := 0.0
+var aim_kick := 0.0           # a shot's kick to the camera (on foot), settling back
+var aim_toggle := false       # on foot: the AIM button's on
 var cam_kick := Vector3.ZERO      # the camera jolted by a knock (springs back)
 var cam_kick_v := Vector3.ZERO
 var fov_kick := 0.0
@@ -984,7 +986,39 @@ func _crew_tests() -> void:
 			save.data["guns"] = ["pistol", g]
 			save.data["gun"] = g
 			toggle_foot()
-		if on_foot:
+		if on_foot and args.has("gunhold"):
+			# (aim and hold still: to look at the pose and the reticle)
+			aim_toggle = true
+			look_yaw_t = float(args.get("gunyaw", "0"))
+		elif on_foot and args.has("guncar"):
+			# (shoot the nearest traffic car till it goes up)
+			var best: Node3D = null
+			var bd := 9999.0
+			for tc in traffic.cars:
+				var bn: Node3D = tc["body"]
+				var dd := bn.global_position.distance_to(foot.global_position)
+				if dd < bd and dd > 4.0:
+					bd = dd
+					best = tc["anim"]
+			if not has_meta("gc_car") and best != null:
+				set_meta("gc_car", best)
+				for tc in traffic.cars:
+					if tc["anim"] == best:
+						tc["v"] = 0.0
+						tc["wait"] = 99.0
+				if bd > 20.0:
+					var bp := best.global_position + best.global_transform.basis.x * 12.0
+					foot.place(Vector3(bp.x, island.height_at(bp.x, bp.z) + 0.5, bp.z), 0.0)
+			if has_meta("gc_car"):
+				var tgt: Node3D = get_meta("gc_car")
+				var tp: Vector3 = gunplay._car_body(tgt).global_position
+				var d := tp - cam.global_position
+				foot_yaw = atan2(-d.x, -d.z) - look_yaw
+				foot_pitch = 0.05
+				keys["fire"] = time > 3.6 and (bool(gunplay.weapon.get("auto", false)) or frames % 10 < 5)
+				if frames % 20 == 0:
+					print("CAR t=%.1f d=%.1f hp=%s burning=%d blown=%d" % [time, tp.distance_to(foot.global_position), str(gunplay.car_hp.get(tgt.get_instance_id(), "full")), gunplay.burning.size(), gunplay.kills["cars"]])
+		elif on_foot:
 			keys["fire"] = (time > 3.5 and frames % 8 < 4) if not bool(gunplay.weapon.get("auto", false)) else time > 3.5
 			if time > 7.0 and not args.has("gunfront"):
 				foot_yaw += get_process_delta_time() * 0.6     # (sweep round, to find people)
@@ -992,7 +1026,7 @@ func _crew_tests() -> void:
 				look_yaw_t = PI * 0.75                       # (the camera round in front, to see the gun)
 			if frames % 30 == 0:
 				print("GUN t=%.1f gun=%s ammo=%s hp=%.0f heat=%d target=%s people_down=%d cops=%d officers=%d anim=%s" % [time, gunplay.weapon.get("id", "?"), gunplay.ammo_text(), gunplay.hp,
-					police.heat, "yes" if gunplay.target_pos != Vector3.INF else "no", gunplay.kills["people"], gunplay.kills["police"], gunplay.officers.size(), foot.avatar.current()])
+					police.heat, "yes" if gunplay.lock_pos != Vector3.INF else "no", gunplay.kills["people"], gunplay.kills["police"], gunplay.officers.size(), foot.avatar.current()])
 	if args.has("stealtest") and state == DRIVE:
 		# a test: out at 3 s, up to the nearest traffic car, take it, drive it off
 		if not has_meta("st_out") and time > 3.0:
@@ -3269,6 +3303,7 @@ func _exit_car() -> void:
 	car.steer_in = 0.0
 	foot_yaw = cam_yaw
 	foot_pitch = 0.32
+	aim_toggle = false
 	ui.set_foot(true)
 	sfx("door", -6.0) if sound._stream("door") else sfx("bump", -10.0, 1.4)
 
@@ -3444,29 +3479,49 @@ func _foot_tick(dt: float) -> void:
 	var fire_now: bool = held.get("fire", false) or keys.get("fire", false)
 	var fire_edge: bool = _pressed("fire") or (keys.get("fire", false) and not foot.get_meta("fk", false))
 	foot.set_meta("fk", keys.get("fire", false))
-	gunplay.tick(dt, fire_now if bool(gunplay.weapon.get("auto", false)) else fire_edge, keys.get("reload", false))
+	if _pressed("aim") or (keys.get("aim", false) and not foot.get_meta("ak", false)):
+		aim_toggle = not aim_toggle
+		ui_tap()
+	foot.set_meta("ak", keys.get("aim", false))
+	var reload_now: bool = _pressed("reload") or keys.get("reload", false)
+	gunplay.tick(dt, fire_now if bool(gunplay.weapon.get("auto", false)) else fire_edge, fire_now, aim_toggle, reload_now)
 	if not on_foot:
 		return
 	_foot_cam(dt)
 	ui.foot_hud(foot.global_position, foot.facing, atmos.clock_text() + (("  ·  " + weather.label()) if weather and weather.label() != "" else ""), int(save.data["coins"]), near_car())
 
 ## The on-foot camera: over your shoulder, a few metres back; drag to swing it round, it drifts in behind
-## you as you walk.
+## you as you walk. Aiming, it comes in close over your right shoulder, narrows, and looks straight down the
+## reticle; locked on to someone, it drifts round onto them.
 func _foot_cam(dt: float) -> void:
 	var v := foot.velocity
 	v.y = 0.0
+	var ak: float = gunplay.aim_k
 	look_t += dt
-	if look_t > 1.2 and v.length() > 1.0:
+	if look_t > 1.2 and v.length() > 1.0 and ak < 0.05:
 		# walking: ease round behind (not snapping: the drag's still yours)
 		foot_yaw = lerp_angle(foot_yaw, atan2(-v.x, -v.z) - look_yaw_t, 1.0 - exp(-dt * 1.2))
 	look_yaw = lerp_angle(look_yaw, look_yaw_t, 1.0 - exp(-dt * 16.0))
 	look_pitch = lerpf(look_pitch, look_pitch_t, 1.0 - exp(-dt * 16.0))
+	aim_kick = lerpf(aim_kick, 0.0, 1.0 - exp(-dt * 9.0))
+	# locked on: the view drifts onto them (the reticle settles on the one you're shooting)
+	if gunplay.lock_pos != Vector3.INF and ak > 0.3:
+		var d: Vector3 = gunplay.lock_pos - cam.global_position
+		var want_yaw := atan2(-d.x, -d.z) - look_yaw
+		foot_yaw = lerp_angle(foot_yaw, want_yaw, 1.0 - exp(-dt * 7.0))
+		var want_pitch := asin(clampf(-d.normalized().y, -1.0, 1.0)) - look_pitch * 0.6
+		foot_pitch = lerpf(foot_pitch, clampf(want_pitch, -0.35, 0.9), 1.0 - exp(-dt * 5.0))
+	elif ak < 0.05:
+		foot_pitch = lerpf(foot_pitch, 0.32, 1.0 - exp(-dt * 1.5))
+	else:
+		foot_pitch = lerpf(foot_pitch, 0.14, 1.0 - exp(-dt * 3.0 * ak))     # (aiming: level, out at them)
 	var yaw := foot_yaw + look_yaw
-	var pitch := clampf(foot_pitch + look_pitch * 0.6, -0.1, 1.1)
-	var dist := 4.6 * cam_zoom
-	var head := foot.get_global_transform_interpolated().origin + Vector3(0, 1.55, 0)
+	var pitch := clampf(foot_pitch + look_pitch * 0.6 - aim_kick, lerpf(-0.1, -0.45, ak), 1.1)
+	var dist := lerpf(4.6 * cam_zoom, 4.1, ak)
+	var head := foot.get_global_transform_interpolated().origin + Vector3(0, lerpf(1.55, 2.15, ak), 0)
 	var back := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
-	var want := head + back * dist + Vector3(-cos(yaw), 0, sin(yaw)) * 0.45     # (a little over the shoulder)
+	var side := Vector3(cos(yaw), 0, -sin(yaw))       # (to your right, looking the way the camera does)
+	var want := head + back * dist + side * lerpf(0.45, 1.6, ak)
 	# not through walls or the ground
 	var q := PhysicsRayQueryParameters3D.create(head, want, 1 | 2 | 4)
 	q.exclude = [foot.get_rid()]
@@ -3474,9 +3529,12 @@ func _foot_cam(dt: float) -> void:
 	if not hit.is_empty():
 		want = (hit["position"] as Vector3) + ((head - want).normalized() * 0.3)
 	want.y = maxf(want.y, island.height_at(want.x, want.z) + 0.4)
-	cam.position = cam.position.lerp(want, 1.0 - exp(-dt * 14.0))
-	cam.look_at(head + Vector3(0, 0.1, 0), Vector3.UP)
-	cam.fov = lerpf(cam.fov, 62.0, 1.0 - exp(-dt * 4.0))
+	cam.position = cam.position.lerp(want, 1.0 - exp(-dt * lerpf(14.0, 22.0, ak)))
+	# not aiming it looks at you; aiming, straight out along the view (so the reticle's where you shoot)
+	var look := (head + Vector3(0, 0.1, 0)).lerp(cam.position - back * 30.0, ak)
+	if look.distance_to(cam.position) > 0.01:
+		cam.look_at(look, Vector3.UP)
+	cam.fov = lerpf(cam.fov, lerpf(62.0, 46.0, ak), 1.0 - exp(-dt * 8.0))
 	cam_pos = cam.position
 
 func toggle_group_cam() -> void:
@@ -3532,6 +3590,8 @@ func _unhandled_input(e: InputEvent) -> void:
 				keys["fire"] = on
 			KEY_X:
 				keys["reload"] = on
+			KEY_K, KEY_B:
+				keys["aim"] = on
 			KEY_TAB, KEY_V:
 				keys["swap"] = on
 			KEY_N, KEY_E:
@@ -3627,7 +3687,7 @@ func _pressed(k: String) -> bool:
 	return on and not was
 
 func _touch_held() -> void:
-	for k in ["left", "right", "gas", "brake", "hand", "nos", "rewind", "cruise", "jump", "sprint", "door", "fire", "swap"]:
+	for k in ["left", "right", "gas", "brake", "hand", "nos", "rewind", "cruise", "jump", "sprint", "door", "fire", "swap", "aim", "reload"]:
 		var on := false
 		for t in touches.values():
 			if t == k:

@@ -664,6 +664,9 @@ func _unwreck(c: Dictionary, fresh: bool) -> void:
 		c["body"] = anim
 	anim.collision_layer = 2
 	anim.visible = true
+	if fresh and c.has("mat0"):
+		mi.material_override = c["mat0"]   # (burnt out by gunfire: a fresh car again)
+		c.erase("mat0")
 	if fresh and c.has("dents"):
 		c.erase("dents")
 		mi.mesh = c["base_mesh"]         # (a patrol car stays the patrol car, not the kit's police car)
