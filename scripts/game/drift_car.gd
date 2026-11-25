@@ -383,7 +383,9 @@ func _physics_process(dt: float) -> void:
 	if hb_on:
 		_hb_down += dt
 	elif _hb_prev:
-		if can_hop and _hb_down < 0.25 and absf(steer_in) < 0.35 and grounded >= 2 and absf(speed) > 3.0 and hop_cd <= 0.0:
+		# (not mid-slide: a tap to catch or adjust a drift is just that, not a hop)
+		if can_hop and _hb_down < 0.25 and absf(steer_in) < 0.35 and grounded >= 2 and absf(speed) > 3.0 and hop_cd <= 0.0 \
+				and not drift_mode and absf(slip) < 0.3:
 			if linear_velocity.y < 0.0:
 				linear_velocity.y = 0.0
 			apply_central_impulse(Vector3.UP * mass * HOP_V)

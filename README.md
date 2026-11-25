@@ -187,8 +187,18 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - The legendary Hoon-Again (20,000 coins, last in the garage): a black widebody with gold fracture
   livery, the 00 roundel and taped-X headlamps. The quickest car in the game (0-100 in 4.8 s) and the
   slidiest: it holds drifts about 10 degrees deeper than anything else, and still doesn't spin.
-- 41 trophies, each paying coins once (among them winning a race on Hard and winning every race; the
-  "every zone / trial / place / race" ones count however many there are on the island).
+- 46 trophies, each paying coins once (among them winning a race on Hard and winning every race,
+  grinding rails, riding with your crew and owning a legendary car; the "every zone / trial / place /
+  race" ones count however many there are on the island).
+- The HUD: the phone, camera and rewind are one column of matching round buttons beside the minimap
+  (the group view sits beside the phone while you've a crew); wanted stars are gold, under the minimap;
+  the bars either side of the speedo are fuel and the car's condition (a spanner). Menus hide the
+  driving controls behind them. "How to drive" is four short pages (Driving, Drifting, Tricks, Around
+  town), shown on the first run and any time from the pause menu, which also has Call the crew.
+- Southside Green: the open ground between the bottom of town and the beach road is a park, with paths
+  up from each avenue's crossing to a promenade, lamps, benches, a statue on a little plaza, picnic
+  tables, clumps of trees, and people and dogs about. The circuits' infields have trees, marshals' tents
+  and flags, billboards and radar masts rather than bare lawn.
 - The drift meter is a slim readout in the top left, with call-outs ("Close!", stunts) stacked beside it,
   so the middle of the screen stays clear.
 - If you flip, land in the water or get stuck, the car is put back on the road.
@@ -327,6 +337,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `tools/kenney/bake_kenney.gd` | Bakes the chosen Kenney kit models into `assets/kenney/` (people posed, arms loose) |
 | `tools/kenney/bake_hood.gd` | Bakes the Graveyard Kit, more of the Retro Urban Kit and some City Kit Suburban pieces (`k_grave_*`, `k_urb_*`, `k_sub2_*`), and builds the hood's buildings from the Retro Urban Kit's wall blocks (`k_hood_*`) |
 | `scripts/game/hood.gd` | Palmer Street, the Courts, Low Street, Old Hill Cemetery, Sycamore Heights |
+| `scripts/game/green.gd` | Southside Green, the park along the south edge of town |
 | `scripts/game/street_stunts.gd` | Grind rails, kickers, low ramps and a boost pad on the town's open lots (the car's hop and grind are in `drift_car.gd`) |
 | `tools/kenney/bake_klyo.gd` | Bakes the Klyo stunt kit models (and their simple collision meshes, `_col`) into `assets/kenney/k_klyo_*` |
 | `tools/look/` | Look-dev: `island_look.gd` photographs parts of the island, `kgrid.gd` makes a model contact sheet, `piece_look.gd` photographs one model from four sides on a 1 m grid |

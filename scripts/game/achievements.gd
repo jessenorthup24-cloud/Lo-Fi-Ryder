@@ -45,6 +45,11 @@ const LIST := [
 	{"id": "cars3", "name": "Collector", "desc": "Own 3 cars", "icon": "car", "stat": "owned", "target": 3, "reward": 200},
 	{"id": "cars_all", "name": "Full Garage", "desc": "Own every car", "icon": "car", "stat": "owned", "target": -1, "reward": 3000},
 	{"id": "maxup", "name": "Tuned Up", "desc": "Max out an upgrade", "icon": "gear", "stat": "maxup", "target": 5, "reward": 300},
+	{"id": "grind1", "name": "Rail Rat", "desc": "Hop onto a rail and grind it", "icon": "star", "stat": "grinds", "target": 1, "reward": 100},
+	{"id": "grind25", "name": "Grind Lord", "desc": "Grind 25 rails", "icon": "trophy", "stat": "grinds", "target": 25, "reward": 500},
+	{"id": "crew1", "name": "Squad Up", "desc": "Call a driver to ride with you", "icon": "phone", "stat": "crew_rides", "target": 1, "reward": 100},
+	{"id": "crew20", "name": "Ride Or Die", "desc": "Ride with your crew 20 times", "icon": "group", "stat": "crew_rides", "target": 20, "reward": 500},
+	{"id": "legend", "name": "Living Legend", "desc": "Own a legendary car", "icon": "car", "stat": "legends", "target": 1, "reward": 1000},
 ]
 
 static var coin_total := 60
@@ -73,6 +78,12 @@ static func value(a: Dictionary, data: Dictionary) -> float:
 			return float(m)
 		"places":
 			return float(data["places"].size())
+		"legends":
+			var n := 0
+			for id in data["owned"]:
+				if bool(CARS.by_id(String(id)).get("legend", false)):
+					n += 1
+			return float(n)
 		"coins_found":
 			return float(data["coins_taken"].size())
 	return float(data["stats"].get(key, 0))

@@ -85,6 +85,10 @@ const VIEWS := {
 	"rwstraight": [Vector3(345, 5, 368), Vector3(440, 2.4, 374), 60.0],
 	"rwhair": [Vector3(440, 7, 452), Vector3(447, 2.4, 488), 64.0],
 	"rwring": [Vector3(300, 60, 262.1), Vector3(300, 0, 262), 62.0],
+	"south_in": [Vector3(-330, 25, 440), Vector3(-250, 2, 470), 62.0],
+	"west_in": [Vector3(-470, 25, 10), Vector3(-510, 2, -80), 62.0],
+	"southedge": [Vector3(-80, 240, 200.1), Vector3(-80, 0, 200), 70.0],
+	"southedge_low": [Vector3(-80, 30, 140), Vector3(-80, 0, 215), 65.0],
 }
 
 var frames := 0

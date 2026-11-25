@@ -160,6 +160,25 @@ func _draw() -> void:
 			for i in 8:
 				var a := TAU * i / 8.0
 				draw_circle(c + Vector2(cos(a), sin(a)) * s * 0.36, s * 0.05, color2)
+		"rewind":
+			# two triangles pointing back
+			for k in 2:
+				var x0 := s * (0.5 + 0.02 - 0.32 * k)
+				draw_colored_polygon(PackedVector2Array([o + Vector2(x0 + s * 0.32, s * 0.22), o + Vector2(x0 + s * 0.32, s * 0.78), o + Vector2(x0, s * 0.5)]), color)
+		"wrench":
+			# a spanner: a bar on the slant, an open jaw at the top
+			draw_line(c + Vector2(-s * 0.26, s * 0.26), c + Vector2(s * 0.12, -s * 0.12), color, s * 0.16)
+			draw_circle(c + Vector2(s * 0.18, -s * 0.18), s * 0.2, color)
+			draw_circle(c + Vector2(s * 0.3, -s * 0.3), s * 0.1, color2)
+			draw_circle(c + Vector2(-s * 0.27, s * 0.27), s * 0.1, color)
+		"help":
+			draw_arc(c + Vector2(0, -s * 0.12), s * 0.2, PI * 1.05, PI * 2.35, 14, color, s * 0.13)
+			draw_line(c + Vector2(s * 0.06, s * 0.02), c + Vector2(0, s * 0.16), color, s * 0.13)
+			draw_circle(c + Vector2(0, s * 0.34), s * 0.08, color)
+		"gauge":
+			draw_arc(c + Vector2(0, s * 0.1), s * 0.38, PI * 1.05, PI * 1.95, 16, color, s * 0.1)
+			draw_line(c + Vector2(0, s * 0.1), c + Vector2(s * 0.2, -s * 0.12), color, s * 0.1)
+			draw_circle(c + Vector2(0, s * 0.1), s * 0.08, color)
 		"eye":
 			# a little camera
 			_round_rect(Rect2(o + Vector2(s * 0.08, s * 0.3), Vector2(s * 0.84, s * 0.56)), s * 0.12, color)

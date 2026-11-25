@@ -11,6 +11,7 @@ const Raceway := preload("res://scripts/game/raceway.gd")
 const Circuits := preload("res://scripts/game/circuits.gd")
 const Hood := preload("res://scripts/game/hood.gd")
 const StreetStunts := preload("res://scripts/game/street_stunts.gd")
+const Green := preload("res://scripts/game/green.gd")
 
 const CASTLE := Vector2(-30, -362)
 const SQUARE := Vector2(-110, 30)
@@ -396,6 +397,7 @@ static func populate(I) -> void:
 	Circuits.populate(I, rc)
 	_roadside(I, rr)
 	Hood.populate(I, load("res://scripts/game/districts.gd"))
+	Green.populate(I, load("res://scripts/game/districts.gd"))
 	StreetStunts.populate(I, load("res://scripts/game/districts.gd"))
 	challenges(I)
 

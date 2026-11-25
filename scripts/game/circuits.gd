@@ -214,6 +214,51 @@ static func _dress(I, s: Dictionary, rr: RandomNumberGenerator) -> void:
 		if near_built:
 			continue
 		I.put("k_race_treeLarge" if k % 3 != 0 else "k_race_treeSmall", p2.x, p2.y, rr.randf() * TAU, rr.randf_range(0.85, 1.15), "cyl", y)
+	_infield(I, s, ri, rr)
+
+## The infield: not a bare lawn. Clumps of trees, the odd marshal's tent with flags, billboards facing the
+## track, a radar mast; all well clear of the tarmac (and of each other).
+static func _infield(I, s: Dictionary, ri: int, rr: RandomNumberGenerator) -> void:
+	var hw := W * 0.5
+	var y := LIFT + 0.02
+	var loop: Array = s["loop"]
+	var poly := PackedVector2Array()
+	for q in loop:
+		poly.append(Vector2((q as Vector3).x, (q as Vector3).y))
+	var cs: Vector2 = s["c"]
+	var hs: Vector2 = s["hs"]
+	var done: Array = []
+	var n := 0
+	for k in 220:
+		var p := cs + Vector2(rr.randf_range(-hs.x, hs.x), rr.randf_range(-hs.y, hs.y))
+		if not Geometry2D.is_point_in_polygon(p, poly) or not _clear(I, ri, p, hw + 14.0) or not I.prop_clear(p, Vector2(4, 4)):
+			continue
+		var near := false
+		for d in done:
+			if p.distance_to(d) < 22.0:
+				near = true
+		if near:
+			continue
+		done.append(p)
+		n += 1
+		match n % 5:
+			0:
+				# a marshal's post: a little tent, a flag each side
+				I.put("k_race_tent", p.x, p.y, rr.randf() * TAU, 1.0, "box", y)
+				I.put("k_race_flagGreen", p.x + 3.0, p.y, 0.0, 1.0, "", y)
+				I.put("k_race_flagRed", p.x - 3.0, p.y, 0.0, 1.0, "", y)
+			1:
+				# a billboard, facing the nearest bit of track
+				var nr: Array = I.road_nearest(ri, p)
+				var tp: Vector2 = nr[2]
+				I.put("k_race_billboardLow", p.x, p.y, atan2(-(tp - p).x, -(tp - p).y), 1.0, "box", y)
+			2:
+				I.put("k_race_radarEquipment", p.x, p.y, rr.randf() * TAU, 1.0, "box", y)
+			_:
+				for m in rr.randi_range(3, 5):
+					var tq := p + Vector2(rr.randf_range(-6, 6), rr.randf_range(-6, 6))
+					I.put("k_race_treeLarge" if m % 2 == 0 else "k_race_treeSmall", tq.x, tq.y, rr.randf() * TAU, rr.randf_range(0.85, 1.2), "cyl", y)
+		I.block_rect(p, Vector2(7, 7), 0.0, 0.5)
 
 ## Clear of the track: further than d from its middle.
 static func _clear(I, ri: int, p: Vector2, d: float) -> bool:

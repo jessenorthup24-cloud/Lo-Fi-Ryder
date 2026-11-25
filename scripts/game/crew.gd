@@ -150,6 +150,7 @@ func _answer(who: int) -> void:
 			game.ui.toast("%s didn't pick up" % String(r["name"]), "phone", K.PAPER, K.INK, 2.0)
 			return
 	_join_crew(d)
+	game.save.add_stat("crew_rides", 1)
 	game.ui.toast("%s: %s" % [String(r["name"]), String(r["line"])], "phone", Color("54e08a"), K.INK, 2.6)
 
 func _join_crew(d: Dictionary) -> void:

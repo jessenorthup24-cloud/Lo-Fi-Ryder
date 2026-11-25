@@ -1,0 +1,196 @@
+extends SceneTree
+## (street_tour.gd: the same, but from the driver's seat, every so far along every road; for an audit)
+## Builds the island and photographs it from a few spots:
+##   xvfb-run -a godot --path . -s res://tools/look/island_look.gd -- out_prefix [season] [view,view...]
+## Views: top (whole map), town, square, suburbs, castle, lake, farm, bowl, beach, harbour, skate, spawn
+
+const PAL := preload("res://scripts/core/palette.gd")
+const Island := preload("res://scripts/game/island.gd")
+
+var VIEWS := {
+	"top": [Vector3(0, 900, 0.1), Vector3(0, 0, 0), 75.0],
+	"eastpad": [Vector3(400, 12, 188), Vector3(432, 2, 160), 60.0],
+	"cliffpad": [Vector3(-398, 12, 60), Vector3(-428, 2, 30), 60.0],
+	"eastpoint": [Vector3(430, 40, 260), Vector3(510, 10, 120), 60.0],
+	"southshore": [Vector3(-160, 40, 400), Vector3(-275, 10, 482), 60.0],
+	"hoodtop": [Vector3(20, 230, -135.1), Vector3(20, 0, -135), 60.0],
+	"palmer": [Vector3(-92, 16, -86), Vector3(-20, 3, -102), 60.0],
+	"sac": [Vector3(-10, 14, -88), Vector3(25, 2, -100), 60.0],
+	"courts": [Vector3(-92, 18, -160), Vector3(-25, 4, -178), 60.0],
+	"parking": [Vector3(-25, 22, -128), Vector3(8, 2, -152), 60.0],
+	"cemetery": [Vector3(30, 22, -150), Vector3(85, 2, -178), 60.0],
+	"sycamore": [Vector3(100, 40, 45), Vector3(142, 2, -10), 60.0],
+	"town": [Vector3(-20, 70, 150), Vector3(-110, 5, 30), 55.0],
+	"square": [Vector3(-60, 18, 70), Vector3(-95, 3, 20), 60.0],
+	"street": [Vector3(-235, 3.2, 61), Vector3(-150, 3, 60), 65.0],
+	"suburbs": [Vector3(-130, 45, -40), Vector3(-200, 2, -130), 60.0],
+	"castle": [Vector3(60, 55, -200), Vector3(-30, 30, -362), 55.0],
+	"lake": [Vector3(200, 45, -160), Vector3(285, 2, -255), 60.0],
+	"farm": [Vector3(180, 40, -80), Vector3(260, 2, 0), 60.0],
+	"bowl": [Vector3(100, 45, 120), Vector3(175, 2, 205), 60.0],
+	"beach": [Vector3(-60, 30, 300), Vector3(-60, 0, 410), 65.0],
+	"harbour": [Vector3(-330, 30, 110), Vector3(-420, 1, 165), 60.0],
+	"skate": [Vector3(85, 20, 80), Vector3(60, 1, 110), 60.0],
+	"spawn": [Vector3(-262, 60, 20), Vector3(-262, 0, 61), 60.0],
+	"carpark": [Vector3(-230, 40, 70), Vector3(-230, 0, 30), 55.0],
+	"harbourtop": [Vector3(-420, 130, 162.1), Vector3(-420, 0, 162), 60.0],
+	"bowltop": [Vector3(175, 150, 205.1), Vector3(175, 0, 205), 60.0],
+	"j4": [Vector3(-140, 38, 0.1), Vector3(-140, 0, 0), 60.0],
+	"jmain": [Vector3(-140, 38, 60.1), Vector3(-140, 0, 60), 60.0],
+	"jt": [Vector3(-260, 38, 0.1), Vector3(-260, 0, 0), 60.0],
+	"jring": [Vector3(-303, 45, 61.1), Vector3(-303, 0, 61), 60.0],
+	"jcastle": [Vector3(-80, 45, -132.1), Vector3(-80, 0, -132), 60.0],
+	"jmaple": [Vector3(-288, 45, -150.1), Vector3(-288, 0, -150), 60.0],
+	"jstreet": [Vector3(-170, 9, 12), Vector3(-140, 0, 0), 60.0],
+	"spawntop": [Vector3(-262, 140, 61.1), Vector3(-262, 0, 61), 60.0],
+	"stunttop": [Vector3(-170, 170, 262.1), Vector3(-170, 0, 262), 60.0],
+	"stunt": [Vector3(-110, 40, 190), Vector3(-175, 2, 265), 60.0],
+	"stunt2": [Vector3(-235, 30, 330), Vector3(-170, 2, 250), 60.0],
+	"stuntgate": [Vector3(-104, 6, 196), Vector3(-118, 4, 250), 60.0],
+	"stuntloop": [Vector3(-146, 8, 262), Vector3(-114, 7, 256), 60.0],
+	"stuntplat": [Vector3(-186, 9, 246), Vector3(-205, 3, 224), 62.0],
+	"stuntpipe": [Vector3(-216, 7, 296), Vector3(-234, 1.5, 262), 60.0],
+	"stuntair": [Vector3(-120, 7, 300), Vector3(-160, 6, 284), 60.0],
+	"farmtrack": [Vector3(318, 6, 262), Vector3(298, 1, 236), 60.0],
+	"fields": [Vector3(372, 10, 236), Vector3(320, 1, 190), 60.0],
+	"fields2": [Vector3(220, 12, 130), Vector3(260, 1, 92), 60.0],
+	"racetop": [Vector3(-170, 260, 120.1), Vector3(-170, 0, 120), 55.0],
+	"farmtop": [Vector3(300, 230, 110.1), Vector3(300, 0, 110), 62.0],
+	"fieldnear": [Vector3(300, 4, 160), Vector3(320, 1, 185), 62.0],
+	"wheat": [Vector3(232, 4, 60), Vector3(250, 1, 85), 62.0],
+	"cabbage": [Vector3(312, 4, 60), Vector3(330, 1, 85), 62.0],
+	"corn": [Vector3(240, 5, 150), Vector3(266, 1, 180), 62.0],
+	"potato": [Vector3(366, 5, -78), Vector3(340, 1, -55), 62.0],
+	"racewaytop": [Vector3(440, 330, 430.1), Vector3(440, 0, 430), 62.0],
+	"raceway": [Vector3(345, 40, 330), Vector3(470, 0, 430), 60.0],
+	"pits": [Vector3(470, 14, 395), Vector3(425, 3, 350), 60.0],
+	"raceway2": [Vector3(575, 25, 545), Vector3(460, 0, 440), 60.0],
+	"c_west": [Vector3(-470, 330, -40.1), Vector3(-470, 0, -40), 62.0],
+	"c_east": [Vector3(470, 330, 85.1), Vector3(470, 0, 85), 62.0],
+	"c_south": [Vector3(-270, 330, 440.1), Vector3(-270, 0, 440), 62.0],
+	"c_westlow": [Vector3(-380, 30, 20), Vector3(-470, 2, -40), 62.0],
+	"ss_access": [Vector3(-300, 150, 395), Vector3(-300, 0, 345), 62.0],
+	"ne_stuck": [Vector3(371, 60, -5), Vector3(371, 2, -47), 62.0],
+	"nl_end": [Vector3(-262, 70, 120), Vector3(-262, 2, 66), 62.0],
+	"nl_endlow": [Vector3(-310, 14, 40), Vector3(-262, 2, 66), 62.0],
+	"c_eastlow": [Vector3(400, 30, 170), Vector3(500, 2, 100), 62.0],
+	"c_southlow": [Vector3(-290, 30, 340), Vector3(-270, 2, 460), 62.0],
+	"ne_ring": [Vector3(345, 30, -110), Vector3(300, 2, -170), 62.0],
+	"ne_ringtop": [Vector3(300, 140, -165.1), Vector3(300, 0, -165), 62.0],
+	"rwcross": [Vector3(381, 70, 385.1), Vector3(381, 0, 385), 50.0],
+	"rwcrosslow": [Vector3(362, 9, 352), Vector3(384, 2.4, 380), 62.0],
+	"rwwest": [Vector3(352, 90, 418.1), Vector3(352, 0, 418), 62.0],
+	"rwsouth": [Vector3(486, 90, 492.1), Vector3(486, 0, 492), 62.0],
+	"rweast": [Vector3(536, 90, 420.1), Vector3(536, 0, 420), 62.0],
+	"rwdrift": [Vector3(452, 130, 445.1), Vector3(452, 0, 445), 62.0],
+	"rwstraight": [Vector3(345, 5, 368), Vector3(440, 2.4, 374), 60.0],
+	"rwhair": [Vector3(440, 7, 452), Vector3(447, 2.4, 488), 64.0],
+	"rwring": [Vector3(300, 60, 262.1), Vector3(300, 0, 262), 62.0],
+}
+
+var frames := 0
+var shots: Array = []
+var prefix := "/tmp/isl"
+var cam: Camera3D
+
+func _init() -> void:
+	var a := OS.get_cmdline_user_args()
+	if a.size() > 0:
+		prefix = a[0]
+	var season := 1
+	if a.size() > 1:
+		season = int(a[1])
+	var views: Array = VIEWS.keys()
+	if a.size() > 2:
+		views = Array(a[2].split(","))
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/toon.gdshader")
+	mat.set_shader_parameter("palette", PAL.make_texture())
+	mat.set_shader_parameter("season", float(season) + 0.5)
+	var env := WorldEnvironment.new()
+	var e := Environment.new()
+	e.background_mode = Environment.BG_SKY
+	var sky := Sky.new()
+	var sm := ProceduralSkyMaterial.new()
+	sm.sky_top_color = Color("6fb6ff")
+	sm.sky_horizon_color = Color("cfe8ff")
+	sm.ground_horizon_color = Color("cfe8ff")
+	sm.ground_bottom_color = Color("8fb0d0")
+	sky.sky_material = sm
+	e.sky = sky
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color("c8d8ff")
+	e.ambient_light_energy = 0.55
+	e.fog_enabled = true
+	e.fog_light_color = Color("cfe8ff")
+	e.fog_density = 0.0016
+	e.fog_sky_affect = 0.0
+	env.environment = e
+	get_root().add_child(env)
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-48, 35, 0)
+	sun.light_energy = 0.95
+	sun.shadow_enabled = true
+	sun.directional_shadow_max_distance = 120.0
+	get_root().add_child(sun)
+	var t0 := Time.get_ticks_msec()
+	var isl: Node3D = Island.new()
+	get_root().add_child(isl)
+	isl.build(mat, season)
+	print("island built in %d ms; children %d, breakables %d, anims %d, people %d" % [Time.get_ticks_msec() - t0,
+		isl.get_child_count(), isl.breakables.size(), isl.anims.size(), isl.people.list.size()])
+	var verts := 0
+	for c in isl.get_children():
+		if c is MeshInstance3D and c.mesh is ArrayMesh:
+			for si in c.mesh.get_surface_count():
+				verts += c.mesh.surface_get_array_len(si)
+	print("static verts %d" % verts)
+	cam = Camera3D.new()
+	cam.far = 2500.0
+	cam.near = 0.3
+	cam.cull_mask = 0xFFFFF & ~Island.MAP_LAYER
+	get_root().add_child(cam)
+	cam.make_current()
+	shots = []
+	var every := 140.0 if a.size() <= 3 else float(a[3])
+	for ri in isl.roads.size():
+		var pts: PackedVector2Array = isl.roads[ri]["pts"]
+		var acc := every * 0.5
+		for k in range(1, pts.size() - 1):
+			acc += (pts[k + 1] - pts[k]).length()
+			if acc < every:
+				continue
+			acc = 0.0
+			var p: Vector2 = pts[k]
+			var f: Vector2 = (pts[mini(k + 3, pts.size() - 1)] - pts[k]).normalized()
+			var side := Vector2(-f.y, f.x) * float(isl.roads[ri]["w"]) * 0.22
+			var y: float = isl.height_at(p.x + side.x, p.y + side.y)
+			var nm := "%s_%d" % [String(isl.roads[ri]["name"]).replace(" ", ""), k]
+			VIEWS[nm] = [Vector3(p.x + side.x, y + 1.9, p.y + side.y), Vector3(p.x + side.x + f.x * 30.0, y + 1.2, p.y + side.y + f.y * 30.0), 70.0]
+			if a.size() > 4 and not nm in a[4].split(","):
+				continue
+			print("VIEW ", nm, " at ", Vector2(p.x, p.y))
+			shots.append(nm)
+	print("tour: %d shots" % shots.size())
+
+func _aim(v: String) -> void:
+	var d: Array = VIEWS[v]
+	cam.position = d[0]
+	cam.fov = d[2]
+	cam.look_at(d[1], Vector3.UP if v != "top" else Vector3(0, 0, -1))
+
+func _process(_dt: float) -> bool:
+	frames += 1
+	if shots.is_empty() or frames > 4000:
+		return true
+	if frames == 1:
+		_aim(shots[0])
+	if frames % 4 == 0:
+		var v: String = shots[0]
+		get_root().get_texture().get_image().save_png("%s_%s.png" % [prefix, v])
+		print("saved ", v)
+		shots.pop_front()
+		if shots.is_empty():
+			return true
+		_aim(shots[0])
+	return false

@@ -99,6 +99,7 @@ var _start_cb := Callable()
 var speed_k := 0.0
 var wanted_box: HBoxContainer    # the police: wanted stars, under the minimap
 var wanted_stars: Array = []
+var wanted_back: Panel
 var limit_sign: PanelContainer   # the speed limit, by the speedo while a patrol car's about
 var limit_lbl: Label
 var phone: Phone                 # the phone: your contacts (the drivers), to call them to drive with you
@@ -340,7 +341,7 @@ func _build_hud() -> void:
 	tl.add_child(info)
 	place_lbl = K.outlined(K.label("", 30, Color.WHITE, 700, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 10)
 	info.add_child(place_lbl)
-	clock_lbl = K.outlined(K.label("", 24, Color.WHITE, 600, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 8)
+	clock_lbl = K.outlined(K.label("", 23, Color.WHITE, 700, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 6)
 	info.add_child(clock_lbl)
 	# top right: coins, minimap, camera and map buttons
 	coins_pill = K.pill("coin", "0")
@@ -371,20 +372,22 @@ func _build_hud() -> void:
 	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(ring)
 	mini_ring = ring
+	# a tidy column left of the minimap, all the same round buttons: phone, camera, rewind (and the
+	# group view beside the phone while you've a crew)
 	var camb := K.round_button("eye", K.PAPER, K.LINE, 64)
 	camb.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	camb.position = Vector2(-300, 230)
+	camb.position = Vector2(-300, 170)
 	_tap(camb, func(): game.toggle_cam())
 	hud.add_child(camb)
 	# the phone: call the drivers you know
 	phone_btn = K.round_button("phone", K.PAPER, K.LINE, 64)
 	phone_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	phone_btn.position = Vector2(-300, 152)
+	phone_btn.position = Vector2(-300, 94)
 	_tap(phone_btn, func(): toggle_phone())
 	hud.add_child(phone_btn)
 	group_btn = K.round_button("group", K.PAPER, K.LINE, 64)
 	group_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	group_btn.position = Vector2(-376, 152)
+	group_btn.position = Vector2(-376, 94)
 	group_btn.visible = false
 	_tap(group_btn, func(): game.toggle_group_cam())
 	hud.add_child(group_btn)
@@ -397,10 +400,10 @@ func _build_hud() -> void:
 	phone.setup(self, game)
 	# REWIND: hold it to take the last few seconds back
 	var rw := PanelContainer.new()
-	rw.add_theme_stylebox_override("panel", K.box(Color(K.PAPER, 0.7), 30, 6, Color(K.LINE_DK, 0.7), 0))
+	rw.add_theme_stylebox_override("panel", K.box(Color(K.PAPER, 0.85), 32, 6, Color(K.LINE_DK, 0.7), 0))
 	rw.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	rw.position = Vector2(-432, 226)
-	rw.size = Vector2(118, 70)
+	rw.position = Vector2(-300, 246)
+	rw.size = Vector2(64, 64)
 	rw.custom_minimum_size = rw.size
 	rw.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rw.pivot_offset = rw.size * 0.5
@@ -409,10 +412,9 @@ func _build_hud() -> void:
 	rwh.add_theme_constant_override("separation", 4)
 	rwh.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rw.add_child(rwh)
-	var rwi := Icon.new("back", K.INK, 30)
+	var rwi := Icon.new("rewind", K.INK, 30)
 	rwi.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	rwh.add_child(rwi)
-	rwh.add_child(K.label("REWIND", 17, K.INK, 750))
 	hud.add_child(rw)
 	ctl["rewind"] = rw
 	_build_wanted()
@@ -511,7 +513,7 @@ func _build_hud() -> void:
 	sp.add_child(rpm_bar)
 	# fuel (left of the speedo) and condition (right): slim upright bars
 	fuel_g = _gauge("fuel", Vector2(-176, -146))
-	cond_g = _gauge("gear", Vector2(142, -146))
+	cond_g = _gauge("wrench", Vector2(142, -146))
 	# steering, bottom left
 	ctl["left"] = _pad("left", Vector2(40, -210), Vector2(170, 170), true, K.PAPER)
 	ctl["right"] = _pad("right", Vector2(230, -210), Vector2(170, 170), true, K.PAPER)
@@ -659,7 +661,7 @@ func _draw_pad(c: Control, name: String) -> void:
 			for k in 4:
 				var yb := s.y - 34 + k * 7
 				c.draw_line(Vector2(20 - k, yb), Vector2(56 + k, yb), Color("c9a27e"), 2.0)
-			_tag(c, "DRIFT", Vector2(s.x - 34, 16), 14, Color("f2b84b") if on else K.PAPER)
+			_tag(c, "DRIFT", Vector2(s.x - 30, s.y - 12), 15, Color("f2b84b") if on else K.PAPER)
 		"nos":
 			# the nitrous bottle: blue with a red valve, a gauge for what's left, and an arming switch
 			var v: float = c.get_meta("v")
@@ -684,12 +686,8 @@ func _draw_pad(c: Control, name: String) -> void:
 			var na := PI * 0.75 + PI * 1.5 * clampf(v, 0.0, 1.0)
 			c.draw_line(gc, gc + Vector2(cos(na), sin(na)) * 15.0, K.INK, 3.0, true)
 			c.draw_circle(gc, 3.0, K.INK)
-			# the arming switch: cover flipped up and the lamp lit when it's on
-			var sp := Vector2(s.x - 40, s.y - 30)
-			_sticker(c, _rbox(Rect2(sp - Vector2(16, 18), Vector2(32, 36)), 6), Color("4a4643"), 2.0, 3.0)
-			var lever := PackedVector2Array([sp + Vector2(-5, 0), sp + Vector2(5, 0), sp + Vector2(4, -24 if on else 22), sp + Vector2(-4, -24 if on else 22)])
-			_sticker(c, lever, Color("d9dbde"), 2.0, 2.5)
-			c.draw_circle(sp + Vector2(0, -26 if on else 24), 6.0, Color("ff4b3a") if on else Color("8a8580"))
+			# on/off, plain: a tag under the gauge
+			_tag(c, "ON" if on else "OFF", Vector2(s.x - 40, s.y - 22), 14, Color("7fd0ff") if on else K.PAPER)
 		"cruise":
 			# a dash button with a little green LCD: the speed it's holding
 			var r := minf(s.x, s.y) * 0.5 - 6
@@ -702,7 +700,7 @@ func _draw_pad(c: Control, name: String) -> void:
 			var lcd := Rect2(cc - Vector2(26, 16), Vector2(52, 26))
 			_sticker(c, _rbox(lcd, 5), Color("1f3324"), 0.0, 3.0)
 			var sv: float = c.get_meta("set", 0.0)
-			var txt := str(int(sv)) if on else "--"
+			var txt := str(int(sv)) if on else "SET"
 			var f := K.font(800)
 			var tw := f.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
 			c.draw_string(f, Vector2(cc.x - tw * 0.5, cc.y + 3), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color("7dff9a") if on else Color("3f6b4a"))
@@ -722,17 +720,28 @@ var mini_ring: Panel
 func _build_wanted() -> void:
 	var box := HBoxContainer.new()
 	box.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	box.position = Vector2(-214, 294)
-	box.size = Vector2(180, 34)
+	box.position = Vector2(-220, 296)
+	box.size = Vector2(196, 40)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_theme_constant_override("separation", 3)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.visible = false
 	hud.add_child(box)
 	wanted_box = box
+	# (a dark pill behind them, so they read over a bright sky or the minimap)
+	var back := Panel.new()
+	back.add_theme_stylebox_override("panel", K.box(Color(0.08, 0.09, 0.12, 0.55), 20, 0, Color.TRANSPARENT, 0))
+	back.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	back.position = box.position
+	back.size = box.size
+	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(back)
+	hud.move_child(back, box.get_index())
+	back.visible = false
+	wanted_back = back
 	for i in 5:
-		var st := Icon.new("star", Color("f4efe2"), 32)
-		st.pivot_offset = Vector2(16, 16)
+		var st := Icon.new("star", Color("ffd23f"), 34)
+		st.pivot_offset = Vector2(17, 17)
 		box.add_child(st)
 		wanted_stars.append(st)
 	wanted_why = K.outlined(K.label("", 16, Color.WHITE, 700), K.INK, 6)
@@ -840,6 +849,12 @@ func busted_fx(fine: int) -> void:
 	_wanted_fade = 0.0
 
 func _wanted_update(pd: Dictionary, kmh: float) -> void:
+	_wanted_update2(pd, kmh)
+	if wanted_back:
+		wanted_back.visible = wanted_box.visible
+		wanted_back.modulate = wanted_box.modulate
+
+func _wanted_update2(pd: Dictionary, kmh: float) -> void:
 	var heat := int(pd.get("heat", 0))
 	var now := Time.get_ticks_msec() * 0.001
 	var dt := get_process_delta_time()
@@ -852,10 +867,10 @@ func _wanted_update(pd: Dictionary, kmh: float) -> void:
 		for i in 5:
 			var st: Control = wanted_stars[i]
 			if i < heat:
-				var lit := Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.25, 0.25), clampf(b * 1.3, 0.0, 1.0))
-				st.modulate = Color(0.55, 0.55, 0.58, 0.6) if flash else lit
+				var lit := Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.3, 0.3), clampf(b * 1.3, 0.0, 1.0))
+				st.modulate = Color(0.7, 0.7, 0.72, 0.55) if flash else lit
 			else:
-				st.modulate = Color(0.1, 0.1, 0.12, 0.35)
+				st.modulate = Color(0.3, 0.3, 0.34, 0.6)
 		# the minimap's rim: red and blue while they've got you; grey and white while they're looking
 		var phase := fmod(now, 0.5) < 0.25
 		if bool(pd["seen"]):
@@ -1684,6 +1699,7 @@ func _sheet(title_text: String, icon: String, col: Color, width := 640.0) -> VBo
 	for c in overlay.get_children():
 		c.queue_free()
 	overlay.visible = true
+	hud.modulate.a = 0.0            # (the controls hide behind a menu: no pedals poking out round it)
 	var dim := ColorRect.new()
 	dim.color = K.DIM
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1719,6 +1735,7 @@ func _sheet(title_text: String, icon: String, col: Color, width := 640.0) -> VBo
 
 func close_sheet() -> void:
 	overlay.visible = false
+	hud.modulate.a = 1.0
 	for c in overlay.get_children():
 		c.queue_free()
 
@@ -1745,6 +1762,11 @@ func open_pause() -> void:
 			game.open_garage()],
 		["Trophies", "trophy", K.LILAC, K.LILAC_DK, func(): open_achievements(true)],
 		["Settings", "gear", K.PAPER, K.LINE, func(): open_settings(true)],
+		["How to drive", "help", K.PAPER, K.LINE, func(): show_help(true)],
+		["Call the crew", "phone", K.PAPER, K.LINE, func():
+			game.resume()
+			if not phone.visible:
+				toggle_phone()],
 	])
 	if game.challenge_on():
 		var is_race: bool = game.race != null
@@ -1802,8 +1824,8 @@ func open_settings(from_pause := false) -> void:
 	g.add_child(_setting_toggle("leaf", "Ambient particles", st.get("motes", true), func(v): game.set_setting("motes", v)))
 	g.add_child(_setting_toggle("rain", "Weather", st.get("weather", true), func(v): game.set_setting("weather", v)))
 	g.add_child(_setting_toggle("calendar", "Show clock", st["clock"], func(v): game.set_setting("clock", v)))
-	g.add_child(_setting_toggle("eye", "Show FPS", st.get("fps", false), func(v): game.set_setting("fps", v)))
-	g.add_child(_setting_toggle("gear", "Cap at 60 fps", st.get("fps60", false), func(v): game.set_setting("fps60", v)))
+	g.add_child(_setting_toggle("gauge", "Show FPS", st.get("fps", false), func(v): game.set_setting("fps", v)))
+	g.add_child(_setting_toggle("lock", "Cap at 60 fps", st.get("fps60", false), func(v): game.set_setting("fps60", v)))
 	var reset := K.button("Reset progress", K.PAPER, K.LINE, 24, 0, 60)
 	reset.add_theme_color_override("font_color", K.CORAL_DK)
 	var armed := [false]
@@ -1934,27 +1956,70 @@ func _ach_row(a: Dictionary, got: bool, prog: float) -> Control:
 	hb.add_child(rw)
 	return p
 
-func show_help() -> void:
-	var vb: VBoxContainer = await _sheet("How to drive", "car", K.TEAL, 1040.0)
-	for line in [
-		["left", "Steer with the wheel on the left (or arrow buttons: turn the wheel off in Settings). Drag anywhere else on the screen to look around the car, pinch to zoom."],
-		["play", "GAS and BRAKE on the right. Hold BRAKE when stopped to reverse."],
-		["tire", "Tap DRIFT (the handbrake) while steering to swing the tail out. Keep the gas down and hold the steering into the turn to hold the slide."],
-		["right", "Steer the other way with the gas down to swing into a drift the other way. Let go of steering, or ease off the gas, to straighten up."],
-		["star", "Drifts score points and coins. Chain them for a bigger multiplier, and skim walls and cars for a close bonus. Don't crash mid-drift!"],
-		["wind", "In the air, GAS tips the nose down and BRAKE lifts it (hold to flip), steering spins you round, and DRIFT + steering barrel-rolls. Land on your wheels! The Stunt Yard is just south of town."],
-		["flag", "Orange rings are drift zones, blue time trials, purple drift runs and red ones races. Open the map to set a route to any of them (or a gas station: fuel runs down, and they fix dents too)."],
-	]:
+## How to drive: four short pages (tabs along the top) rather than one wall of text. From the pause menu too.
+const HELP_PAGES := [
+	["Driving", "car", [
+		["left", "Steer with the wheel, bottom left (or arrow buttons: Settings). Drag anywhere else to look round the car, pinch to zoom."],
+		["play", "GAS and BRAKE, bottom right. Hold BRAKE when you've stopped to reverse."],
+		["gauge", "CRUISE holds the speed you're doing: tap it again, or brake, to let go. The bars by the speedo are fuel and the car's condition: a gas station fills one and fixes the other."],
+		["rewind", "Crashed? Hold REWIND (by the minimap) to take the last few seconds back."],
+	]],
+	["Drifting", "tire", [
+		["tire", "Tap DRIFT (the lever) while you steer to swing the tail out, then keep the gas down and steer into the turn to hold it."],
+		["right", "Steer the other way with the gas down to flick into a drift the other way. Let go of steering, or ease off, to straighten up."],
+		["star", "Drifts score points and coins. Chain them for a bigger multiplier, skim walls and cars for a close bonus, and don't crash mid-drift."],
+		["tank", "NOS: tap the bottle to switch it on (and again to switch it off). It burns while you're on the gas."],
+	]],
+	["Tricks", "wind", [
+		["play", "A quick tap of DRIFT with the wheel straight is a bunny hop. Hop onto a yellow-and-black rail, lined up with it, to grind along it (they're the yellow dashes on the minimap)."],
+		["wind", "In the air, GAS tips the nose down and BRAKE lifts it (hold to flip), steering spins you, and DRIFT + steering barrel-rolls. Land on your wheels!"],
+		["flag", "Kickers, ramps and boost pads are dotted round the car parks, and the Stunt Yard is just south of town."],
+	]],
+	["Around town", "map", [
+		["flag", "Orange rings are drift zones, blue time trials, purple drift runs and red ones races. The map sets a route to any of them, or to a gas station."],
+		["phone", "The phone (by the minimap) calls the drivers you've met: they'll ride with you. The group button beside it pulls the camera out to fit you all in."],
+		["star", "Speed past a patrol car or hit one and they'll come after you: stars show under the minimap. Get out of sight and stay out to lose them."],
+		["car", "Coins buy cars, paint and upgrades in the garage. The legendary cars are the best drifters of all."],
+	]],
+]
+
+func show_help(from_pause := false, page := 0) -> void:
+	var vb: VBoxContainer = await _sheet("How to drive", "help", K.TEAL, 1040.0)
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 10)
+	vb.add_child(tabs)
+	for i in HELP_PAGES.size():
+		var pg: Array = HELP_PAGES[i]
+		var on := i == page
+		var tb := K.button(String(pg[0]), K.INK if on else K.PAPER, K.INK if on else K.LINE, 22, 0, 52, String(pg[1]))
+		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if on:
+			tb.add_theme_color_override("font_color", Color.WHITE)
+		var ii := i
+		_tap(tb, func(): show_help(from_pause, ii))
+		tabs.add_child(tb)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 14)
+	box.custom_minimum_size = Vector2(0, 300)
+	vb.add_child(box)
+	for line in HELP_PAGES[page][2]:
 		var hb := HBoxContainer.new()
 		hb.add_theme_constant_override("separation", 14)
 		hb.add_child(Icon.new(line[0], K.INK, 38))
-		var l := K.label(line[1], 22, K.INK, 600, HORIZONTAL_ALIGNMENT_LEFT)
+		var l := K.label(line[1], 23, K.INK, 600, HORIZONTAL_ALIGNMENT_LEFT)
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		l.custom_minimum_size = Vector2(920, 0)
 		hb.add_child(l)
-		vb.add_child(hb)
-	var ok := K.button("Let's go", K.TEAL, K.TEAL_DK, 32, 0, 76, "play")
-	_tap(ok, close_sheet)
+		box.add_child(hb)
+	var last := page == HELP_PAGES.size() - 1
+	var ok := K.button("Let's go" if (last or from_pause) else "Next", K.TEAL, K.TEAL_DK, 32, 0, 76, "play")
+	_tap(ok, func():
+		if from_pause:
+			_back_from(true)
+		elif last:
+			close_sheet()
+		else:
+			show_help(false, page + 1))
 	vb.add_child(ok)
 
 # ------------------------------------------------------------------ the map
