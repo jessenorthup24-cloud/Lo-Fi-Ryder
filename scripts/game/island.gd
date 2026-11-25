@@ -57,6 +57,8 @@ var far_statics := {}              # landmarks seen from anywhere: mesh name -> 
 var pools := {}
 var ghost := {}                    # the cemetery's ghost (an anim; only out after dark)
 var night := 0.0                   # how dark it is (main sets it): for the ghost
+var prop_grid := {}                # Vector2i (10 m cells) -> [[centre, radius]] of solid things put down (prop_clear)
+var rails: Array = []             # grind rails: [a, b] their tops (street_stunts.gd)
 var placed_log: Array = []         # (audits only) every put(): [name, transform]
 var breakables: Array = []         # {pool, slot, pos, yaw, sc, r, kind, home, state, t}
 var lamp_heads: Array = []         # the ground under each street lamp's head (where its light falls)
@@ -281,6 +283,29 @@ func block_rect(c: Vector2, hs: Vector2, yaw := 0.0, pad := 1.0) -> void:
 			var l := bs * p
 			if absf(l.x) <= hs.x + pad and absf(l.z) <= hs.y + pad:
 				blocked[j * N + i] = 1
+
+func _prop_note(p: Vector2, r: float) -> void:
+	var g := Vector2i(int(floor(p.x / 10.0)), int(floor(p.y / 10.0)))
+	if not prop_grid.has(g):
+		prop_grid[g] = []
+	prop_grid[g].append([p, r])
+
+## Nothing solid already standing in this rectangle (unlike is_free, a paved lot counts as clear).
+func prop_clear(c: Vector2, hs: Vector2, yaw := 0.0) -> bool:
+	var reach := hs.length() + 6.0
+	var bs := Basis(Vector3.UP, -yaw)
+	for gx in range(int(floor((c.x - reach) / 10.0)), int(floor((c.x + reach) / 10.0)) + 1):
+		for gz in range(int(floor((c.y - reach) / 10.0)), int(floor((c.y + reach) / 10.0)) + 1):
+			for e in prop_grid.get(Vector2i(gx, gz), []):
+				var l := bs * Vector3((e[0] as Vector2).x - c.x, 0, (e[0] as Vector2).y - c.y)
+				if absf(l.x) <= hs.x + float(e[1]) and absf(l.z) <= hs.y + float(e[1]):
+					return false
+	for b in breakables:
+		var bp: Vector3 = b["pos"]
+		var l2 := bs * Vector3(bp.x - c.x, 0, bp.z - c.y)
+		if absf(l2.x) <= hs.x + 0.6 and absf(l2.z) <= hs.y + 0.6:
+			return false
+	return true
 
 func is_free(c: Vector2, hs: Vector2, yaw := 0.0) -> bool:
 	var bs := Basis(Vector3.UP, yaw)
@@ -1337,6 +1362,8 @@ func put(name: String, x: float, z: float, yaw := 0.0, sc := 1.0, col := "box", 
 	var xf := Transform3D(bs, Vector3(x, y, z))
 	if audit_on:
 		placed_log.append([name, xf])        # (for tools/test/float_audit.gd)
+	if col != "":
+		_prop_note(Vector2(x + cen.x, z + cen.z), maxf(ab.size.x, ab.size.z) * sc * 0.5)
 	var ckey := Vector2i(int(floor(x / CHUNK)), int(floor(z / CHUNK)))
 	if audit_on and col != "":
 		var pts := [Vector2(x + cen.x, z + cen.z)]

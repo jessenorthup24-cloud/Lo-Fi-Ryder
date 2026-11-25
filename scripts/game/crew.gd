@@ -346,6 +346,7 @@ func _spawn(who: int, called: bool) -> Dictionary:
 	# well sorted cars: tuned up, as a regular's would be
 	c.tune(def, {"engine": 3, "turbo": 3, "tyres": 3, "steering": 4})
 	c.assist = 1.0
+	c.can_hop = false
 	c.collision_layer = LAYER
 	c.collision_mask = 1 | 2 | 4 | 16 | LAYER
 	var xf: Transform3D = spot["xf"]

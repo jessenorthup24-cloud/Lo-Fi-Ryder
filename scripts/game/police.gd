@@ -695,6 +695,7 @@ func _unit(xf: Transform3D, vel: Vector3, target: Node3D) -> Dictionary:
 	c.setup(d, game.toon, island, 0)
 	c.tune(d, game.save.data["up"])
 	c.assist = 1.0
+	c.can_hop = false
 	c.collision_layer = LAYER
 	c.collision_mask = 1 | 2 | 4 | 8 | LAYER
 	c.place(xf)

@@ -526,6 +526,7 @@ func grid(player_car) -> void:
 			car.setup(d, game.toon, island, randi_range(0, maxi(paints - 1, 0)))
 			car.tune(d, up)
 			car.assist = 1.0
+			car.can_hop = false
 			car.collision_layer = AI_LAYER
 			car.collision_mask = 1 | 2 | 4 | AI_LAYER
 			car.place(xf)

@@ -92,6 +92,17 @@ var ride := 0.0
 var ride_off := 0.0          # metres the springs sit longer (+) or shorter (-)
 var grip_k := 1.0            # race grip, from the tuning
 var drift_k := 0.0           # how much easier drifting is (-0.3 .. 0.9)
+static var rails: Array = []   # grind rails: [a, b] the top of each (street_stunts.gd puts them about)
+const RAIL_LAYER := 64
+const UNDER := 0.2             # the underside of the body, above the car's origin (the bottom of its wheels)
+const HOP_V := 3.1             # a bunny hop: about half a metre up
+var grind := {}                # on a rail: {i, t (along it), v, dir, time}
+var last_grind := {}           # the one just finished (main scores it): {time, v}
+var hops := 0                  # (counted: main puffs a little dust)
+var can_hop := true
+var hop_cd := 0.0
+var _hb_down := 0.0
+var _hb_prev := false
 static var wet_k := 1.0      # the weather: wet roads, a little less grip for everyone (weather.gd sets it)
 var nitro := 0.0             # nitrous going (0..1; main sets it while there's some in the bottle)
 var hold := false            # waiting on a start line: sitting on its wheels with the brake on (not frozen in the air)
@@ -358,6 +369,25 @@ func _physics_process(dt: float) -> void:
 		_wheel_vis(dt)
 	if wheels.is_empty() or freeze:
 		return
+	hop_cd = maxf(0.0, hop_cd - dt)
+	if not grind.is_empty():
+		_grind_step(dt)
+		_hb_prev = handbrake > 0.5
+		return
+	# a bunny hop: a quick tap of the handbrake with the wheel straight (held, or with steering, it's a drift
+	# as ever); it's also how you get up onto a rail
+	var hb_on := handbrake > 0.5
+	if hb_on:
+		_hb_down += dt
+	elif _hb_prev:
+		if can_hop and _hb_down < 0.2 and absf(steer_in) < 0.3 and grounded >= 3 and absf(speed) > 4.0 and hop_cd <= 0.0:
+			apply_central_impulse(global_transform.basis.y * mass * HOP_V)
+			hop_cd = 0.5
+			hops += 1
+		_hb_down = 0.0
+	_hb_prev = hb_on
+	if not rails.is_empty() and can_hop:
+		_rail_catch()
 	var xf := global_transform
 	var up := xf.basis.y
 	var fwd := -xf.basis.z
@@ -872,6 +902,69 @@ func stain(at: Vector3, k: float) -> void:
 		return
 	var lp := body_node.global_transform.affine_inverse() * at
 	Dents.stain(dent_data, lp, 0.95, Color(0.68, 0.04, 0.05), k)
+
+## Coming down on a rail, lined up with it: onto it.
+func _rail_catch() -> void:
+	var v := linear_velocity
+	var hv := Vector2(v.x, v.z)
+	if hv.length() < 4.0 or v.y > 1.2:
+		return
+	var p := global_position
+	for i in rails.size():
+		var a: Vector3 = rails[i][0]
+		var b: Vector3 = rails[i][1]
+		var ab := b - a
+		var ab2 := Vector2(ab.x, ab.z)
+		var t := clampf(Vector2(p.x - a.x, p.z - a.z).dot(ab2) / maxf(ab2.length_squared(), 0.01), 0.0, 1.0)
+		if t <= 0.03 or t >= 0.97:
+			continue
+		var q := a + ab * t
+		if Vector2(p.x - q.x, p.z - q.z).length() > 0.95:
+			continue
+		var under := p.y + UNDER
+		if under < q.y - 0.05 or under > q.y + 1.4:
+			continue
+		var al := hv.normalized().dot(ab2.normalized())
+		if absf(al) < 0.8:
+			continue
+		grind = {"i": i, "t": t, "v": maxf(hv.length() * absf(al), 6.0), "dir": signf(al), "time": 0.0}
+		gravity_scale = 0.0
+		collision_mask &= ~RAIL_LAYER
+		drift_mode = false
+		return
+
+## Sliding along a rail: held on it, along it, at the speed it came on with (slowing a little, faster down a
+## slope). Off the end, or a tap of the handbrake hops you off.
+func _grind_step(dt: float) -> void:
+	var a: Vector3 = rails[int(grind["i"])][0]
+	var b: Vector3 = rails[int(grind["i"])][1]
+	var ab := b - a
+	var l := maxf(ab.length(), 0.1)
+	var d := ab / l * float(grind["dir"])
+	var v: float = float(grind["v"]) - 9.8 * d.y * dt - 0.7 * dt
+	grind["v"] = v
+	grind["t"] = float(grind["t"]) + float(grind["dir"]) * v * dt / l
+	grind["time"] = float(grind["time"]) + dt
+	var hop_off := handbrake > 0.5 and not _hb_prev
+	if float(grind["t"]) >= 1.0 or float(grind["t"]) <= 0.0 or v < 2.5 or hop_off:
+		last_grind = {"time": grind["time"], "v": v}
+		grind = {}
+		gravity_scale = 1.0
+		collision_mask |= RAIL_LAYER
+		linear_velocity = d * v + Vector3(0, HOP_V if hop_off else 1.0, 0)
+		angular_velocity = Vector3.ZERO
+		hop_cd = 0.4
+		return
+	var p := a.lerp(b, float(grind["t"])) + Vector3(0, 0.05 - UNDER, 0)
+	var flat := Vector3(d.x, 0, d.z).normalized()
+	var bas := Basis.looking_at(d if absf(d.y) < 0.9 else flat, Vector3.UP)
+	PhysicsServer3D.body_set_state(get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, Transform3D(bas, p))
+	linear_velocity = d * v
+	angular_velocity = Vector3.ZERO
+	throttle = 0.0
+
+func grinding() -> bool:
+	return not grind.is_empty()
 
 ## How much of its power the engine still gives (misfiring: hardly any for that moment; blown: a limp).
 func engine_power() -> float:

@@ -130,6 +130,9 @@ var auto_back := 0.0
 # stunts
 var jump := {}              # the jump in the air right now: {t, from, pitch, yaw, roll, hoops}
 var boost_cd := 0.0
+var was_grinding := false
+var grind_fx := 0.0
+var hops_seen := 0
 var loop_on := -1           # the loop you're going round (island.stunt.loops), -1: none
 var loop_last := 0
 var loop_flip := false      # been over the top of it yet
@@ -276,6 +279,8 @@ func _build_world() -> void:
 	add_child(police)
 	police.setup(self, island, traffic)
 	car.rammed.connect(func(b, _v, _j, _at): police.rammed(b))
+	Car.rails = island.rails
+	car.collision_mask = car.collision_mask | Car.RAIL_LAYER     # (knock into the grind rails)
 	crew = Crew.new()
 	crew.name = "Crew"
 	add_child(crew)
@@ -841,8 +846,26 @@ func _crew_tests() -> void:
 			cruise_v = 16.0
 		held["gas"] = true
 		held["hand"] = time > 6.0
-	if args.has("restprobe") and frames % 60 == 0:
-		print("REST y_above_ground=%.3f gravity_scale=%.2f mass=%.0f" % [car.global_position.y - island.height_at(car.global_position.x, car.global_position.z), car.gravity_scale, car.mass])
+	if args.has("grindtest") and island.rails.size() > 0:
+		# a test: line up on a rail, run at it, hop on, ride it off the end
+		var rl: Array = island.rails[clampi(int(args["grindtest"]), 0, island.rails.size() - 1)]
+		var ra: Vector3 = rl[0]
+		var rd: Vector3 = (rl[1] - ra).normalized()
+		var st0 := ra - rd * 24.0
+		if island.height_at(st0.x, st0.z) < 0.6 or absf(island.height_at(st0.x, st0.z) - (ra.y - 0.42)) > 0.6:
+			ra = rl[1]
+			rd = -rd
+		if not has_meta("gt_put") and time > 2.0:
+			set_meta("gt_put", true)
+			var st := ra - rd * 24.0
+			car.place(Transform3D(Basis(Vector3.UP, atan2(-rd.x, -rd.z)), Vector3(st.x, island.height_at(st.x, st.z) + 0.6, st.z)))
+			car.linear_velocity = rd * 15.0
+		if has_meta("gt_put"):
+			held["gas"] = true
+			var to := (ra - car.global_position).dot(rd)
+			held["hand"] = to < 3.2 and to > 1.6
+			if frames % 6 == 0:
+				print("GT to=%.1f y=%.2f vy=%.2f hops=%d grind=%s spd=%.1f" % [to, car.global_position.y - island.height_at(car.global_position.x, car.global_position.z), car.linear_velocity.y, car.hops, str(car.grinding()), car.linear_velocity.length()])
 	if args.has("groupcam") and not group_cam:
 		group_cam = true
 	if args.has("phone_at") and not has_meta("phone_done") and time > float(args["phone_at"]):
@@ -2608,8 +2631,33 @@ func _stunts(dt: float) -> void:
 				save.add_stat("loops", 1)
 				_stunt_bank(1500.0, "Loop the loop!")
 			loop_on = -1
+	# grinding a rail: sparks off the bar, and it scores when you come off the end
+	if car.grinding():
+		jump = {}
+		grind_fx -= dt
+		if grind_fx <= 0.0:
+			grind_fx = 0.05
+			fx.spark_burst(p + Vector3(0, 0.15, 0), Vector3.UP, 5, 5.0)
+		if not was_grinding:
+			ui.popup_text("Grind!", K.SUN)
+			sfx("land", -6.0, 1.3)
+	elif was_grinding and not car.last_grind.is_empty():
+		var gt: float = car.last_grind["time"]
+		var gv: float = car.last_grind["v"]
+		car.last_grind = {}
+		if gt > 0.25:
+			save.add_stat("grinds", 1)
+			_stunt_bank(gt * 450.0 + gt * gv * 25.0, "Grind %.1f s" % gt)
+			if args.has("grindtest"):
+				print("GRIND scored %.1f s at %.1f m/s" % [gt, gv])
+	was_grinding = car.grinding()
+	# a bunny hop: a puff of dust off the tyres
+	if car.hops != hops_seen:
+		hops_seen = car.hops
+		fx.puff(p, Color(0.9, 0.9, 0.9), 0.8, Vector3.ZERO, 0.5, 0.4)
+		sfx("bump", -10.0, 1.4)
 	# jumps: add up the turns in the air, score them when the wheels are back down
-	if car.grounded == 0 and not car.freeze:
+	if car.grounded == 0 and not car.freeze and not car.grinding():
 		if jump.is_empty():
 			jump = {"t": 0.0, "from": p, "pitch": 0.0, "yaw": 0.0, "roll": 0.0, "hoops": 0}
 		jump["t"] = float(jump["t"]) + dt
@@ -2911,7 +2959,7 @@ func _sound(dt: float) -> void:
 		skid *= car.linear_velocity.length() / 3.0
 	sound.tick(dt, {"speed": absf(car.speed), "active": active, "grounded": car.grounded > 0, "drift": maxf(skid, car.wheelspin),
 		"air_t": car.air_t, "rpm_k": car.rpm, "throttle": car.throttle, "roll": roll, "pace": 2.6,
-		"grind": active and (car.wall_t > 0.12 or car.roof_t > 0.0) and car.linear_velocity.length() > 3.0,
+		"grind": active and (car.grinding() or ((car.wall_t > 0.12 or car.roof_t > 0.0) and car.linear_velocity.length() > 3.0)),
 		"eng_dmg": car.engine_dmg, "misfire": car.misfiring(),
 		"siren": 0.0, "siren_close": 0.0})          # (each police car has its own siren now, heard from where it is)
 

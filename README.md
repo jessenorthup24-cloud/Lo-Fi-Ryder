@@ -165,6 +165,14 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   over a boost pad into a corkscrew loop; Big Air on the south side (boost, kicker, a gold hoop to fly
   through); two half-pipes end to end; a raised platform run with a jump across the gap; a container
   jump, cones and a tunnel. Crash in there and you're put back at the start of the nearest run.
+- Bunny hops and grind rails, Mario Kart style. Tap DRIFT (a quick tap, under a fifth of a second)
+  with the wheel straight and the car hops about half a metre. Hop onto one of the yellow-and-black
+  grind rails lined up with it and you lock on and slide along it with sparks flying, a little slower
+  all the time, until you shoot off the end (or tap DRIFT again to hop off). A grind scores by how long
+  and how fast, and keeps the combo going. Rails are in the Drift Bowl, the harbour lot, the skate
+  park, the Courts' parking court and along the Stunt Yard's run-up; kickers, low ramps and a boost pad
+  from the stunt kit are dotted round the beach car park, the Bowl, the harbour lot and the farmyard.
+  The drivers on the road don't hop.
 - The garage: 18 cars (each with its own power, top speed, grip and drift), plus four upgrades that
   work on every car you own (engine, turbo, tyres, steering angle).
 - 41 trophies, each paying coins once (among them winning a race on Hard and winning every race; the
@@ -307,6 +315,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `tools/kenney/bake_kenney.gd` | Bakes the chosen Kenney kit models into `assets/kenney/` (people posed, arms loose) |
 | `tools/kenney/bake_hood.gd` | Bakes the Graveyard Kit, more of the Retro Urban Kit and some City Kit Suburban pieces (`k_grave_*`, `k_urb_*`, `k_sub2_*`), and builds the hood's buildings from the Retro Urban Kit's wall blocks (`k_hood_*`) |
 | `scripts/game/hood.gd` | Palmer Street, the Courts, Low Street, Old Hill Cemetery, Sycamore Heights |
+| `scripts/game/street_stunts.gd` | Grind rails, kickers, low ramps and a boost pad on the town's open lots (the car's hop and grind are in `drift_car.gd`) |
 | `tools/kenney/bake_klyo.gd` | Bakes the Klyo stunt kit models (and their simple collision meshes, `_col`) into `assets/kenney/k_klyo_*` |
 | `tools/look/` | Look-dev: `island_look.gd` photographs parts of the island, `kgrid.gd` makes a model contact sheet, `piece_look.gd` photographs one model from four sides on a 1 m grid |
 | `tools/test/` | `handling.gd` (handling report), `road_audit.gd` (nothing in roads or pavements), `road_surface.gd` (roads meet the ground and each other), `road_net.gd` (junctions and loose ends), `traffic_soak.gd` (overlaps, jams, cars off the road), `collide_test.gd`, `probe.gd` |
@@ -335,6 +344,7 @@ godot --path . -- --garage=up --fresh            # garage on the Upgrades tab, f
 godot --path . -- --drive --put=-108,284,90 --stunt=backflip   # exactly here (x,z,yaw), gas on, a trick in the air
 godot --path . -- --drive --season=3             # 0 spring, 1 summer, 2 autumn, 3 winter
 godot --path . -- --drive --weather=storm         # clear, cloudy, rain, storm, fog, snow
+godot --path . -- --drive --grindtest=0          # line up on grind rail 0, hop on, ride it off the end (logged)
 godot --path . -- --drive --race=downtown --raceauto --racelog   # straight into a race, CPU drives you too
 godot --path . -- --drive --crashtest=tbone --crashv=20   # crash tests (tbone, wall, front, swipe, swipe0, ped), logged
 godot --path . -- --drive --damage=90 --engine=95          # start battered, the engine on fire
