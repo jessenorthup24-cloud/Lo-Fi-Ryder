@@ -257,7 +257,8 @@ func _trains(I) -> void:
 			var mi := MeshInstance3D.new()
 			mi.mesh = M.get_mesh(nm)
 			mi.material_override = I.mat
-			mi.visibility_range_end = 500.0
+			mi.visibility_range_end = 350.0         # (a train's still a landmark at that, and past it a few pixels)
+			mi.visibility_range_end_margin = 30.0
 			var sz: Vector3 = M.ksize(nm)
 			var body := AnimatableBody3D.new()
 			body.sync_to_physics = false

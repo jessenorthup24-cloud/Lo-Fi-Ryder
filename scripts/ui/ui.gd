@@ -523,7 +523,7 @@ func _build_hud() -> void:
 	ctl["gas"] = _pad("gas", Vector2(-270, -250), Vector2(150, 210), false, K.PAPER)
 	ctl["hand"] = _pad("hand", Vector2(-420, -360), Vector2(130, 120), false, K.PAPER)
 	ctl["nos"] = _pad("nos", Vector2(-270, -380), Vector2(150, 116), false, Color("cfe9ff"))
-	ctl["cruise"] = _pad("cruise", Vector2(-528, -330), Vector2(92, 92), false, K.PAPER)
+	ctl["cruise"] = _pad("cruise", Vector2(-528, -356), Vector2(92, 92), false, K.PAPER)
 	reset_hint = K.button("Stuck? Reset car", K.SUN, K.SUN_DK, 28, 0, 72, "home")
 	reset_hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	reset_hint.position = Vector2(-160, 60)
@@ -757,7 +757,7 @@ func _build_wanted() -> void:
 	lsb.set_border_width_all(9)
 	limit_sign.add_theme_stylebox_override("panel", lsb)
 	limit_sign.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	limit_sign.position = Vector2(132, -150)
+	limit_sign.position = Vector2(118, -240)      # (above the condition bar, clear of it and of the pedals)
 	limit_sign.size = Vector2(80, 80)
 	limit_sign.custom_minimum_size = limit_sign.size
 	limit_sign.pivot_offset = limit_sign.size * 0.5

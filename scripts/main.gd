@@ -644,7 +644,9 @@ func set_setting(k: String, v) -> void:
 func _apply_settings() -> void:
 	var st = save.data["settings"]
 	sound.set_volumes(float(st["music"]), float(st["sfx"]))
-	atmos.sun.shadow_enabled = bool(st["shadows"])
+	atmos.sun.shadow_enabled = bool(st["shadows"]) and not args.has("noshadow")
+	if args.has("shadowdist"):
+		atmos.sun.directional_shadow_max_distance = float(args["shadowdist"])
 	atmos.env.glow_enabled = bool(st.get("bloom", true))
 	Engine.max_fps = 60 if bool(st.get("fps60", false)) else 0
 	cam_mode = clampi(int(st.get("cam", 0)), 0, 2)
@@ -847,6 +849,51 @@ func _crew_tests() -> void:
 			cruise_v = 16.0
 		held["gas"] = true
 		held["hand"] = time > 6.0
+	if args.has("perfdump") and not has_meta("pd_done") and time > float(args["perfdump"]):
+		# a test: what's being drawn, grouped by node name, biggest first (triangles; and the draw distance)
+		set_meta("pd_done", true)
+		var groups := {}
+		var stack: Array = [get_tree().root]
+		while not stack.is_empty():
+			var nd: Node = stack.pop_back()
+			stack.append_array(nd.get_children())
+			var tris := 0
+			var vr := 0.0
+			if nd is MeshInstance3D and (nd as MeshInstance3D).mesh and (nd as MeshInstance3D).is_visible_in_tree():
+				var m: Mesh = (nd as MeshInstance3D).mesh
+				for si in m.get_surface_count():
+					var ia := m.surface_get_arrays(si)
+					tris += ((ia[Mesh.ARRAY_INDEX] as PackedInt32Array).size() if ia[Mesh.ARRAY_INDEX] != null else (ia[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()) / 3
+				vr = (nd as MeshInstance3D).visibility_range_end
+			elif nd is MultiMeshInstance3D and (nd as MultiMeshInstance3D).multimesh and (nd as MultiMeshInstance3D).is_visible_in_tree():
+				var mm: MultiMesh = (nd as MultiMeshInstance3D).multimesh
+				if mm.mesh:
+					var per := 0
+					for si in mm.mesh.get_surface_count():
+						var ia2 := mm.mesh.surface_get_arrays(si)
+						per += ((ia2[Mesh.ARRAY_INDEX] as PackedInt32Array).size() if ia2[Mesh.ARRAY_INDEX] != null else (ia2[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()) / 3
+					tris = per * (mm.visible_instance_count if mm.visible_instance_count >= 0 else mm.instance_count)
+				vr = (nd as MultiMeshInstance3D).visibility_range_end
+			else:
+				continue
+			var key := String(nd.name).rstrip("0123456789@_ ")
+			if key == "MeshInstance3D" or String(nd.name).begins_with("@"):
+				key = "@ in " + String(nd.get_parent().name).rstrip("0123456789@_ ") + (" / " + String((nd as MeshInstance3D).mesh.resource_path.get_file()) if nd is MeshInstance3D and (nd as MeshInstance3D).mesh else "")
+			if (nd as Node3D).layers & island.MAP_LAYER:
+				key = "[map] " + key
+			if args.has("perfshadow"):
+				if (nd as GeometryInstance3D).cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+					continue
+				key = "[casts] " + key
+			var g: Array = groups.get(key, [0, 0, 0.0])
+			g[0] += 1
+			g[1] += tris
+			g[2] = vr
+			groups[key] = g
+		var keys := groups.keys()
+		keys.sort_custom(func(a, b): return int(groups[a][1]) > int(groups[b][1]))
+		for k in keys.slice(0, 30):
+			print("PERF %-34s nodes %5d  tris %9d  range %.0f" % [k, groups[k][0], groups[k][1], groups[k][2]])
 	if args.has("ramcop"):
 		# a test: line up head-on with the nearest patrol car in the traffic and drive into it
 		if not has_meta("rc_put") and time > 3.0:

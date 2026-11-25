@@ -18,6 +18,7 @@ const HALF := 600.0          # the world spans -HALF..HALF on x and z
 const CELL := 2.5
 const N := 481               # height samples per side
 const CHUNK := 100.0         # static props merge per chunk
+static var CHUNK_SHADOWS := true   # (shadows from simplified copies: _shadow_of)
 const TCHUNK := 60           # terrain chunk, in cells (150 m): big, so the whole island in view (from the
 							 # Raceway, say) is a few dozen draws rather than a couple of hundred
 const ROAD_CHUNK := 200.0    # road surfaces and their markings merge per this much (the same reason)
@@ -69,6 +70,8 @@ var topples: Array = []            # {kind: tree/post, name, xf, key, shape, pos
 var tgrid := {}                    # 10 m cell -> the topples in it
 var downed: Array = []             # knocked down, waiting to come back
 var chunk_mi := {}                 # chunk -> its merged props mesh
+var chunk_sh := {}                 # chunk -> its shadow (the same props, simplified: _shadow_of)
+static var _sh_cache := {}         # model name -> its simplified copy, for shadows
 var chunk_props := {}              # chunk -> {model: [transforms]} it's built from (rebuilt without a fallen tree)
 var fallers: Array = []            # falling over right now {node, xf0, axis, th, om, h, t, landed}
 const TOPPLE_V := 4.5              # m/s: slower than this a tree or a post just stops you
@@ -459,6 +462,8 @@ func _road_y_at(r: Dictionary, sv: float) -> float:
 	var k2 := (k + 1) % n if r["closed"] else mini(k + 1, n - 1)
 	return lerpf(ys[k], ys[k2], sv - floor(sv))
 
+var verge := PackedByteArray()      # 1: ground shaped by a road's cutting or embankment (grassed, never rock)
+
 func _cut_terrain() -> void:
 	# cut and fill: the ground meets the road flat across, blending out over the verge
 	var best_d := PackedFloat32Array()
@@ -471,7 +476,9 @@ func _cut_terrain() -> void:
 	for r in roads:
 		var pts: PackedVector2Array = r["pts"]
 		var ys: PackedFloat32Array = r["y"]
-		var core: float = r["w"] * 0.5 + (3.5 if r["walk"] else 1.2)
+		# (flat to at least a whole grid cell's diagonal past the edge: any less and a triangle of ground that
+		# straddles the edge tilts up over the tarmac on a steep hillside, a saw-tooth of grass on the road)
+		var core: float = r["w"] * 0.5 + (3.6 if r["walk"] else 3.6)
 		var reach := core + 9.0
 		var n := pts.size()
 		var segs := n if r["closed"] else n - 1
@@ -499,9 +506,11 @@ func _cut_terrain() -> void:
 						best_d[idx] = d
 						best_y[idx] = lerpf(ya, yb, t)
 						best_w[idx] = 1.0 if d <= core else smoothstep(reach, core, d)
+	verge.resize(N * N)
 	for idx in N * N:
 		if best_d[idx] < 1e8:
 			heights[idx] = lerpf(heights[idx], best_y[idx], best_w[idx])
+			verge[idx] = 1
 	# roads follow the cut ground exactly
 	for r in roads:
 		var pts: PackedVector2Array = r["pts"]
@@ -582,7 +591,7 @@ func _ground_slot(idx: int, x: float, z: float, slope: float) -> int:
 	if h < -0.15:
 		return P.SAND
 	# rock only on a real cliff (past ~57 degrees); a road's cutting or embankment is grassed over (moss)
-	if slope > 0.9:
+	if slope > 0.9 and (verge.is_empty() or verge[idx] == 0):
 		return P.ROCK
 	match s:
 		S_SAND:
@@ -654,9 +663,40 @@ func _terrain() -> void:
 			var mi := MeshInstance3D.new()
 			mi.mesh = m
 			mi.material_override = mat
-			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF if hi - lo < 6.0 else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			mi.name = "Ground_%d_%d" % [ci, cj]
 			add_child(mi)
+			if hi - lo >= 6.0:
+				# hilly: its shadow comes from a coarse stand-in (a point every 10 m, a sixteenth of the
+				# triangles; sunk a little so it doesn't shade the slope it stands for)
+				add_child(_ground_shadow(ci, cj))
+
+func _ground_shadow(ci: int, cj: int) -> MeshInstance3D:
+	var step := 4
+	var vv := PackedVector3Array()
+	var ii := PackedInt32Array()
+	var cols := TCHUNK / step + 1
+	for j in range(cj * TCHUNK, cj * TCHUNK + TCHUNK + 1, step):
+		for i in range(ci * TCHUNK, ci * TCHUNK + TCHUNK + 1, step):
+			var jj := mini(j, N - 1)
+			var i2 := mini(i, N - 1)
+			vv.append(Vector3(-HALF + i2 * CELL, heights[jj * N + i2] - 0.7, -HALF + jj * CELL))
+	for r in cols - 1:
+		for c in cols - 1:
+			var a := r * cols + c
+			ii.append_array([a, a + 1, a + cols, a + 1, a + cols + 1, a + cols])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = vv
+	arr[Mesh.ARRAY_INDEX] = ii
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	var mi := MeshInstance3D.new()
+	mi.mesh = m
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+	mi.name = "GroundShadow_%d_%d" % [ci, cj]
+	return mi
 
 func _water() -> void:
 	water_mat = ShaderMaterial.new()
@@ -787,6 +827,17 @@ func _road_meshes() -> void:
 						else:
 							mb.quad(p4, p3, p2, p1, up, sw)
 			if kind == "dirt" or in_j:
+				continue
+			# (nor where this bit's out on the other road's tarmac: an angled junction reaches further than
+			# its counted size, and a lane line drawn across the other road looks like a stray mark)
+			var on_other := false
+			if not near_m.is_empty():
+				var midp: Vector3 = (pa + pb) * 0.5
+				for mt in near_m:
+					for oj in mt[2]:
+						if oj != ri and _near_road_d(oj, Vector2(midp.x, midp.z), mt[3]) < float(roads[oj]["w"]) * 0.5 + 0.6:
+							on_other = true
+			if on_other:
 				continue
 			var lift := Vector3(0, 0.015, 0)
 			# centre line: dashed (solid yellow on the mountain)
@@ -1586,6 +1637,18 @@ func _merge_statics() -> void:
 		mi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
 		mi.name = "Props_%d_%d" % [key.x, key.y]
 		add_child(mi)
+		# the shadow comes from a simplified copy: a whole 100 m chunk falls in the sun's shadow box as soon
+		# as a corner of it does, so this halves the cost of shadows in town, and nobody can tell
+		if CHUNK_SHADOWS:
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			var sh := MeshInstance3D.new()
+			sh.mesh = _chunk_mesh(key, true)
+			sh.material_override = mat
+			sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+			sh.visibility_range_end = 330.0
+			sh.name = "PropShadow_%d_%d" % [key.x, key.y]
+			add_child(sh)
+			chunk_sh[key] = sh
 	var st2 := SurfaceTool.new()
 	st2.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for nm in far_statics:
@@ -1602,16 +1665,55 @@ func _merge_statics() -> void:
 	far_statics.clear()
 
 ## A chunk's props merged into one mesh (from chunk_props: a fallen tree is left out).
-func _chunk_mesh(key: Vector2i) -> ArrayMesh:
+## shadow: from the simplified copies (_shadow_of), for the chunk's shadow-only twin.
+func _chunk_mesh(key: Vector2i, shadow := false) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var any := false
 	for nm in chunk_props[key]:
-		var m := M.get_mesh(nm)
+		var m: Mesh = _shadow_of(nm) if shadow else M.get_mesh(nm)
 		for xf in chunk_props[key][nm]:
 			st.append_from(m, 0, xf)
 			any = true
-	return st.commit() if any else null
+	if not any:
+		return null
+	return st.commit()
+
+## A model simplified for its shadow: about a third of the triangles (meshoptimizer, via the importer's LOD
+## maker), the shape kept. Small models stay as they are. Worked out once per model.
+static func _shadow_of(nm: String) -> Mesh:
+	if _sh_cache.has(nm):
+		return _sh_cache[nm]
+	var m := M.get_mesh(nm)
+	var out: Mesh = m
+	var arr := m.surface_get_arrays(0)
+	var idx = arr[Mesh.ARRAY_INDEX]
+	if idx != null and (idx as PackedInt32Array).size() > 3 * 120:
+		var im := ImporterMesh.new()
+		var a2 := []
+		a2.resize(Mesh.ARRAY_MAX)
+		a2[Mesh.ARRAY_VERTEX] = arr[Mesh.ARRAY_VERTEX]
+		a2[Mesh.ARRAY_NORMAL] = arr[Mesh.ARRAY_NORMAL]
+		a2[Mesh.ARRAY_INDEX] = idx
+		im.add_surface(Mesh.PRIMITIVE_TRIANGLES, a2)
+		im.generate_lods(60.0, 90.0, [])
+		var full: int = (idx as PackedInt32Array).size()
+		var best: PackedInt32Array = idx
+		for li in im.get_surface_lod_count(0):
+			var ii := im.get_surface_lod_indices(0, li)
+			if ii.size() >= full * 0.2 and ii.size() < best.size():
+				best = ii
+		if best.size() < full:
+			var a3 := []
+			a3.resize(Mesh.ARRAY_MAX)
+			a3[Mesh.ARRAY_VERTEX] = arr[Mesh.ARRAY_VERTEX]
+			a3[Mesh.ARRAY_NORMAL] = arr[Mesh.ARRAY_NORMAL]
+			a3[Mesh.ARRAY_INDEX] = best
+			var am := ArrayMesh.new()
+			am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a3)
+			out = am
+	_sh_cache[nm] = out
+	return out
 
 # ---------------------------------------------------------------- knocking things over
 
@@ -1669,6 +1771,8 @@ func _knock(tr: Dictionary, vel: Vector3) -> void:
 func _rebuild_chunk(key: Vector2i) -> void:
 	if chunk_mi.has(key):
 		(chunk_mi[key] as MeshInstance3D).mesh = _chunk_mesh(key)
+		if chunk_sh.has(key):
+			(chunk_sh[key] as MeshInstance3D).mesh = _chunk_mesh(key, true)
 
 ## Something falls over from its base, away from what hit it (a copy: the real one's already hidden).
 func fall(mesh: Mesh, xf: Transform3D, vel: Vector3, h: float) -> void:

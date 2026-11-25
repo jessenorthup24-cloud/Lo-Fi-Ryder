@@ -61,8 +61,10 @@ func setup(parent: Node, toon: ShaderMaterial) -> void:
 	parent.add_child(we)
 	sun = DirectionalLight3D.new()
 	sun.shadow_enabled = true
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	sun.directional_shadow_max_distance = 110.0     # (fading out at the far end, not stopping on a line)
+	# one shadow map, not two splits: every shadow caster is drawn once a frame, not twice (a quarter less
+	# drawing all told in town), and side by side you can't tell the difference at this distance
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance = 90.0      # (fading out at the far end, not stopping on a line)
 	sun.directional_shadow_blend_splits = true      # (no line where the near, sharper shadows hand over)
 	sun.shadow_blur = 0.8
 	# enough bias that a surface never shadows itself (the speckled "acne" on a car's bonnet with the sun

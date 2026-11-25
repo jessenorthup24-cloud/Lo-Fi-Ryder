@@ -197,7 +197,11 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   town), shown on the first run and any time from the pause menu, which also has Call the crew.
 - Southside Green: the open ground between the bottom of town and the beach road is a park, with paths
   up from each avenue's crossing to a promenade, lamps, benches, a statue on a little plaza, picnic
-  tables, clumps of trees, and people and dogs about. The circuits' infields have trees, marshals' tents
+  tables, clumps of trees, and people and dogs about.
+- Shadows: one shadow map out to 90 m (not two splits), and the town's props cast theirs from simplified
+  copies of themselves; about a quarter less drawing in town, a third less at the harbour, and no visible
+  difference. Roadsides are flat a full terrain cell past the edge (no grass poking over the tarmac on a
+  steep hill), and a road's cuttings and embankments are grassed (rock only on real cliffs). The circuits' infields have trees, marshals' tents
   and flags, billboards and radar masts rather than bare lawn.
 - The drift meter is a slim readout in the top left, with call-outs ("Close!", stunts) stacked beside it,
   so the middle of the screen stays clear.
@@ -370,6 +374,8 @@ godot --path . -- --drive --season=3             # 0 spring, 1 summer, 2 autumn,
 godot --path . -- --drive --weather=storm         # clear, cloudy, rain, storm, fog, snow
 godot --path . -- --drive --grindtest=0          # line up on grind rail 0, hop on, ride it off the end (logged)
 godot --path . -- --drive --ramcop               # drive into the nearest patrol car (--ramcop_v=12 to coast in at 12 m/s)
+godot --path . -- --drive --perfdump=2           # what's drawn, grouped and biggest first (--perfshadow: just what casts shadows)
+godot --path . -- --drive --noshadow             # (or --shadowdist=60) to see what shadows cost: RESULT has tris and draws
 godot --path . -- --drive --race=downtown --raceauto --racelog   # straight into a race, CPU drives you too
 godot --path . -- --drive --crashtest=tbone --crashv=20   # crash tests (tbone, wall, front, swipe, swipe0, ped), logged
 godot --path . -- --drive --damage=90 --engine=95          # start battered, the engine on fire
