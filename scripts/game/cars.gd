@@ -23,8 +23,8 @@ const LIST := [
 	{"id": "monster", "name": "Nightshade", "price": 11000, "model": "3_1", "power": 1.6, "speed": 1.25, "grip": 1.12, "drift": 1.3, "engine": "v8", "pitch": 0.92},
 	# legendary: the Hoon-again (its own model, tools/cars/bake_glb_car.gd), built to slide
 	# legendary: the Trunoh 86, a panda-coloured hatch with pop-up lights: light, high-revving, balanced in a slide
-	{"id": "ae86", "name": "Trunoh 86", "price": 14000, "model": "ae86", "legend": true, "power": 1.4, "speed": 1.16, "grip": 1.16, "drift": 1.55, "engine": "small", "pitch": 1.22},
-	{"id": "hoon", "name": "Hoon-Again", "price": 15000, "model": "hoon", "legend": true, "power": 1.7, "speed": 1.24, "grip": 1.1, "drift": 1.6, "engine": "v8", "pitch": 0.9},
+	{"id": "ae86", "name": "Trunoh 86", "price": 20000, "model": "ae86", "legend": true, "power": 1.4, "speed": 1.16, "grip": 1.16, "drift": 1.55, "engine": "small", "pitch": 1.22},
+	{"id": "hoon", "name": "Hoon-Again", "price": 20000, "model": "hoon", "legend": true, "power": 1.7, "speed": 1.24, "grip": 1.1, "drift": 1.6, "engine": "v8", "pitch": 0.9},
 ]
 
 static func by_id(id: String) -> Dictionary:

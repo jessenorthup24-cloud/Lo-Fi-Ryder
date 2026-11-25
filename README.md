@@ -181,10 +181,10 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   The drivers on the road don't hop.
 - The garage: 20 cars (each with its own power, top speed, grip and drift), plus four upgrades that
   work on every car you own (engine, turbo, tyres, steering angle).
-- The legendary Trunoh 86 (14,000 coins): a panda-coloured hatch, white over black, with pop-up lamps
+- The legendary Trunoh 86 (20,000 coins): a panda-coloured hatch, white over black, with pop-up lamps
   and a louvred back window. Light and high-revving: not the fastest in a straight line, but the
   tightest, quickest-switching drifter there is.
-- The legendary Hoon-Again (15,000 coins, last in the garage): a black widebody with gold fracture
+- The legendary Hoon-Again (20,000 coins, last in the garage): a black widebody with gold fracture
   livery, the 00 roundel and taped-X headlamps. The quickest car in the game (0-100 in 4.8 s) and the
   slidiest: it holds drifts about 10 degrees deeper than anything else, and still doesn't spin.
 - 41 trophies, each paying coins once (among them winning a race on Hard and winning every race; the
