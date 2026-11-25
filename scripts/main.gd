@@ -23,6 +23,7 @@ const Race := preload("res://scripts/game/race.gd")
 const Police := preload("res://scripts/game/police.gd")
 const Boats := preload("res://scripts/game/boats.gd")
 const Crew := preload("res://scripts/game/crew.gd")
+const Weather := preload("res://scripts/game/weather.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
 
@@ -139,6 +140,7 @@ var router: Route
 var police: Police
 var boats: Boats
 var crew: Crew               # the drivers out on the island (and the ones driving with you)
+var weather: Weather
 var route := {}             # where the GPS is taking you: {pos, name, kind}
 var route_pick := {}        # a place you picked on the map
 var route_pts := PackedVector3Array()
@@ -271,6 +273,11 @@ func _build_world() -> void:
 	crew.name = "Crew"
 	add_child(crew)
 	crew.setup(self, island, traffic)
+	weather = Weather.new()
+	weather.name = "Weather"
+	add_child(weather)
+	weather.setup(self)
+	atmos.weather = weather
 	for st in island.stations:
 		island.map_marker(st["pos"], Color("4fb3a5"), 7.0)
 	_build_markers()
@@ -685,6 +692,8 @@ func _process(dt: float) -> void:
 	dt = minf(dt, 0.05)
 	time += dt
 	atmos.tick(dt)
+	if weather and state != LOADING:
+		weather.tick(dt, cam)
 	if state == DRIVE or state == TITLE:
 		atmos.motes_tick(cam.global_position, -cam.global_transform.basis.z, bool(save.setting("motes")))
 	if island and state != LOADING:
@@ -1098,7 +1107,7 @@ func _drive(dt: float) -> void:
 		ach_t = 0.0
 		ach_check()
 	ui.hud_update({"kmh": kmh, "gear": car.gear, "rpm": car.rpm, "drift": drift_pts, "combo": combo, "combo_t": combo_t,
-		"drifting": drift_on, "coins": int(save.data["coins"]), "place": place_now, "clock": atmos.clock_text(),
+		"drifting": drift_on, "coins": int(save.data["coins"]), "place": place_now, "clock": atmos.clock_text() + (("  ·  " + weather.label()) if weather and weather.label() != "" else ""),
 		"zone": zone, "zone_t": zone_t, "zone_pts": zone_pts, "trial": trial, "trial_t": trial_t, "trial_gate": trial_gate,
 		"trial_pts": trial_pts, "race": {} if race == null else race.hud(), "car_pos": car.get_global_transform_interpolated().origin, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip)),
 		"close": drift_on and close < 1.6 and car.drift > 0.2, "damage": car.damage, "engine": car.engine_dmg, "fuel": fuel,

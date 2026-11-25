@@ -232,6 +232,11 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   (and some on your bumper until a repair). People round about run off. In front of the police it's two
   stars; otherwise someone who saw it usually calls it in a few seconds later (one star); with them after
   you already, it adds to the heat. They're back on their feet a while later, once you're well away.
+- Weather (`scripts/game/weather.gd`): clear, cloudy, rain, storms (wind, lightning, thunder) and fog, changing
+  every few minutes and blending over half a minute; wetter in spring and autumn, misty mornings, snow
+  instead of rain in winter. Cloud greys the sky and softens the sun and its shadows, fog and rain thicken
+  the air, rain falls round you and you hear it, and wet roads go darker and every car grips a little less
+  until they dry. The clock shows what it's doing. Settings → Weather off keeps it fine.
 - Seasons: autumn colours from September, snow and decorations in winter, blossom in spring. Windows
   and lamps light up after dusk.
 - North of downtown, off Castle Road, the rough side of town: Palmer Street, a cul-de-sac of little stucco
@@ -318,6 +323,7 @@ godot --path . -- --drive --at=harbour --hour=21 # start at a zone, trial, place
 godot --path . -- --garage=up --fresh            # garage on the Upgrades tab, fresh save
 godot --path . -- --drive --put=-108,284,90 --stunt=backflip   # exactly here (x,z,yaw), gas on, a trick in the air
 godot --path . -- --drive --season=3             # 0 spring, 1 summer, 2 autumn, 3 winter
+godot --path . -- --drive --weather=storm         # clear, cloudy, rain, storm, fog, snow
 godot --path . -- --drive --race=downtown --raceauto --racelog   # straight into a race, CPU drives you too
 godot --path . -- --drive --crashtest=tbone --crashv=20   # crash tests (tbone, wall, front, swipe, swipe0, ped), logged
 godot --path . -- --drive --damage=90 --engine=95          # start battered, the engine on fire

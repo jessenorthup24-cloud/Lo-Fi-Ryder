@@ -260,11 +260,29 @@ func _apply() -> void:
 	sun.light_color = k[2]
 	sun.light_energy = k[3]
 	night = clampf(1.0 - smoothstep(0.2, 0.55, float(k[3])), 0.0, 1.0)
+	env.fog_density = 0.00105
+	if weather:
+		# cloud: a grey sky, a dimmer sun with fainter shadows, flatter light; fog and rain thicken the air;
+		# lightning flashes the lot
+		var cl: float = weather.cloud
+		var fg: float = weather.fog
+		var fl: float = weather.flash
+		var grey := Color(0.58, 0.61, 0.66).lerp(Color(0.1, 0.11, 0.14), night)
+		sky_mat.sky_top_color = sky_mat.sky_top_color.lerp(grey.darkened(0.12), cl * 0.85).lerp(Color(0.85, 0.88, 1.0), fl * 0.6)
+		sky_mat.sky_horizon_color = sky_mat.sky_horizon_color.lerp(grey.lightened(0.08), cl * 0.8).lerp(Color.WHITE, fl * 0.5)
+		sky_mat.ground_horizon_color = sky_mat.sky_horizon_color
+		sun.light_energy *= 1.0 - 0.6 * cl
+		sun.shadow_opacity *= 1.0 - 0.7 * cl
+		env.ambient_light_energy = env.ambient_light_energy * (1.0 + 0.3 * cl) + fl * 1.4
+		env.fog_density = 0.00105 + fg * 0.014 + float(weather.rain) * 0.0035
+		env.fog_light_color = env.fog_light_color.lerp(grey.lightened(0.15), maxf(cl, fg) * 0.8)
 	for m in mats:
 		m.set_shader_parameter("night", night)
 		m.set_shader_parameter("rim_color", (k[1] as Color).lerp(Color.WHITE, 0.3))
 	if sea:
 		sea.set_shader_parameter("night", night)
+
+var weather: Node = null       # (weather.gd: cloud, fog and lightning change the sky and the light)
 
 func is_night() -> bool:
 	return night > 0.5

@@ -1651,6 +1651,7 @@ func open_settings(from_pause := false) -> void:
 	g.add_child(_setting_toggle("sun", "Bloom", st.get("bloom", true), func(v): game.set_setting("bloom", v)))
 	g.add_child(_setting_toggle("wind", "Speed blur", st.get("speedfx", true), func(v): game.set_setting("speedfx", v)))
 	g.add_child(_setting_toggle("leaf", "Ambient particles", st.get("motes", true), func(v): game.set_setting("motes", v)))
+	g.add_child(_setting_toggle("rain", "Weather", st.get("weather", true), func(v): game.set_setting("weather", v)))
 	g.add_child(_setting_toggle("calendar", "Show clock", st["clock"], func(v): game.set_setting("clock", v)))
 	g.add_child(_setting_toggle("eye", "Show FPS", st.get("fps", false), func(v): game.set_setting("fps", v)))
 	g.add_child(_setting_toggle("gear", "Cap at 60 fps", st.get("fps60", false), func(v): game.set_setting("fps60", v)))

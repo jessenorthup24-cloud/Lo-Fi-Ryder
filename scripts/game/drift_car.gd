@@ -92,6 +92,7 @@ var ride := 0.0
 var ride_off := 0.0          # metres the springs sit longer (+) or shorter (-)
 var grip_k := 1.0            # race grip, from the tuning
 var drift_k := 0.0           # how much easier drifting is (-0.3 .. 0.9)
+static var wet_k := 1.0      # the weather: wet roads, a little less grip for everyone (weather.gd sets it)
 var nitro := 0.0             # nitrous going (0..1; main sets it while there's some in the bottle)
 var hold := false            # waiting on a start line: sitting on its wheels with the brake on (not frozen in the air)
 var neon_node: Node3D
@@ -522,7 +523,7 @@ func _physics_process(dt: float) -> void:
 			# (only while the tail's following: once it starts to slide, the nose doesn't get the help)
 			var follow := clampf(1.0 - (absf(slip) - deg_to_rad(2.5)) / deg_to_rad(3.0), 0.0, 1.0)
 			fz_g = minf(fz_g + minf(drive * 0.5 * 0.21, mass * 9.8 * 0.055) * follow, mass * 9.8 * 0.45)
-		var cap := mu * g * fz_g * (1.0 if wd["front"] else (rear_grip if drift_mode else maxf(rear_grip, 1.04)))
+		var cap := mu * wet_k * g * fz_g * (1.0 if wd["front"] else (rear_grip if drift_mode else maxf(rear_grip, 1.04)))
 		if not drift_mode:
 			cap *= GRIP_MU * grip_k        # race tyres, as it were (less with camber): drifting keeps its own feel
 		elif not wd["front"]:
@@ -593,7 +594,7 @@ func _physics_process(dt: float) -> void:
 		# steering assist, Forza style: the car turns as fast as the wheels are pointing asks it to (up to
 		# what the tyres can hold) and gets there quickly, without the dart-then-settle of a bare car
 		if speed > 4.0 and grounded >= 3:
-			var r_lim := mu * GRIP_MU * grip_k * 9.8 * 0.85 / maxf(vs, 1.0)     # (just inside what the tyres hold)
+			var r_lim := mu * wet_k * GRIP_MU * grip_k * 9.8 * 0.85 / maxf(vs, 1.0)     # (just inside what the tyres hold)
 			# (in proportion to the wheel: half the lock asks for half the turn the grip allows; slowly,
 			# no more than the wheels' angle itself would give)
 			var r_kin := vs * tan(absf(steer)) / maxf(wb, 1.0)
