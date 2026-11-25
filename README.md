@@ -80,7 +80,13 @@ on cars and upgrades. The day runs in real time on the island and the season fol
     a circuit) get a visit:
     they turn up some way in, go for the racers too (a racer they stop is out of the race) and the chase
     goes on after the finish line. Trophies for losing them once and ten times, and for five stars.
-- Nitrous: hold NOS (above GAS; N or E on a keyboard) for a hard shove and a higher top speed, with blue
+- The controls are drawn as what they are: see-through arrows (when the wheel's off), a gas and a brake
+  pedal that press down, a handbrake lever that pulls up, the nitrous canister (showing what's left) and
+  the cruise control dial.
+- Cruise control: tap the dial (Q) to hold the speed you're doing; the gas takes you faster and that
+  becomes the new speed; the brake or the handbrake switches it off.
+- Nitrous: tap the NOS canister (N or E on a keyboard) to switch it on, again to switch it off (it goes off
+  by itself when the bottle's empty), for a hard shove and a higher top speed, with blue
   flames, a wider view and more speed blur. The bottle refills slowly as you drive, quicker drifting or
   in the air. The Nitrous Tank upgrade makes it bigger (3 s up to 9 s).
 - Knock things over: hit a tree, a street lamp, a signpost or a traffic light at more than about
@@ -345,6 +351,7 @@ godot --path . -- --drive --begin=race:cliffside --raceauto --restartat=14 --qui
 godot --path . -- --drive --auto --begin=zone:square --againtest   # the results card's Try again, pressed for you
 godot --path . -- --drive --begin=race:downtown --pauseat=6        # the pause menu (--sheet=settings, help, map, trophies too)
 godot --path . -- --drive --car=mail --tunetest=5,-2,8 --hour=21   # this car, slammed, blue neon, at night
+godot --path . -- --drive --padtest --shot_t=7:pads.png   # the controls in use (gas, NOS, handbrake)
 godot --path . -- --drive --patrolcam             # beside a patrol car in the traffic
 godot --headless --path . -- --auto --crew=3 --crewlog --crashlog   # three of the drivers called to you, logged
 godot --path . -- --drive --crew=Kai,Rico --phone_at=6               # these two with you, the phone up 6 s in

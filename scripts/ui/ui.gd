@@ -521,6 +521,7 @@ func _build_hud() -> void:
 	ctl["gas"] = _pad("gas", Vector2(-270, -250), Vector2(150, 210), false, K.PAPER)
 	ctl["hand"] = _pad("hand", Vector2(-420, -360), Vector2(130, 120), false, K.PAPER)
 	ctl["nos"] = _pad("nos", Vector2(-270, -380), Vector2(150, 116), false, Color("cfe9ff"))
+	ctl["cruise"] = _pad("cruise", Vector2(-528, -330), Vector2(92, 92), false, K.PAPER)
 	reset_hint = K.button("Stuck? Reset car", K.SUN, K.SUN_DK, 28, 0, 72, "home")
 	reset_hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	reset_hint.position = Vector2(-160, 60)
@@ -530,10 +531,11 @@ func _build_hud() -> void:
 	reset_hint.visible = false
 	hud.add_child(reset_hint)
 
-## A big touch pad. It isn't a Button: main reads touches on it directly, so several work at once.
-func _pad(name: String, pos: Vector2, size: Vector2, left_side: bool, col: Color) -> Control:
-	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", K.box(Color(col, 0.62), 34 if name != "hand" else 40, 8, Color(K.LINE_DK, 0.7), 0))
+## A big touch control. It isn't a Button: main reads touches on it directly, so several work at once.
+## Each is drawn as what it is: see-through arrows to steer, a gas and a brake pedal, a handbrake lever,
+## the nitrous canister (showing what's left in it) and the cruise control.
+func _pad(name: String, pos: Vector2, size: Vector2, left_side: bool, _col: Color) -> Control:
+	var p := Control.new()
 	if left_side:
 		p.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	else:
@@ -543,44 +545,98 @@ func _pad(name: String, pos: Vector2, size: Vector2, left_side: bool, col: Color
 	p.custom_minimum_size = size
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.pivot_offset = size * 0.5
-	var vb := VBoxContainer.new()
-	vb.alignment = BoxContainer.ALIGNMENT_CENTER
-	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	p.add_child(vb)
-	match name:
-		"left", "right":
-			var ic := Icon.new(name, K.INK, 92)
-			ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-			vb.add_child(ic)
-		"gas":
-			vb.add_child(K.label("GAS", 34, K.INK, 700))
-			var ic2 := Icon.new("play", K.INK, 56)
-			ic2.rotation = -PI * 0.5
-			ic2.pivot_offset = Vector2(28, 28)
-			ic2.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-			vb.add_child(ic2)
-		"brake":
-			vb.add_child(K.label("BRAKE", 26, K.INK, 700))
-			vb.add_child(K.label("hold: reverse", 15, K.INK_SOFT, 600))
-		"hand":
-			vb.add_child(K.label("DRIFT", 26, K.INK, 700))
-			vb.add_child(K.label("handbrake", 16, K.INK_SOFT, 600))
-		"nos":
-			vb.add_child(K.label("NOS", 30, Color("1f4f7a"), 800))
-			# how much is in the bottle
-			var fill := Control.new()
-			fill.custom_minimum_size = Vector2(104, 12)
-			fill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-			fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			fill.set_meta("v", 1.0)
-			fill.draw.connect(func():
-				var v: float = fill.get_meta("v")
-				fill.draw_rect(Rect2(Vector2.ZERO, fill.size), Color(0.1, 0.2, 0.3, 0.35))
-				fill.draw_rect(Rect2(Vector2.ZERO, Vector2(fill.size.x * clampf(v, 0.0, 1.0), fill.size.y)), Color("3aa0ff") if v > 0.2 else Color("ef6a55")))
-			vb.add_child(fill)
-			p.set_meta("fill", fill)
+	p.set_meta("on", false)
+	p.set_meta("v", 1.0)
+	p.draw.connect(func(): _draw_pad(p, name))
 	hud.add_child(p)
 	return p
+
+func _pad_text(c: Control, text: String, at: Vector2, size: int, col: Color) -> void:
+	var f := K.font(750)
+	var w := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	c.draw_string_outline(f, at - Vector2(w * 0.5, 0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, 5, Color(0, 0, 0, 0.35))
+	c.draw_string(f, at - Vector2(w * 0.5, 0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
+
+func _rrect(c: Control, r: Rect2, rad: float, fill: Color, border := Color.TRANSPARENT, bw := 0) -> void:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = fill
+	sb.set_corner_radius_all(int(rad))
+	sb.anti_aliasing = true
+	if bw > 0:
+		sb.border_color = border
+		sb.set_border_width_all(bw)
+	c.draw_style_box(sb, r)
+
+func _draw_pad(c: Control, name: String) -> void:
+	var s := c.size
+	var on: bool = c.get_meta("on")
+	match name:
+		"left", "right":
+			# glass: barely there, an outline and the arrow
+			_rrect(c, Rect2(Vector2.ZERO, s), 30, Color(1, 1, 1, 0.16 if on else 0.06), Color(1, 1, 1, 0.38), 3)
+			var cx := s * 0.5
+			var d := -1.0 if name == "left" else 1.0
+			var pts := PackedVector2Array([cx + Vector2(d * 26, 0), cx + Vector2(-d * 14, -30), cx + Vector2(-d * 14, 30)])
+			c.draw_colored_polygon(pts, Color(1, 1, 1, 0.75 if on else 0.5))
+		"gas", "brake":
+			# a pedal: a rubber plate with ridges on its arm, pressed down when your foot's on it
+			var push := 7.0 if on else 0.0
+			var gas := name == "gas"
+			var top := 10.0 + push
+			var plate := PackedVector2Array([Vector2(16, top), Vector2(s.x - 16, top), Vector2(s.x - 6, s.y - 12 + push * 0.3), Vector2(6, s.y - 12 + push * 0.3)])
+			c.draw_colored_polygon(plate, Color(0.1, 0.1, 0.11, 0.7))
+			var tint := Color("54e08a") if gas else Color("ef6a55")
+			c.draw_polyline(plate + PackedVector2Array([plate[0]]), Color(tint, 0.85) if on else Color(1, 1, 1, 0.4), 3.0, true)
+			var y := top + 16.0
+			while y < s.y - 34.0:
+				var inset := 14.0 + (y - top) * -0.05
+				c.draw_line(Vector2(inset + 8, y), Vector2(s.x - inset - 8, y), Color(1, 1, 1, 0.16), 5.0)
+				y += 17.0
+			if on:
+				_rrect(c, Rect2(Vector2(10, top - 2), Vector2(s.x - 20, s.y - top - 8)), 10, Color(tint, 0.18))
+			_pad_text(c, "GAS" if gas else "BRAKE", Vector2(s.x * 0.5, s.y - 22.0 + push * 0.3), 26 if gas else 22, Color.WHITE)
+			if not gas:
+				_pad_text(c, "hold: reverse", Vector2(s.x * 0.5, 30.0 + push), 13, Color(1, 1, 1, 0.7))
+		"hand":
+			# the handbrake: a lever on its slot, pulled up while you hold it
+			_rrect(c, Rect2(Vector2(10, s.y - 34), Vector2(s.x - 20, 22)), 11, Color(0.1, 0.1, 0.11, 0.65), Color(1, 1, 1, 0.3), 2)
+			var piv := Vector2(26, s.y - 24)
+			var ang := deg_to_rad(-48.0 if on else -14.0)
+			var tip := piv + Vector2(cos(ang), sin(ang)) * (s.x - 44)
+			c.draw_line(piv, tip, Color(0.16, 0.16, 0.17, 0.92), 16.0, true)
+			c.draw_line(piv + (tip - piv) * 0.55, tip, Color("e8dcc4") if on else Color(0.85, 0.85, 0.87, 0.9), 18.0, true)
+			c.draw_circle(tip, 11.0, Color("ef6a55") if on else Color(0.75, 0.75, 0.78, 0.95))
+			c.draw_circle(piv, 9.0, Color(0.3, 0.3, 0.32, 0.95))
+			_pad_text(c, "DRIFT", Vector2(s.x * 0.5, 26.0), 22, Color.WHITE)
+		"nos":
+			# the nitrous canister: what's left in it, glowing while it's on
+			var v: float = c.get_meta("v")
+			var bw := 58.0
+			var body := Rect2(Vector2((s.x - bw) * 0.5, 26), Vector2(bw, s.y - 34))
+			if on:
+				_rrect(c, body.grow(7), 24, Color(0.35, 0.75, 1.0, 0.35))
+			_rrect(c, Rect2(body.position + Vector2(bw * 0.3, -14), Vector2(bw * 0.4, 16)), 4, Color(0.75, 0.78, 0.82, 0.95))
+			_rrect(c, Rect2(body.position + Vector2(bw * 0.18, -22), Vector2(bw * 0.64, 9)), 4, Color(0.35, 0.37, 0.4, 0.95))
+			_rrect(c, body, 18, Color(0.08, 0.2, 0.38, 0.85), Color(1, 1, 1, 0.5), 2)
+			var lv := clampf(v, 0.0, 1.0)
+			if lv > 0.01:
+				var fh := (body.size.y - 8) * lv
+				_rrect(c, Rect2(Vector2(body.position.x + 5, body.end.y - 4 - fh), Vector2(bw - 10, fh)), 13,
+					Color("3aa0ff") if lv > 0.2 else Color("ef6a55"))
+			c.draw_line(body.position + Vector2(12, 12), body.position + Vector2(12, body.size.y - 14), Color(1, 1, 1, 0.3), 4.0)
+			_pad_text(c, "NOS", Vector2(s.x * 0.5, body.position.y + body.size.y * 0.58), 22, Color.WHITE)
+			_pad_text(c, "ON" if on else "tap", Vector2(s.x * 0.5 + bw * 0.5 + 22, body.end.y - 4), 14, Color("8fd3ff") if on else Color(1, 1, 1, 0.55))
+		"cruise":
+			# cruise control: a little dial, the speed it's holding when it's on
+			var r := minf(s.x, s.y) * 0.5 - 2
+			var cc := s * 0.5
+			c.draw_circle(cc, r, Color(0.1, 0.1, 0.11, 0.6))
+			c.draw_arc(cc, r, 0, TAU, 40, Color("54e08a") if on else Color(1, 1, 1, 0.4), 3.0, true)
+			c.draw_arc(cc, r * 0.62, PI * 0.8, PI * 2.2, 20, Color(1, 1, 1, 0.55), 4.0, true)
+			var na := PI * 0.8 + PI * 1.4 * (0.65 if on else 0.3)
+			c.draw_line(cc, cc + Vector2(cos(na), sin(na)) * r * 0.55, Color("54e08a") if on else Color(1, 1, 1, 0.8), 4.0, true)
+			var sv: float = c.get_meta("set", 0.0)
+			_pad_text(c, str(int(sv)) if on else "CRUISE", Vector2(cc.x, cc.y + r * 0.62), 18 if on else 13, Color.WHITE)
 
 ## The police, the way GTA does it: five stars under the minimap (none lit, none shown, till they're
 ## after you). The lit ones flash while they've lost sight of you and turn red as they box you in, and the
@@ -843,7 +899,7 @@ func control_at(pos: Vector2) -> String:
 		var hub := wheel.get_global_rect().position + _wheel_hub()
 		if pos.distance_to(hub) < 250.0:
 			return "wheel"
-	for k in ["rewind", "nos", "hand", "gas", "brake", "left", "right"]:
+	for k in ["rewind", "nos", "cruise", "hand", "gas", "brake", "left", "right"]:
 		var c: Control = ctl[k]
 		if not c.visible:
 			continue
@@ -855,8 +911,18 @@ func pressed_controls(held: Dictionary) -> void:
 	for k in ctl:
 		var c: Control = ctl[k]
 		var on: bool = held.get(k, false)
-		c.scale = c.scale.lerp(Vector2.ONE * (0.93 if on else 1.0), 0.5)
-		c.modulate = Color(1.15, 1.15, 1.15, 1.0) if on else Color(1, 1, 1, 0.9)
+		# (the nitrous and the cruise control show whether they're switched on, not your finger)
+		if k == "nos":
+			on = game.nos_toggle
+		elif k == "cruise":
+			on = game.cruise_on
+			c.set_meta("set", game.cruise_v * 3.6)
+		if k == "rewind":
+			c.scale = c.scale.lerp(Vector2.ONE * (0.93 if on else 1.0), 0.5)
+			c.modulate = Color(1.15, 1.15, 1.15, 1.0) if on else Color(1, 1, 1, 0.9)
+		elif c.has_meta("on") and bool(c.get_meta("on")) != on:
+			c.set_meta("on", on)
+			c.queue_redraw()
 
 func _gauge(icon: String, at: Vector2) -> Control:
 	var g := Control.new()
@@ -992,9 +1058,10 @@ func hud_update(d: Dictionary) -> void:
 		wheel.set_meta("on", game.wheel_idx >= 0)
 		wheel.queue_redraw()
 	_wanted_update(d.get("police", {}), float(d["kmh"]))
-	var nf: Control = ctl["nos"].get_meta("fill")
-	nf.set_meta("v", float(d.get("nos", 1.0)))
-	nf.queue_redraw()
+	var nc: Control = ctl["nos"]
+	if absf(float(nc.get_meta("v")) - float(d.get("nos", 1.0))) > 0.01:
+		nc.set_meta("v", float(d.get("nos", 1.0)))
+		nc.queue_redraw()
 	# a sense of speed: the edges of the screen blur a little (never your car or the way ahead) and streaks
 	# rush past, from about 120 km/h, building to 240
 	var want := clampf((float(d["kmh"]) - 120.0) / 120.0 + float(d.get("nos_on", 0.0)) * 0.25, 0.0, 1.0) if bool(game.save.setting("speedfx")) else 0.0

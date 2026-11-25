@@ -159,6 +159,10 @@ var rw_ghost := 0.0         # just after a rewind: the traffic can't hit you for
 const RW_SECS := 10.0
 const RW_HZ := 20.0
 var nos_on := false
+var nos_toggle := false     # NOS is a switch: tap it on, it runs till you tap it off or the bottle's empty
+var cruise_on := false      # cruise control: holds the speed you set (gas raises it; brake or handbrake ends it)
+var cruise_v := 0.0
+var _press_was := {}
 var nos_fx_t := 0.0
 var intro := {}             # a challenge getting going: {kind, id, t, said}: the title, then 3-2-1-GO
 var cur_challenge: Array = []     # [kind, id] of the challenge on (or just finished): for Restart and Try again
@@ -824,6 +828,15 @@ func _crew_tests() -> void:
 				var d := crew._spawn(who, true)
 				if not d.is_empty():
 					crew._join_crew(d)
+	if args.has("padtest") and time > 3.0:
+		# a test: the controls as they look in use (gas down, NOS on, cruise set, the steering arrows up)
+		save.data["settings"]["wheel"] = false
+		nos_toggle = true
+		if not cruise_on:
+			cruise_on = true
+			cruise_v = 16.0
+		held["gas"] = true
+		held["hand"] = time > 6.0
 	if args.has("groupcam") and not group_cam:
 		group_cam = true
 	if args.has("phone_at") and not has_meta("phone_done") and time > float(args["phone_at"]):
@@ -871,6 +884,23 @@ func _controls(dt: float) -> void:
 	car.throttle = 1.0 if held.get("gas", false) else 0.0
 	car.brake = 1.0 if held.get("brake", false) else 0.0
 	car.handbrake = 1.0 if held.get("hand", false) else 0.0
+	# the switches: NOS and cruise toggle on a tap
+	if _pressed("nos"):
+		nos_toggle = not nos_toggle and nos_left > 0.2
+		ui_tap()
+	if _pressed("cruise"):
+		cruise_on = not cruise_on and car.speed > 5.0
+		cruise_v = car.speed
+		ui.popup_text("Cruise %d km/h" % int(cruise_v * 3.6) if cruise_on else "Cruise off")
+	if cruise_on:
+		if car.brake > 0.0 or car.handbrake > 0.0 or not intro.is_empty():
+			cruise_on = false
+		elif car.throttle > 0.0:
+			cruise_v = maxf(cruise_v, car.speed)        # (on the gas: faster, and that's the new set speed)
+		else:
+			car.throttle = clampf((cruise_v - car.speed) * 0.5 + 0.25, 0.0, 1.0)
+			if car.speed > cruise_v + 1.5:
+				car.throttle = 0.0
 	ui.pressed_controls(held)
 
 ## A test (--census): what the camera draws this frame, grouped by name: geometry in view and in range
@@ -2232,7 +2262,9 @@ func nos_cap() -> float:
 ## quicker when you're drifting or in the air.
 func _nitrous(dt: float) -> void:
 	var cap := nos_cap()
-	var want: bool = held.get("nos", false) and nos_left > 0.05 and car.grounded >= 2 and car.speed > 2.0 \
+	if nos_left <= 0.05:
+		nos_toggle = false
+	var want: bool = nos_toggle and nos_left > 0.05 and car.grounded >= 2 and car.speed > 2.0 \
 		and intro.is_empty() and not car.freeze and not car.hold
 	if args.has("nos") and car.speed > 8.0 and nos_left > 0.05:
 		want = true          # (a test: fire it as soon as you're moving)
@@ -2895,6 +2927,8 @@ func _unhandled_input(e: InputEvent) -> void:
 				held["hand"] = on
 			KEY_N, KEY_E:
 				held["nos"] = on
+			KEY_Q:
+				held["cruise"] = on
 			KEY_BACKSPACE, KEY_Z:
 				held["rewind"] = on
 			KEY_R:
@@ -2967,8 +3001,15 @@ func _look_drag(idx: int, pos: Vector2) -> void:
 	look_touches[idx] = pos
 	look_t = 0.0
 
+## A control just pressed this frame (for the switches).
+func _pressed(k: String) -> bool:
+	var on: bool = held.get(k, false)
+	var was: bool = _press_was.get(k, false)
+	_press_was[k] = on
+	return on and not was
+
 func _touch_held() -> void:
-	for k in ["left", "right", "gas", "brake", "hand", "nos", "rewind"]:
+	for k in ["left", "right", "gas", "brake", "hand", "nos", "rewind", "cruise"]:
 		var on := false
 		for t in touches.values():
 			if t == k:
