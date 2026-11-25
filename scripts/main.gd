@@ -153,6 +153,8 @@ var stick := Vector2.ZERO    # the on-foot stick: x right, y forward
 var stick_idx := -1          # the finger on it
 var foot_yaw := 0.0          # the on-foot camera's heading
 var foot_pitch := 0.32
+var drive_def := {}          # what you're driving now: your own car (the garage's) or one you've taken
+var parked: Array = []       # cars left standing: {def, paint, xf, node, own, damage, engine}
 var weather: Weather
 var route := {}             # where the GPS is taking you: {pos, name, kind}
 var route_pick := {}        # a place you picked on the map
@@ -597,6 +599,11 @@ func close_garage(back_to: int) -> void:
 
 func car_changed() -> void:
 	var d := CARS.by_id(String(save.data["car"]))
+	drive_def = d
+	for pk in parked.duplicate():
+		if bool(pk["own"]):
+			parked.erase(pk)       # (the garage hands you your car where you are: no copy of it left behind)
+			(pk["node"] as Node).queue_free()
 	var sm := int((save.data["tune"].get(String(d["id"]), {}) as Dictionary).get("smoke", 0))
 	smoke_col = Color(Car.SMOKE[clampi(sm, 0, Car.SMOKE.size() - 1)])
 	var xf := car.global_transform if car.is_inside_tree() and car.wheels.size() > 0 else Transform3D()
@@ -779,7 +786,11 @@ func _process(dt: float) -> void:
 		for pr in island.people.hits(car.global_transform, half, (float(car.info["front"]) + float(car.info["back"])) * 0.5, car.linear_velocity):
 			_ped_hit(pr)
 	ragdolls.tick(dt, cp)
-	traffic.parked = car.global_position if on_foot else Vector3.INF
+	traffic.parked.clear()
+	if on_foot:
+		traffic.parked.append(car.global_position)
+	for pk in parked:
+		traffic.parked.append((pk["node"] as Node3D).global_position)
 	traffic.tick(dt, cp, foot.velocity if on_foot else car.linear_velocity, -cam.global_transform.basis.z)
 	if traffic.honk != Vector3.INF and state == DRIVE:
 		var hd: float = traffic.honk.distance_to(cp)
@@ -948,6 +959,44 @@ func _crew_tests() -> void:
 		keys.sort_custom(func(a, b): return int(groups[a][1]) > int(groups[b][1]))
 		for k in keys.slice(0, 30):
 			print("PERF %-34s nodes %5d  tris %9d  range %.0f" % [k, groups[k][0], groups[k][1], groups[k][2]])
+	if args.has("stealtest") and state == DRIVE:
+		# a test: out at 3 s, up to the nearest traffic car, take it, drive it off
+		if not has_meta("st_out") and time > 3.0:
+			set_meta("st_out", true)
+			toggle_foot()
+		if on_foot and not has_meta("st_in") and time > 3.5:
+			var best := {}
+			var bd := INF
+			for tc in traffic.cars:
+				var dd: float = (tc["body"] as Node3D).global_position.distance_to(foot.global_position)
+				if dd < bd and int(tc["mode"]) < traffic.KNOCKED and String(tc["model"]) == String(args.get("stealtest", "k_car_taxi")):
+					bd = dd
+					best = tc
+			if not best.is_empty():
+				set_meta("st_in", true)
+				best["v"] = 0.0
+				var bb: Node3D = best["body"]
+				foot.place(bb.global_position - bb.global_transform.basis.x * 2.0 + Vector3(0, 0.5, 0), 0.0)
+				toggle_foot()
+				print("STEAL took %s: driving=%s on_foot=%s parked=%d wanted=%s" % [best["model"], drive_def.get("name", "?"), str(on_foot), parked.size(), str(police.wanted())])
+				for pk in parked:
+					var pn: Node3D = pk["node"]
+					print("STEAL parked %s at %s visible=%s kids=%d inside=%s" % [pk["def"]["id"], pn.global_position, str(pn.is_visible_in_tree()), pn.get_child_count(), str(pn.is_inside_tree())])
+		if has_meta("st_in") and not has_meta("st_back") and time > 11.0 and absf(car.speed) < 3.0:
+			# back to your own car: out of this one (stopped), over to the parked one, in
+			set_meta("st_back", true)
+			toggle_foot()
+			for pk in parked:
+				if bool(pk["own"]):
+					var pn: Node3D = pk["node"]
+					foot.place(pn.global_position + pn.global_transform.basis.x * 2.2 + Vector3(0, 0.4, 0), 0.0)
+			toggle_foot()
+			print("STEAL back: driving=%s on_foot=%s parked=%s" % [drive_def.get("name", "?"), str(on_foot), str(parked.map(func(q): return q["def"]["id"]))])
+		if has_meta("st_in") and not on_foot:
+			held["gas"] = time < 9.0
+			held["brake"] = time > 9.0 and not has_meta("st_back")
+			if frames % 30 == 0:
+				print("STEAL drive t=%.1f kmh=%.0f up=%.2f grounded=%d" % [time, car.speed * 3.6, car.global_transform.basis.y.y, car.grounded])
 	if args.has("foottest") and state == DRIVE:
 		# a test: out of the car at 3 s, walk forward, sprint, jump, turn; back in at the end
 		if not has_meta("ft_out") and time > 3.0:
@@ -3166,13 +3215,19 @@ func _exit_car() -> void:
 	ui.set_foot(true)
 	sfx("door", -6.0) if sound._stream("door") else sfx("bump", -10.0, 1.4)
 
-## In again: to your own car, if you're close enough.
+## In again: the car you got out of, a parked one, or one off the road (you take it: its driver runs).
 func _enter_car() -> void:
 	if foot == null:
 		return
-	if foot.global_position.distance_to(car.global_position) > float(car.info["length"]) * 0.5 + 2.6:
-		ui.toast("Walk up to your car to get in", "car")
+	var t := _enter_target()
+	if t.is_empty():
+		ui.toast("Walk up to a car to get in", "car")
 		return
+	match String(t["kind"]):
+		"parked":
+			_swap_into(t["pk"]["def"], int(t["pk"]["paint"]), (t["pk"]["node"] as Node3D).global_transform, t["pk"])
+		"traffic":
+			_take_traffic(t["c"])
 	foot.queue_free()
 	foot = null
 	on_foot = false
@@ -3182,9 +3237,115 @@ func _enter_car() -> void:
 	_cam(0.016, true)
 	sfx("door", -6.0) if sound._stream("door") else sfx("bump", -10.0, 1.4)
 
-## Near enough to the car to get in.
+## Near enough to a car to get in.
 func near_car() -> bool:
-	return on_foot and foot != null and foot.global_position.distance_to(car.global_position) < float(car.info["length"]) * 0.5 + 2.6
+	return on_foot and foot != null and not _enter_target().is_empty()
+
+## The car you'd get into from here: {kind: "car" | "parked" | "traffic", ...}, or {} if none's close.
+func _enter_target() -> Dictionary:
+	var p := foot.global_position
+	if p.distance_to(car.global_position) < float(car.info["length"]) * 0.5 + 2.6:
+		return {"kind": "car"}
+	for pk in parked:
+		var n: Node3D = pk["node"]
+		if p.distance_to(n.global_position) < float(pk["len"]) * 0.5 + 2.6:
+			return {"kind": "parked", "pk": pk}
+	var c: Dictionary = traffic.takeable(p, 4.2)
+	if not c.is_empty():
+		return {"kind": "traffic", "c": c}
+	return {}
+
+## The def for a traffic car you've taken.
+func _traffic_def(model: String) -> Dictionary:
+	if model == "k_car_police":
+		return CARS.by_id("police")
+	var heavy := model.contains("truck") or model.contains("garbage") or model.contains("ambulance")
+	var sporty := model.contains("sports")
+	var pretty := model.trim_prefix("k_car_").replace("-", " ").capitalize()
+	return {"id": "taken_" + model, "name": pretty, "kmodel": model, "power": 0.75 if heavy else (1.1 if sporty else 0.9),
+		"speed": 0.8 if heavy else (1.05 if sporty else 0.92), "grip": 0.95, "drift": 0.85 if heavy else 1.0,
+		"engine": "truck" if heavy else "small", "pitch": 0.8 if heavy else 1.0}
+
+## You take a car off the road: its driver jumps out and runs, it's yours; the one you had stays parked.
+func _take_traffic(c: Dictionary) -> void:
+	var b: Node3D = c["body"]
+	var xf := b.global_transform
+	var model := String(c["model"])
+	# the driver bails out of the far side and legs it
+	var side := xf.basis.x
+	side.y = 0.0
+	var dp := xf.origin + side.normalized() * (float(c["w"]) * 0.5 + 0.8)
+	var path := PackedVector3Array()
+	for k in 6:
+		var q := dp + side.normalized() * (k * 5.0) + xf.basis.z * (k * 2.0)
+		path.append(Vector3(q.x, island.height_at(q.x, q.z) + 0.05, q.z))
+	var pr: Dictionary = island.people.spawn_walker(randi_range(0, 99), path, 4.5)
+	if not pr.is_empty():
+		pr["d"] = 0.0
+		pr["wdir"] = 1.0
+	traffic.take(c, foot.global_position, -cam.global_transform.basis.z)
+	_swap_into(_traffic_def(model), 0, xf, {})
+	save.add_stat("cars_taken", 1)
+	ui.popup_text(String(drive_def.get("name", "Car")))
+	# taking a police car, or taking one with a patrol car looking on: they want a word
+	var seen := model == "k_car_police"
+	for tc in traffic.cars:
+		if String(tc["model"]) == "k_car_police" and (tc["body"] as Node3D).global_position.distance_to(xf.origin) < 45.0:
+			seen = true
+	if seen and not police.wanted():
+		police.start(1.0, "Took a police car" if model == "k_car_police" else "Car theft")
+
+## Into another car where it stands; the one you were driving stays parked where you left it.
+func _swap_into(def: Dictionary, paint: int, xf: Transform3D, from_parked: Dictionary) -> void:
+	if drive_def.is_empty():
+		drive_def = CARS.by_id(String(save.data["car"]))
+	_leave_parked(drive_def, int(save.data["paint"].get(String(drive_def["id"]), 0)) if not drive_def.has("kmodel") else 0)
+	if not from_parked.is_empty():
+		parked.erase(from_parked)
+		(from_parked["node"] as Node).queue_free()
+	drive_def = def
+	car.setup(def, toon, island, paint)
+	car.tune(def, save.data["up"] if not def.has("kmodel") else {}, save.data["tune"].get(String(def["id"]), {}) if not def.has("kmodel") else {})
+	car.damage = float(from_parked.get("damage", 0.0))
+	car.engine_dmg = float(from_parked.get("engine", 0.0))
+	car.assist = 1.0 if bool(save.setting("assist")) else 0.35
+	car.place(Transform3D(Basis(Vector3.UP, xf.basis.get_euler().y), xf.origin + Vector3(0, 0.4, 0)))
+	sound.set_engine(String(def.get("engine", "small")), float(def.get("pitch", 1.0)))
+
+## The car you were in, left standing: a solid copy of it (bodywork, wheels) the traffic stops for. Your own
+## car's always kept; of the ones you've taken, only the last.
+func _leave_parked(def: Dictionary, paint: int) -> void:
+	var own := not def.has("kmodel") and String(def["id"]) == String(save.data["car"])
+	for pk in parked.duplicate():
+		if not bool(pk["own"]) and not own:
+			parked.erase(pk)
+			(pk["node"] as Node).queue_free()
+	var info := M.car(def)
+	var body := AnimatableBody3D.new()
+	body.collision_layer = 2
+	body.collision_mask = 0
+	var mi := MeshInstance3D.new()
+	mi.mesh = M.painted_body(def, paint)
+	mi.material_override = toon
+	body.add_child(mi)
+	for i in 4:
+		var w := MeshInstance3D.new()
+		w.mesh = M.wheel_mesh(info, i)
+		w.material_override = toon
+		w.position = info["wheels"][i]
+		body.add_child(w)
+	var cs := CollisionShape3D.new()
+	var bx := BoxShape3D.new()
+	bx.size = Vector3(float(info["width"]) * 0.9, float(info["height"]) * 0.8, float(info["length"]) * 0.95)
+	cs.shape = bx
+	cs.position = Vector3(0, float(info["height"]) * 0.45, (float(info["front"]) + float(info["back"])) * 0.5)
+	body.add_child(cs)
+	# (placed before it goes in the tree, as the traffic cars are: not moved by physics after)
+	body.sync_to_physics = false
+	var xf := car.global_transform
+	body.transform = Transform3D(Basis(Vector3.UP, xf.basis.get_euler().y), Vector3(xf.origin.x, island.height_at(xf.origin.x, xf.origin.z), xf.origin.z))
+	add_child(body)
+	parked.append({"def": def, "paint": paint, "node": body, "own": own, "len": float(info["length"]), "damage": car.damage, "engine": car.engine_dmg})
 
 func _foot_tick(dt: float) -> void:
 	_controls_off()

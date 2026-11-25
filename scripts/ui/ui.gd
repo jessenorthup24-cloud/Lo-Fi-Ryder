@@ -557,7 +557,7 @@ func _build_hud() -> void:
 	ctl["nos"] = _pad("nos", Vector2(-270, -380), Vector2(150, 116), false, Color("cfe9ff"))
 	ctl["cruise"] = _pad("cruise", Vector2(-528, -356), Vector2(92, 92), false, K.PAPER)
 	# the door: out of the car, or into it (both ways, the same spot)
-	ctl["door"] = _pad("door", Vector2(-424, -484), Vector2(92, 92), false, K.PAPER)
+	ctl["door"] = _pad("door", Vector2(-528, -470), Vector2(92, 92), false, K.PAPER)       # (above cruise)
 	# on foot: a stick on the left, jump and sprint on the right
 	ctl["stick"] = _pad("stick", Vector2(60, -300), Vector2(240, 240), true, K.PAPER)
 	ctl["jump"] = _pad("jump", Vector2(-214, -256), Vector2(132, 132), false, K.PAPER)

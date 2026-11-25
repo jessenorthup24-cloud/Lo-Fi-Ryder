@@ -808,6 +808,20 @@ static var _car_meta := {}
 ## A car from the Tiny Car Pack, baked by tools/cars (assets/cars): body, left/right wheel meshes, wheel spots.
 const CAR_SCALE := 2.6   # the pack's cars, baked at toy size, grown to real size (about 4.2 m long)
 
+## A traffic car (a Kenney car kit model, wheels part of the body) made drivable, for when you take one:
+## its wheels' spots worked out from its size, and no separate wheel meshes (they're in the body).
+static func _kenney_car(def: Dictionary) -> Dictionary:
+	var body: Mesh = get_mesh(String(def["kmodel"]))
+	var ab := body.get_aabb()
+	var r := clampf(ab.size.y * 0.2, 0.3, 0.48)
+	var wx := ab.size.x * 0.5 - 0.28
+	var zf := ab.position.z + ab.size.z * 0.21
+	var zr := ab.end.z - ab.size.z * 0.21
+	var none := ArrayMesh.new()
+	return {"body": body, "wheel_f": none, "wheel_r": none, "wheel_fr": none, "wheel_rr": none,
+		"wheels": [Vector3(-wx, r, zf), Vector3(wx, r, zf), Vector3(-wx, r, zr), Vector3(wx, r, zr)], "r_f": r, "r_r": r, "ride": 0.0,
+		"top": ab.end.y, "front": ab.position.z, "back": ab.end.z, "width": ab.size.x, "length": ab.size.z, "height": ab.size.y}
+
 static func _pack_car(def: Dictionary) -> Dictionary:
 	if _car_meta.is_empty():
 		var f := FileAccess.open("res://assets/cars/cars_meta.json", FileAccess.READ)
@@ -883,6 +897,9 @@ static func car(def: Dictionary) -> Dictionary:
 		return _cache[key]
 	if def.has("model"):
 		_cache[key] = _pack_car(def)
+		return _cache[key]
+	if def.has("kmodel"):
+		_cache[key] = _kenney_car(def)
 		return _cache[key]
 	var b := MB.new()
 	var body := Color(def["body"])

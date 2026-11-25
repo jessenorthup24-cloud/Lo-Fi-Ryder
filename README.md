@@ -199,7 +199,11 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 - On foot: the EXIT button (above the handbrake, or F) gets you out when you're nearly stopped (not
   while the police are after you, or mid-challenge). You walk, run and jump about in third person: a
   stick on the left (WASD), JUMP and RUN on the right (Space, Shift), drag to swing the camera round. The
-  traffic stops for you and for your parked car. ENTER (lit when you're by your car) gets you back in.
+  traffic stops for you and for your parked car. ENTER (lit when you're by a car) gets you in.
+- Take any car: walk up to one in the traffic (stopped or crawling) and ENTER: its driver jumps out and
+  runs, and it's yours to drive (a truck's slow and heavy, a sports car quick). The car you were in stays
+  parked where you left it, and you can go back to it. Take a police car, or take one with a patrol car
+  looking on, and you're wanted.
 - Your driver is one of 20 Kenney mini characters (garage, Driver tab), with glasses or shades if you like.
   They're rigged and animated (idle, walk, run, jump, fall), drawn in the game's toon style.
 - The HUD: the phone, camera and rewind are one column of matching round buttons beside the minimap
@@ -394,6 +398,7 @@ godot --path . -- --drive --grindtest=0          # line up on grind rail 0, hop 
 godot --path . -- --drive --ramcop               # drive into the nearest patrol car (--ramcop_v=12 to coast in at 12 m/s)
 godot --path . -- --drive --perfdump=2           # what's drawn, grouped and biggest first (--perfshadow: just what casts shadows)
 godot --path . -- --drive --foottest             # out of the car, walk, run, jump, turn, back in (logged)
+godot --path . -- --drive --stealtest=k_car_taxi # out, take the nearest taxi, drive it, back to your own car (logged)
 godot --path . -- --garage=driver --avatar=robot --acc=glasses   # the Driver tab, as this character
 godot --path . -- --drive --perfdraws=3          # what's in view and in range right now, grouped (each at least a draw call)
 godot --path . -- --drive --noshadow             # (or --shadowdist=60) to see what shadows cost: RESULT has tris and draws

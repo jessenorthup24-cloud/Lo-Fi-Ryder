@@ -40,7 +40,7 @@ var heads := []             # traffic light heads {"node", "group", "red", "gree
 var stats := {"crossed": 0, "uturns": 0, "respawns": 0}
 var ignore_player := false  # tools: drive as if you weren't there
 var keep_out := Rect2()     # a street race is on here: no traffic
-var parked := Vector3.INF    # your car, left parked while you're on foot: they stop for it as they do for you
+var parked: Array = []      # cars left parked (yours, ones you've taken): they stop for them as they do for you
 var avoid: Array = []        # where the other cars about are (the drivers, the police): no new traffic car on top of them
 var sirens: Array = []      # [[position, facing]] of police cars with their sirens going: the traffic pulls over
 
@@ -358,6 +358,27 @@ func _release(c: Dictionary) -> void:
 				lst.remove_at(i)
 
 # ------------------------------------------------------------------ placing cars
+
+## You've taken this one: it's gone from the traffic (put back in somewhere well out of sight).
+func take(c: Dictionary, near: Vector3, view: Vector3) -> void:
+	if _place_random(c, near, 160.0, 260.0, view):
+		return
+	if _place_random(c, near, 200.0, 480.0, Vector3.ZERO):
+		return
+	_place_random(c, Vector3.ZERO, 0.0, 2000.0, Vector3.ZERO)
+
+## The traffic car nearest p (within r), slow enough to get into: {} if none.
+func takeable(p: Vector3, r: float) -> Dictionary:
+	var best := {}
+	var bd := r
+	for c in cars:
+		if int(c["mode"]) >= KNOCKED or absf(float(c["v"])) > 3.0:
+			continue
+		var d := (c["body"] as Node3D).global_position.distance_to(p)
+		if d < bd:
+			bd = d
+			best = c
+	return best
 
 func _place_random(c: Dictionary, near: Vector3, rmin: float, rmax: float, view: Vector3) -> bool:
 	_release(c)
@@ -706,8 +727,9 @@ func tick(dt: float, player: Vector3, _player_vel: Vector3, view := Vector3.ZERO
 		if not ignore_player and tp.length() < look + 8.0 and _on_path(fut, Vector2(player.x, player.z), 2.7, p2):
 			blocked = true
 			by_you = true
-		if parked != Vector3.INF and (parked - pos).length() < look + 8.0 and _on_path(fut, Vector2(parked.x, parked.z), 2.9, p2):
-			blocked = true
+		for pk: Vector3 in parked:
+			if (pk - pos).length() < look + 8.0 and _on_path(fut, Vector2(pk.x, pk.z), 2.9, p2):
+				blocked = true
 		if float(c["hit"]) > 0.0:
 			c["hit"] = float(c["hit"]) - dt
 			blocked = true
