@@ -567,76 +567,148 @@ func _rrect(c: Control, r: Rect2, rad: float, fill: Color, border := Color.TRANS
 		sb.set_border_width_all(bw)
 	c.draw_style_box(sb, r)
 
+## A sticker: a shape with a thick ink outline and a soft offset shadow (the look of the whole HUD set).
+func _sticker(c: Control, pts: PackedVector2Array, fill: Color, lift := 5.0, ink := 4.0) -> void:
+	var sh := PackedVector2Array()
+	for q in pts:
+		sh.append(q + Vector2(lift * 0.6, lift))
+	c.draw_colored_polygon(sh, Color(0.05, 0.04, 0.03, 0.28))
+	c.draw_colored_polygon(pts, fill)
+	c.draw_polyline(pts + PackedVector2Array([pts[0]]), K.INK, ink, true)
+
+## A rounded box as a polygon (so it can be a sticker).
+func _rbox(r: Rect2, rad: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	var cs := [[r.position + Vector2(rad, rad), PI], [Vector2(r.end.x - rad, r.position.y + rad), PI * 1.5],
+		[r.end - Vector2(rad, rad), 0.0], [Vector2(r.position.x + rad, r.end.y - rad), PI * 0.5]]
+	for cc in cs:
+		for k in 5:
+			var a: float = float(cc[1]) + PI * 0.5 * k / 4.0
+			out.append((cc[0] as Vector2) + Vector2(cos(a), sin(a)) * rad)
+	return out
+
+func _tag(c: Control, text: String, at: Vector2, size: int, bg: Color, fg := K.INK) -> void:
+	var f := K.font(750)
+	var w := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + 16.0
+	_sticker(c, _rbox(Rect2(at - Vector2(w * 0.5, size * 0.75), Vector2(w, size * 1.3)), size * 0.45), bg, 3.0, 3.0)
+	c.draw_string(f, at - Vector2(w * 0.5 - 8.0, -size * 0.32), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, fg)
+
 func _draw_pad(c: Control, name: String) -> void:
 	var s := c.size
 	var on: bool = c.get_meta("on")
 	match name:
 		"left", "right":
-			# glass: barely there, an outline and the arrow
-			_rrect(c, Rect2(Vector2.ZERO, s), 30, Color(1, 1, 1, 0.16 if on else 0.06), Color(1, 1, 1, 0.38), 3)
-			var cx := s * 0.5
+			# ghost chevrons: just there enough to find with a thumb
 			var d := -1.0 if name == "left" else 1.0
-			var pts := PackedVector2Array([cx + Vector2(d * 26, 0), cx + Vector2(-d * 14, -30), cx + Vector2(-d * 14, 30)])
-			c.draw_colored_polygon(pts, Color(1, 1, 1, 0.75 if on else 0.5))
-		"gas", "brake":
-			# a pedal: a rubber plate with ridges on its arm, pressed down when your foot's on it
-			var push := 7.0 if on else 0.0
-			var gas := name == "gas"
-			var top := 10.0 + push
-			var plate := PackedVector2Array([Vector2(16, top), Vector2(s.x - 16, top), Vector2(s.x - 6, s.y - 12 + push * 0.3), Vector2(6, s.y - 12 + push * 0.3)])
-			c.draw_colored_polygon(plate, Color(0.1, 0.1, 0.11, 0.7))
-			var tint := Color("54e08a") if gas else Color("ef6a55")
-			c.draw_polyline(plate + PackedVector2Array([plate[0]]), Color(tint, 0.85) if on else Color(1, 1, 1, 0.4), 3.0, true)
-			var y := top + 16.0
-			while y < s.y - 34.0:
-				var inset := 14.0 + (y - top) * -0.05
-				c.draw_line(Vector2(inset + 8, y), Vector2(s.x - inset - 8, y), Color(1, 1, 1, 0.16), 5.0)
-				y += 17.0
-			if on:
-				_rrect(c, Rect2(Vector2(10, top - 2), Vector2(s.x - 20, s.y - top - 8)), 10, Color(tint, 0.18))
-			_pad_text(c, "GAS" if gas else "BRAKE", Vector2(s.x * 0.5, s.y - 22.0 + push * 0.3), 26 if gas else 22, Color.WHITE)
-			if not gas:
-				_pad_text(c, "hold: reverse", Vector2(s.x * 0.5, 30.0 + push), 13, Color(1, 1, 1, 0.7))
+			var cx := s * 0.5
+			for k in 3:
+				var ox := cx.x + d * (k - 1) * 22.0
+				var pts := PackedVector2Array([Vector2(ox - d * 14, cx.y - 34), Vector2(ox + d * 14, cx.y), Vector2(ox - d * 14, cx.y + 34)])
+				var a := (0.85 if on else 0.42) * (0.55 + 0.22 * k)
+				c.draw_polyline(pts, Color(K.INK, a * 0.6), 13.0, true)
+				c.draw_polyline(pts, Color(K.PAPER, a), 8.0, true)
+		"gas":
+			# a drilled aluminium sport pedal on its hinge: tips back when your foot's on it
+			var tilt := 0.86 if on else 1.0
+			var hinge := Vector2(s.x * 0.5, s.y - 40)
+			var ph := (s.y - 58) * tilt
+			var top := hinge.y - ph
+			var pl := PackedVector2Array([Vector2(24, top), Vector2(s.x - 24, top), Vector2(s.x - 14, hinge.y), Vector2(14, hinge.y)])
+			_sticker(c, pl, Color("dfe1e3") if not on else Color("c9f0d6"), 3.0 if on else 6.0)
+			# rubber strips and drilled holes
+			for k in 3:
+				var x := 40.0 + k * (s.x - 80.0) / 2.0
+				c.draw_line(Vector2(x, top + 12), Vector2(x + (x - s.x * 0.5) * 0.08, hinge.y - 12), K.INK, 10.0, true)
+			for row in 4:
+				var y := top + 18.0 + row * (ph - 30.0) / 3.0
+				for k in 2:
+					var x2 := 40.0 + (k + 0.5) * (s.x - 80.0) / 2.0
+					c.draw_circle(Vector2(x2, y), 4.0, Color("9a9ea4"))
+			# the hinge
+			_sticker(c, _rbox(Rect2(Vector2(30, hinge.y - 6), Vector2(s.x - 60, 16)), 8), Color("6f6a64"), 2.0, 3.0)
+			_tag(c, "GAS", Vector2(s.x * 0.5, s.y - 12), 18, Color("8fe0a8") if on else K.PAPER)
+		"brake":
+			# a wide brake pedal, grooved rubber over steel
+			var tilt2 := 0.84 if on else 1.0
+			var hinge2 := Vector2(s.x * 0.5, s.y - 40)
+			var ph2 := (s.y - 58) * tilt2
+			var top2 := hinge2.y - ph2
+			var pl2 := _rbox(Rect2(Vector2(10, top2), Vector2(s.x - 20, ph2)), 16)
+			_sticker(c, pl2, Color("3a3734") if not on else Color("5a2d28"), 3.0 if on else 6.0)
+			var y2 := top2 + 14.0
+			while y2 < hinge2.y - 10.0:
+				c.draw_line(Vector2(22, y2), Vector2(s.x - 22, y2), Color(1, 1, 1, 0.16), 4.0)
+				y2 += 11.0
+			_sticker(c, _rbox(Rect2(Vector2(28, hinge2.y - 4), Vector2(s.x - 56, 14)), 7), Color("6f6a64"), 2.0, 3.0)
+			_tag(c, "BRAKE", Vector2(s.x * 0.5, s.y - 12), 16, Color("f19a8c") if on else K.PAPER)
 		"hand":
-			# the handbrake: a lever on its slot, pulled up while you hold it
-			_rrect(c, Rect2(Vector2(10, s.y - 34), Vector2(s.x - 20, 22)), 11, Color(0.1, 0.1, 0.11, 0.65), Color(1, 1, 1, 0.3), 2)
-			var piv := Vector2(26, s.y - 24)
-			var ang := deg_to_rad(-48.0 if on else -14.0)
-			var tip := piv + Vector2(cos(ang), sin(ang)) * (s.x - 44)
-			c.draw_line(piv, tip, Color(0.16, 0.16, 0.17, 0.92), 16.0, true)
-			c.draw_line(piv + (tip - piv) * 0.55, tip, Color("e8dcc4") if on else Color(0.85, 0.85, 0.87, 0.9), 18.0, true)
-			c.draw_circle(tip, 11.0, Color("ef6a55") if on else Color(0.75, 0.75, 0.78, 0.95))
-			c.draw_circle(piv, 9.0, Color(0.3, 0.3, 0.32, 0.95))
-			_pad_text(c, "DRIFT", Vector2(s.x * 0.5, 26.0), 22, Color.WHITE)
+			# the handbrake: a stitched leather boot, the lever, a red button on the end; pulled up when held
+			var piv := Vector2(36, s.y - 26)
+			var ang := deg_to_rad(-52.0 if on else -18.0)
+			var dirv := Vector2(cos(ang), sin(ang))
+			var nrm := Vector2(-dirv.y, dirv.x)
+			var tip := piv + dirv * (s.x - 52)
+			var arm := PackedVector2Array([piv + nrm * 9, tip + nrm * 9, tip - nrm * 9, piv - nrm * 9])
+			_sticker(c, arm, Color("d9dbde"), 5.0)
+			var grip := PackedVector2Array([piv + dirv * (s.x * 0.42) + nrm * 12, tip + nrm * 12, tip - nrm * 12, piv + dirv * (s.x * 0.42) - nrm * 12])
+			_sticker(c, grip, Color("3a3734"), 2.0, 3.0)
+			c.draw_circle(tip + dirv * 4, 12.0, K.INK)
+			c.draw_circle(tip + dirv * 4, 8.5, Color("ef6a55") if not on else Color("ffb3a6"))
+			var boot := PackedVector2Array([Vector2(8, s.y - 8), Vector2(18, s.y - 40), Vector2(58, s.y - 40), Vector2(70, s.y - 8)])
+			_sticker(c, boot, Color("5b4636"), 3.0, 3.0)
+			for k in 4:
+				var yb := s.y - 34 + k * 7
+				c.draw_line(Vector2(20 - k, yb), Vector2(56 + k, yb), Color("c9a27e"), 2.0)
+			_tag(c, "DRIFT", Vector2(s.x - 34, 16), 14, Color("f2b84b") if on else K.PAPER)
 		"nos":
-			# the nitrous canister: what's left in it, glowing while it's on
+			# the nitrous bottle: blue with a red valve, a gauge for what's left, and an arming switch
 			var v: float = c.get_meta("v")
-			var bw := 58.0
-			var body := Rect2(Vector2((s.x - bw) * 0.5, 26), Vector2(bw, s.y - 34))
+			var bw := 50.0
+			var bx := 22.0
+			var body := Rect2(Vector2(bx, 30), Vector2(bw, s.y - 38))
 			if on:
-				_rrect(c, body.grow(7), 24, Color(0.35, 0.75, 1.0, 0.35))
-			_rrect(c, Rect2(body.position + Vector2(bw * 0.3, -14), Vector2(bw * 0.4, 16)), 4, Color(0.75, 0.78, 0.82, 0.95))
-			_rrect(c, Rect2(body.position + Vector2(bw * 0.18, -22), Vector2(bw * 0.64, 9)), 4, Color(0.35, 0.37, 0.4, 0.95))
-			_rrect(c, body, 18, Color(0.08, 0.2, 0.38, 0.85), Color(1, 1, 1, 0.5), 2)
-			var lv := clampf(v, 0.0, 1.0)
-			if lv > 0.01:
-				var fh := (body.size.y - 8) * lv
-				_rrect(c, Rect2(Vector2(body.position.x + 5, body.end.y - 4 - fh), Vector2(bw - 10, fh)), 13,
-					Color("3aa0ff") if lv > 0.2 else Color("ef6a55"))
-			c.draw_line(body.position + Vector2(12, 12), body.position + Vector2(12, body.size.y - 14), Color(1, 1, 1, 0.3), 4.0)
-			_pad_text(c, "NOS", Vector2(s.x * 0.5, body.position.y + body.size.y * 0.58), 22, Color.WHITE)
-			_pad_text(c, "ON" if on else "tap", Vector2(s.x * 0.5 + bw * 0.5 + 22, body.end.y - 4), 14, Color("8fd3ff") if on else Color(1, 1, 1, 0.55))
+				c.draw_circle(body.get_center(), 52.0, Color(0.35, 0.75, 1.0, 0.25))
+			_sticker(c, _rbox(Rect2(Vector2(bx + bw * 0.3, 14), Vector2(bw * 0.4, 20)), 4), Color("c9ccd2"), 3.0, 3.0)
+			_sticker(c, _rbox(Rect2(Vector2(bx + bw * 0.12, 4), Vector2(bw * 0.76, 12)), 6), Color("ef6a55"), 2.0, 3.0)
+			_sticker(c, _rbox(body, 20), Color("3a7bd5"))
+			_sticker(c, _rbox(Rect2(Vector2(bx + 4, body.position.y + body.size.y * 0.36), Vector2(bw - 8, 22)), 4), K.PAPER, 0.0, 2.5)
+			c.draw_string(K.font(800), Vector2(bx + 8, body.position.y + body.size.y * 0.36 + 17), "NOS", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, K.INK)
+			c.draw_line(body.position + Vector2(9, 10), body.position + Vector2(9, body.size.y * 0.3), Color(1, 1, 1, 0.5), 4.0)
+			# the gauge
+			var gc := Vector2(s.x - 40, 40)
+			c.draw_circle(gc + Vector2(2, 3), 22.0, Color(0, 0, 0, 0.25))
+			c.draw_circle(gc, 22.0, K.INK)
+			c.draw_circle(gc, 18.5, K.PAPER)
+			c.draw_arc(gc, 13.0, PI * 0.75, PI * 2.25, 16, Color("ef6a55"), 3.0)
+			c.draw_arc(gc, 13.0, PI * 0.75 + PI * 1.5 * 0.2, PI * 2.25, 16, Color("54b87a"), 3.0)
+			var na := PI * 0.75 + PI * 1.5 * clampf(v, 0.0, 1.0)
+			c.draw_line(gc, gc + Vector2(cos(na), sin(na)) * 15.0, K.INK, 3.0, true)
+			c.draw_circle(gc, 3.0, K.INK)
+			# the arming switch: cover flipped up and the lamp lit when it's on
+			var sp := Vector2(s.x - 40, s.y - 30)
+			_sticker(c, _rbox(Rect2(sp - Vector2(16, 18), Vector2(32, 36)), 6), Color("4a4643"), 2.0, 3.0)
+			var lever := PackedVector2Array([sp + Vector2(-5, 0), sp + Vector2(5, 0), sp + Vector2(4, -24 if on else 22), sp + Vector2(-4, -24 if on else 22)])
+			_sticker(c, lever, Color("d9dbde"), 2.0, 2.5)
+			c.draw_circle(sp + Vector2(0, -26 if on else 24), 6.0, Color("ff4b3a") if on else Color("8a8580"))
 		"cruise":
-			# cruise control: a little dial, the speed it's holding when it's on
-			var r := minf(s.x, s.y) * 0.5 - 2
+			# a dash button with a little green LCD: the speed it's holding
+			var r := minf(s.x, s.y) * 0.5 - 6
 			var cc := s * 0.5
-			c.draw_circle(cc, r, Color(0.1, 0.1, 0.11, 0.6))
-			c.draw_arc(cc, r, 0, TAU, 40, Color("54e08a") if on else Color(1, 1, 1, 0.4), 3.0, true)
-			c.draw_arc(cc, r * 0.62, PI * 0.8, PI * 2.2, 20, Color(1, 1, 1, 0.55), 4.0, true)
-			var na := PI * 0.8 + PI * 1.4 * (0.65 if on else 0.3)
-			c.draw_line(cc, cc + Vector2(cos(na), sin(na)) * r * 0.55, Color("54e08a") if on else Color(1, 1, 1, 0.8), 4.0, true)
+			var circ := PackedVector2Array()
+			for k in 28:
+				var a := TAU * k / 28.0
+				circ.append(cc + Vector2(cos(a), sin(a)) * r)
+			_sticker(c, circ, Color("e8dcc4") if on else K.PAPER, 2.0 if on else 5.0)
+			var lcd := Rect2(cc - Vector2(26, 16), Vector2(52, 26))
+			_sticker(c, _rbox(lcd, 5), Color("1f3324"), 0.0, 3.0)
 			var sv: float = c.get_meta("set", 0.0)
-			_pad_text(c, str(int(sv)) if on else "CRUISE", Vector2(cc.x, cc.y + r * 0.62), 18 if on else 13, Color.WHITE)
+			var txt := str(int(sv)) if on else "--"
+			var f := K.font(800)
+			var tw := f.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
+			c.draw_string(f, Vector2(cc.x - tw * 0.5, cc.y + 3), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color("7dff9a") if on else Color("3f6b4a"))
+			var f2 := K.font(750)
+			var w2 := f2.get_string_size("CRUISE", HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+			c.draw_string(f2, Vector2(cc.x - w2 * 0.5, cc.y + r - 8), "CRUISE", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, K.INK)
 
 ## The police, the way GTA does it: five stars under the minimap (none lit, none shown, till they're
 ## after you). The lit ones flash while they've lost sight of you and turn red as they box you in, and the

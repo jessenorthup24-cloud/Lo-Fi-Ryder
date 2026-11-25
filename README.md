@@ -81,9 +81,11 @@ on cars and upgrades. The day runs in real time on the island and the season fol
     a circuit) get a visit:
     they turn up some way in, go for the racers too (a racer they stop is out of the race) and the chase
     goes on after the finish line. Trophies for losing them once and ten times, and for five stars.
-- The controls are drawn as what they are: see-through arrows (when the wheel's off), a gas and a brake
-  pedal that press down, a handbrake lever that pulls up, the nitrous canister (showing what's left) and
-  the cruise control dial.
+- The controls are illustrated stickers in the HUD's cream and ink (thick outlines, offset shadows): ghost
+  chevrons to steer (when the wheel's off), a drilled aluminium sport gas pedal and a grooved brake pedal
+  that tip back on their hinges, a handbrake lever in a stitched leather boot with a red button (pulled up
+  while held), the nitrous bottle with its red valve, a gauge for what's left and an arming switch that
+  flips up when it's on, and the cruise button with a little green LCD showing the speed it's holding.
 - Cruise control: tap the dial (Q) to hold the speed you're doing; the gas takes you faster and that
   becomes the new speed; the brake or the handbrake switches it off.
 - Nitrous: tap the NOS canister (N or E on a keyboard) to switch it on, again to switch it off (it goes off

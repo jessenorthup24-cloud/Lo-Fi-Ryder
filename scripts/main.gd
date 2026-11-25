@@ -841,6 +841,8 @@ func _crew_tests() -> void:
 			cruise_v = 16.0
 		held["gas"] = true
 		held["hand"] = time > 6.0
+	if args.has("restprobe") and frames % 60 == 0:
+		print("REST y_above_ground=%.3f gravity_scale=%.2f mass=%.0f" % [car.global_position.y - island.height_at(car.global_position.x, car.global_position.z), car.gravity_scale, car.mass])
 	if args.has("groupcam") and not group_cam:
 		group_cam = true
 	if args.has("phone_at") and not has_meta("phone_done") and time > float(args["phone_at"]):
