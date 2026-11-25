@@ -676,11 +676,23 @@ static func _suburbs(I, rr: RandomNumberGenerator) -> void:
 			I.put_breakable("k_holi_snowman-hat", tp.x + nrm.x * 2.5, tp.y + nrm.y * 2.5, _yaw_to(-nrm), 1.0, 0.6)
 	# the little park in the middle of the loop
 	var pk := Vector2(-212, -158)
-	for k in 10:
-		var a := TAU * k / 10.0
-		var p := pk + Vector2(cos(a), sin(a)) * rr.randf_range(8.0, 26.0)
+	for k in 24:
+		var a := TAU * k / 24.0 + rr.randf_range(-0.12, 0.12)
+		var p := pk + Vector2(cos(a), sin(a)) * rr.randf_range(8.0, 30.0)
 		if not I.is_blocked(p.x, p.y):
-			I.put("k_castle_tree-large" if k % 2 == 0 else "k_surv_tree", p.x, p.y, rr.randf() * TAU, rr.randf_range(0.8, 1.05), "cyl")
+			I.put(["k_castle_tree-large", "k_surv_tree", "k_sub_tree-large", "k_surv_tree-autumn"][k % 4], p.x, p.y, rr.randf() * TAU, rr.randf_range(0.8, 1.05), "cyl")
+	# benches round a little lawn in the middle, a dog or two, kids about
+	for k in 4:
+		var a2 := TAU * k / 4.0 + 0.4
+		var bp := pk + Vector2(cos(a2), sin(a2)) * 5.0
+		if not I.is_blocked(bp.x, bp.y):
+			I.put_breakable("k_holi_bench", bp.x, bp.y, _yaw_to(pk - bp), 1.0, 0.8)
+			if k % 2 == 0:
+				_person(I, bp.x, bp.y, "sit", _yaw_to(pk - bp), 0.5)
+	_pet(I, "dog", pk.x + 3, pk.y - 9)
+	_pet(I, "dog", pk.x - 12, pk.y + 4)
+	_person(I, pk.x + 2, pk.y + 10)
+	_person(I, pk.x - 8, pk.y - 6)
 	I.put_breakable("k_holi_bench", pk.x + 5, pk.y, PI * 0.5, 1.0, 0.8)
 	_person(I, pk.x + 5, pk.y, "sit", -PI * 0.5, 0.5)
 	_pet(I, "dog", pk.x - 4, pk.y + 3)
@@ -1176,8 +1188,8 @@ static func _beach(I, rr: RandomNumberGenerator) -> void:
 	for k in 6:
 		I.put_breakable("k_retro_detail-light-single", -55.5 if k % 2 == 0 else -64.5, 395 + k * 13.0, PI * 0.5 if k % 2 == 0 else -PI * 0.5, 1.0, 0.3, 1.45)
 	_person(I, -57, 458, "sit", PI, 1.45)
-	# sand: parasols, towels with sunbathers, a lifeguard, sandcastles
-	for k in 26:
+	# sand: parasols, towels with sunbathers, a lifeguard, sandcastles (a busy beach, not a scattering)
+	for k in 76:
 		var p := Vector2(rr.randf_range(-260, 160), rr.randf_range(372, 404))
 		if I.height_at(p.x, p.y) < 0.35 or I.is_blocked(p.x, p.y) or absf(p.x + 60) < 10:
 			continue

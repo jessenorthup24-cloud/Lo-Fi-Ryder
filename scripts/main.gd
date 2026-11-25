@@ -490,6 +490,17 @@ func start_drive() -> void:
 		save.data["seen_help"] = true
 		ui.show_help()
 
+func _aabb_in_view(vc: Camera3D, ab: AABB) -> bool:
+	for pl in vc.get_frustum():
+		var inside := false
+		for k in 8:
+			if not pl.is_point_over(ab.get_endpoint(k)):
+				inside = true
+				break
+		if not inside:
+			return false
+	return true
+
 ## The title is always at dusk, the city's lights coming on as it sits there; the island's own clock picks
 ## up where it was when you drive.
 var _title_hour_back := -1.0
@@ -910,6 +921,44 @@ func _crew_tests() -> void:
 		keys.sort_custom(func(a, b): return int(groups[a][1]) > int(groups[b][1]))
 		for k in keys.slice(0, 30):
 			print("PERF %-34s nodes %5d  tris %9d  range %.0f" % [k, groups[k][0], groups[k][1], groups[k][2]])
+	if args.has("perfdraws") and not has_meta("pdr_done") and time > float(args["perfdraws"]):
+		# a test: what's in view and in range (each is at least a draw), grouped, biggest first
+		set_meta("pdr_done", true)
+		var vc := get_viewport().get_camera_3d()
+		var groups := {}
+		var total := 0
+		var stack: Array = [get_tree().root]
+		while not stack.is_empty():
+			var nd: Node = stack.pop_back()
+			stack.append_array(nd.get_children())
+			if not (nd is GeometryInstance3D) or not (nd as GeometryInstance3D).is_visible_in_tree():
+				continue
+			if (nd as VisualInstance3D).layers & island.MAP_LAYER:
+				continue
+			var gi := nd as GeometryInstance3D
+			var ab: AABB = gi.global_transform * gi.get_aabb()
+			var d := vc.global_position.distance_to(ab.get_center())
+			if gi.visibility_range_end > 0.0 and d > gi.visibility_range_end + gi.visibility_range_end_margin:
+				continue
+			if not _aabb_in_view(vc, ab):
+				continue
+			var surf := 1
+			if nd is MeshInstance3D and (nd as MeshInstance3D).mesh:
+				surf = (nd as MeshInstance3D).mesh.get_surface_count()
+			var key := String(nd.name).rstrip("0123456789@_ -")
+			if key == "" or key.begins_with("@") or key == "MeshInstance3D":
+				key = "@ in " + String(nd.get_parent().name).rstrip("0123456789@_ -")
+			if key.begins_with("person_"):
+				key = "person_* (all)"
+			if key.begins_with("B_"):
+				key = "B_* breakables (all)"
+			groups[key] = int(groups.get(key, 0)) + surf
+			total += surf
+		var keys := groups.keys()
+		keys.sort_custom(func(a, b): return int(groups[a]) > int(groups[b]))
+		print("DRAWS in view: ", total)
+		for k in keys.slice(0, 25):
+			print("DRAWS %-36s %d" % [k, groups[k]])
 	if args.has("ramcop"):
 		# a test: line up head-on with the nearest patrol car in the traffic and drive into it
 		if not has_meta("rc_put") and time > 3.0:

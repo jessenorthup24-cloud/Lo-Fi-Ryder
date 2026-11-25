@@ -69,7 +69,7 @@ const COLORS := {
 	RUST: ["b0643e", "b45f38", "a85532", "b98c7c"],
 	CONCRETE: ["aaa59d", "aca69d", "a39c92", "d2d5da"],
 	IVY: ["5cb04a", "4ea242", "a0903c", "cbd8d1"],
-	ASPHALT_DK: ["5f5c59", "625e5a", "5b5752", "a9adb3"],
+	ASPHALT_DK: ["5f5c59", "625e5a", "5b5752", "565a62"],     # (winter: ploughed and wet, not snowed over)
 	RED_SAND: ["e49c62", "e7995c", "dc8f56", "ead9cf"],
 	RED_ROCK: ["c4653c", "c86239", "ba5b36", "d6beb3"],
 	WHEAT: ["a6d466", "dcbb62", "cda86a", "eef2f5"],
