@@ -166,6 +166,11 @@ func _draw() -> void:
 			draw_rect(Rect2(o + Vector2(s * 0.32, s * 0.18), Vector2(s * 0.3, s * 0.16)), color)
 			draw_circle(c + Vector2(0, s * 0.08), s * 0.19, color2)
 			draw_circle(c + Vector2(0, s * 0.08), s * 0.1, color)
+		"phone":
+			# a handset: the body, the screen, the button
+			_round_rect(Rect2(o + Vector2(s * 0.26, s * 0.06), Vector2(s * 0.48, s * 0.88)), s * 0.1, color)
+			_round_rect(Rect2(o + Vector2(s * 0.32, s * 0.16), Vector2(s * 0.36, s * 0.58)), s * 0.04, color2)
+			draw_circle(o + Vector2(s * 0.5, s * 0.84), s * 0.045, color2)
 		"tank":
 			_round_rect(Rect2(o + Vector2(s * 0.14, s * 0.14), Vector2(s * 0.72, s * 0.78)), s * 0.14, color)
 			_round_rect(Rect2(o + Vector2(s * 0.26, s * 0.5), Vector2(s * 0.48, s * 0.3)), s * 0.06, color2)

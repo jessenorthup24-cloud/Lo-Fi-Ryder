@@ -22,6 +22,7 @@ const Route := preload("res://scripts/game/route.gd")
 const Race := preload("res://scripts/game/race.gd")
 const Police := preload("res://scripts/game/police.gd")
 const Boats := preload("res://scripts/game/boats.gd")
+const Crew := preload("res://scripts/game/crew.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
 
@@ -137,6 +138,7 @@ var at_station := {}        # the station you're stopped at
 var router: Route
 var police: Police
 var boats: Boats
+var crew: Crew               # the drivers out on the island (and the ones driving with you)
 var route := {}             # where the GPS is taking you: {pos, name, kind}
 var route_pick := {}        # a place you picked on the map
 var route_pts := PackedVector3Array()
@@ -262,6 +264,10 @@ func _build_world() -> void:
 	add_child(police)
 	police.setup(self, island, traffic)
 	car.rammed.connect(func(b, _v, _j, _at): police.rammed(b))
+	crew = Crew.new()
+	crew.name = "Crew"
+	add_child(crew)
+	crew.setup(self, island, traffic)
 	for st in island.stations:
 		island.map_marker(st["pos"], Color("4fb3a5"), 7.0)
 	_build_markers()
@@ -463,6 +469,7 @@ func go_title() -> void:
 	state = TITLE
 	_end_challenges()
 	police.clear()
+	crew.clear()
 	ui.show_title()
 
 func pause() -> void:
@@ -474,6 +481,7 @@ func pause() -> void:
 	if race != null:
 		race.hold(true)
 	police.hold(true)
+	crew.hold(true)
 	sound.mute_loops(true)
 	if island.rail:
 		island.rail.quiet(true)
@@ -488,6 +496,7 @@ func resume() -> void:
 	if race != null:
 		race.hold(false)
 	police.hold(false)
+	crew.hold(false)
 	sound.mute_loops(false)
 	if island.rail:
 		island.rail.quiet(false)
@@ -505,6 +514,7 @@ func open_garage() -> void:
 	if race != null:
 		race.hold(true)
 	police.hold(true)
+	crew.hold(true)
 	sound.mute_loops(true)
 	ui.show_garage(from)
 
@@ -517,6 +527,7 @@ func close_garage(back_to: int) -> void:
 		if race != null:
 			race.hold(false)
 		police.hold(false)
+		crew.hold(false)
 		ui.show_hud()
 	else:
 		state = TITLE
@@ -584,6 +595,7 @@ func travel_to(xf: Transform3D) -> void:
 	car.place(xf)
 	_break_drift(false)
 	_snap_cam()
+	crew.you_moved()
 	if state == PAUSED:
 		resume()
 	elif state == TITLE:
@@ -710,6 +722,8 @@ func _process(dt: float) -> void:
 			else:
 				ui.hud_update_light()
 			police.tick(dt)
+			crew.tick(dt)
+			_crew_tests()
 		PAUSED, GARAGE:
 			_controls_off()
 	_sound(dt)
@@ -774,6 +788,31 @@ func _process(dt: float) -> void:
 			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME),
 			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)])
 		get_tree().quit()
+
+## Tests: --crew=2 (or --crew=Kai,Rico) calls drivers to you as soon as you're driving (they're in your
+## phone already, and pick up at once); --phone_at=6 opens the phone 6 s in.
+func _crew_tests() -> void:
+	if args.has("crew") and not has_meta("crew_done") and time > 1.0:
+		set_meta("crew_done", true)
+		var want := String(args["crew"])
+		var names := []
+		if want.is_valid_int():
+			for i in int(want):
+				names.append(String(Crew.ROSTER[i]["name"]))
+		else:
+			names = Array(want.split(","))
+		for nm in names:
+			var who := crew._who(String(nm))
+			if who >= 0:
+				if not nm in save.data["contacts"]:
+					(save.data["contacts"] as Array).append(nm)
+				crew._make_room()
+				var d := crew._spawn(who, true)
+				if not d.is_empty():
+					crew._join_crew(d)
+	if args.has("phone_at") and not has_meta("phone_done") and time > float(args["phone_at"]):
+		set_meta("phone_done", true)
+		ui.toggle_phone()
 
 func _controls_off() -> void:
 	car.throttle = 0.0
@@ -1196,8 +1235,9 @@ func _on_bump(strength: float) -> void:
 		var half_l: float = float(car.info["length"]) * 0.5
 		var zc: float = (float(car.info["front"]) + float(car.info["back"])) * 0.5
 		var nose := clampf((zc - lp.z) / maxf(half_l, 0.1), -1.0, 1.0)       # (+1: right at the front)
-		var e_k := 0.4 if kind == "roll" else 0.3 + 1.5 * smoothstep(0.2, 0.8, nose)
-		car.engine_dmg = minf(100.0, car.engine_dmg + strength * e_k)
+		# (gentler than it was: small knocks leave the engine alone, and it takes a lot of big ones to kill it)
+		var e_k := 0.2 if kind == "roll" else 0.12 + 0.68 * smoothstep(0.2, 0.8, nose)
+		car.engine_dmg = minf(100.0, car.engine_dmg + maxf(strength - 5.0, 0.0) * e_k)
 		# a hard knock on a front corner bends that wheel
 		if strength > 9.0 and nose > 0.4 and absf(lp.x) > float(car.info["width"]) * 0.2 and kind != "roll":
 			car.bent = clampf(car.bent + signf(lp.x) * strength * 0.035, -1.0, 1.0)
@@ -1336,7 +1376,7 @@ func _impacts(dt: float) -> void:
 	# a hurt engine smokes from under the bonnet: wisps of steam, then grey, then thick black with flames
 	# when it's nearly gone (rising and drifting back, never a cloud in your face)
 	var ed := car.engine_dmg
-	var smoke_k := maxf(clampf((ed - 20.0) / 80.0, 0.0, 1.0), clampf((car.damage - 60.0) / 100.0, 0.0, 0.3))
+	var smoke_k := maxf(clampf((ed - 35.0) / 65.0, 0.0, 1.0), clampf((car.damage - 60.0) / 100.0, 0.0, 0.3))
 	var half_l: float = float(car.info["length"]) * 0.5
 	if smoke_k > 0.0 and randf() < 0.15 + smoke_k * 0.5:
 		var front := car.to_global(Vector3(randf_range(-0.35, 0.35), float(car.info["height"]) * 0.72, float(car.info["front"]) + half_l * 0.35))
@@ -2803,6 +2843,9 @@ func _unhandled_input(e: InputEvent) -> void:
 			KEY_C:
 				if on:
 					toggle_cam()
+			KEY_T:
+				if on and state == DRIVE:
+					ui.toggle_phone()
 			KEY_ESCAPE, KEY_P:
 				if on:
 					if state == DRIVE:

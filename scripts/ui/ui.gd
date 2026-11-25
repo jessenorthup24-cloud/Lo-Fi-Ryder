@@ -12,6 +12,7 @@ const MB := preload("res://scripts/core/mesh_builder.gd")
 const Ach := preload("res://scripts/game/achievements.gd")
 const SaveData := preload("res://scripts/game/save.gd")
 const CarScript := preload("res://scripts/game/drift_car.gd")
+const Phone := preload("res://scripts/ui/phone.gd")
 
 var game: Node
 var island: Node
@@ -98,6 +99,8 @@ var wanted_box: HBoxContainer    # the police: wanted stars, under the minimap
 var wanted_stars: Array = []
 var limit_sign: PanelContainer   # the speed limit, by the speedo while a patrol car's about
 var limit_lbl: Label
+var phone: Phone                 # the phone: your contacts (the drivers), to call them to drive with you
+var phone_btn: Button
 
 func setup(g: Node) -> void:
 	game = g
@@ -370,6 +373,19 @@ func _build_hud() -> void:
 	camb.position = Vector2(-300, 230)
 	_tap(camb, func(): game.toggle_cam())
 	hud.add_child(camb)
+	# the phone: call the drivers you know
+	phone_btn = K.round_button("phone", K.PAPER, K.LINE, 64)
+	phone_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	phone_btn.position = Vector2(-300, 152)
+	_tap(phone_btn, func(): toggle_phone())
+	hud.add_child(phone_btn)
+	phone = Phone.new()
+	phone.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	phone.position = Vector2(26, 204)
+	phone.size = Vector2(290, 318)
+	phone.visible = false
+	hud.add_child(phone)
+	phone.setup(self, game)
 	# REWIND: hold it to take the last few seconds back
 	var rw := PanelContainer.new()
 	rw.add_theme_stylebox_override("panel", K.box(Color(K.PAPER, 0.7), 30, 6, Color(K.LINE_DK, 0.7), 0))
@@ -1434,7 +1450,25 @@ func challenge_result(name: String, score: String, medal: int, pay: int, record:
 	if medal > 0:
 		game.buzz(80, 0.8)
 
+## The phone up (sliding in from below), or away.
+func toggle_phone() -> void:
+	if phone.visible:
+		var t := create_tween()
+		t.tween_property(phone, "modulate:a", 0.0, 0.12)
+		t.tween_callback(func(): phone.visible = false)
+		return
+	phone.visible = true
+	phone.open()
+	phone.modulate.a = 0.0
+	var y := phone.position.y
+	phone.position.y = y + 40.0
+	var t2 := create_tween().set_parallel()
+	t2.tween_property(phone, "modulate:a", 1.0, 0.16)
+	t2.tween_property(phone, "position:y", y, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
 func tick(dt: float) -> void:
+	if phone and phone.visible and hud.visible:
+		phone.tick(dt)
 	if title.visible:
 		_title_tick(Time.get_ticks_msec() / 1000.0)
 	if garage.visible:

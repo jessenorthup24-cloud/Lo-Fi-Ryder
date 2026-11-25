@@ -723,8 +723,8 @@ func _physics_process(dt: float) -> void:
 		roll_t = 0.0                       # (back on its wheels)
 	# a hurt engine coughs now and then under throttle: the power cuts out for a moment
 	_misfire = maxf(0.0, _misfire - dt)
-	if engine_dmg > 45.0 and throttle > 0.3 and _misfire <= 0.0 and randf() < dt * (engine_dmg - 45.0) / 55.0 * 1.5:
-		_misfire = randf_range(0.08, 0.22)
+	if engine_dmg > 65.0 and throttle > 0.3 and _misfire <= 0.0 and randf() < dt * (engine_dmg - 65.0) / 35.0 * 0.6:
+		_misfire = randf_range(0.06, 0.14)
 		misfired.emit()
 	# tumbling, the body grips the ground (so it rolls rather than skating along on its side)
 	var pm := physics_material_override
@@ -874,9 +874,9 @@ func stain(at: Vector3, k: float) -> void:
 ## How much of its power the engine still gives (misfiring: hardly any for that moment; blown: a limp).
 func engine_power() -> float:
 	if engine_dmg >= 99.5:
-		return 0.12 if _misfire > 0.0 else 0.3
-	var p := 1.0 - engine_dmg * 0.0042
-	return p * 0.12 if _misfire > 0.0 else p
+		return 0.35 if _misfire > 0.0 else 0.55
+	var p := 1.0 - engine_dmg * 0.0022
+	return p * 0.45 if _misfire > 0.0 else p
 
 func misfiring() -> bool:
 	return _misfire > 0.0

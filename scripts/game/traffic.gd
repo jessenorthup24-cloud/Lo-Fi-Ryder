@@ -40,6 +40,7 @@ var heads := []             # traffic light heads {"node", "group", "red", "gree
 var stats := {"crossed": 0, "uturns": 0, "respawns": 0}
 var ignore_player := false  # tools: drive as if you weren't there
 var keep_out := Rect2()     # a street race is on here: no traffic
+var avoid: Array = []        # where the other cars about are (the drivers, the police): no new traffic car on top of them
 var sirens: Array = []      # [[position, facing]] of police cars with their sirens going: the traffic pulls over
 
 func setup(isl: Node, material: Material) -> void:
@@ -393,6 +394,12 @@ func _place_random(c: Dictionary, near: Vector3, rmin: float, rmax: float, view:
 			for o in cars:
 				var op: Vector3 = (o["body"] as Node3D).global_position
 				if o != c and Vector2(op.x, op.z).distance_to(p) < 14.0:
+					ok = false
+					break
+		if ok:
+			# (nor on top of one of the other cars about: the drivers, the police)
+			for ap in avoid:
+				if Vector2((ap as Vector3).x, (ap as Vector3).z).distance_to(p) < 16.0:
 					ok = false
 					break
 		if not ok:

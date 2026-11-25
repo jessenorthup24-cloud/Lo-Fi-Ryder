@@ -330,9 +330,30 @@ func _spotted(cp: Vector3) -> void:
 func _active() -> int:
 	var n := 0
 	for u in units:
-		if u["state"] == "chase":
+		if u["state"] == "chase" and not u.get("npc", false):
 			n += 1
 	return n
+
+## Police cars after one of the drivers (not you).
+func npc_chases() -> int:
+	var n := 0
+	for u in units:
+		if u["state"] == "chase" and u.get("npc", false):
+			n += 1
+	return n
+
+## A patrol car in the traffic has seen one of the drivers fly past: it goes after them (that's nothing to
+## do with you: no stars). They lose it or it stops them.
+func chase_npc(c: Dictionary, target: Node3D) -> void:
+	var b: Node3D = c["body"]
+	var f := -b.global_transform.basis.z
+	var p := b.global_position
+	var xf: Transform3D = game.on_ground(Transform3D(Basis(Vector3.UP, atan2(-f.x, -f.z)), p + Vector3(0, 0.7, 0)))
+	var u := _unit(xf, Vector3(f.x, 0, f.z) * float(c["v"]), target)
+	u["npc"] = true
+	u["target"] = target
+	u["lost_t"] = 0.0
+	traffic._place_random(c, game.car.global_position, 160.0, 260.0, -game.cam.global_transform.basis.z)
 
 func _chase(dt: float, cp: Vector3) -> void:
 	chase_t += dt
@@ -340,7 +361,7 @@ func _chase(dt: float, cp: Vector3) -> void:
 	var any := false
 	var nearest := INF
 	for u in units:
-		if (u["state"] != "chase" and u["state"] != "block") or not is_instance_valid(u["car"]):
+		if (u["state"] != "chase" and u["state"] != "block") or not is_instance_valid(u["car"]) or u.get("npc", false):
 			continue
 		var c: Car = u["car"]
 		var d := c.global_position.distance_to(cp)
@@ -413,13 +434,14 @@ func _end(booked: bool) -> void:
 	race_chase = false
 	calm = CALM_T
 	for u in units:
-		if u["state"] == "chase" or u["state"] == "block":
+		if (u["state"] == "chase" or u["state"] == "block") and not u.get("npc", false):
 			_leave(u, 3.5 if booked else 0.0)
 	if heli:
 		heli.leaving = true
 
 func _leave(u: Dictionary, wait: float) -> void:
 	u["state"] = "patrol"
+	u["npc"] = false
 	u["wait"] = wait
 	u["leave_t"] = 0.0
 	var c: Car = u["car"]
@@ -580,6 +602,8 @@ func _race_watch() -> void:
 		_spawn_cd = 4.0
 
 func _pick_target(u: Dictionary) -> void:
+	if u.get("npc", false):
+		return          # (after one of the drivers: stays on them)
 	u["target"] = game.car
 	var r = game.race
 	if not race_chase or r == null or r.state != 1 or int(u["idx"]) % 2 == 0:
@@ -781,6 +805,9 @@ func _drive(u: Dictionary, dt: float) -> void:
 	var patrol: bool = u["state"] == "patrol"
 	# who it's after
 	u["retarget"] = float(u["retarget"]) - dt
+	if u.get("npc", false) and not is_instance_valid(u["target"]):
+		_leave(u, 0.0)
+		return
 	if not patrol and (float(u["retarget"]) <= 0.0 or not is_instance_valid(u["target"])):
 		u["retarget"] = 3.0
 		_pick_target(u)
@@ -930,7 +957,7 @@ func _drive(u: Dictionary, dt: float) -> void:
 		if heat > 0:
 			heat_pts += 0.6
 	# a racer it's after: boxed in and stopped, they're out of the race
-	if not after_you and u["state"] == "chase" and game.race != null:
+	if not after_you and u["state"] == "chase" and game.race != null and not u.get("npc", false):
 		var tr: RigidBody3D = tgt as RigidBody3D
 		if tr.linear_velocity.length() < 2.5 and pos.distance_to(tgt.global_position) < 7.5:
 			u["bust"] = float(u["bust"]) + dt
@@ -939,6 +966,27 @@ func _drive(u: Dictionary, dt: float) -> void:
 				stats["busted_racers"] += 1
 				game.race.bust(tgt)
 				u["retarget"] = 0.0
+		else:
+			u["bust"] = maxf(0.0, float(u["bust"]) - dt)
+	# one of the drivers it's after: lost (out of sight a while, or left far behind), or boxed in and stopped
+	if u.get("npc", false) and u["state"] == "chase":
+		var tr2: RigidBody3D = tgt as RigidBody3D
+		var sees_it: bool = d_t < 45.0 or (d_t < SPOT_R and bool(u["clear"]))
+		if float(u["look"]) >= 0.29 and d_t < SPOT_R and not sees_it:
+			sees_it = _sees(pos, tpos)
+			u["clear"] = sees_it
+		u["lost_t"] = 0.0 if sees_it else float(u["lost_t"]) + dt
+		u["npc_t"] = float(u.get("npc_t", 0.0)) + dt
+		if float(u["lost_t"]) > 9.0 or d_t > 240.0 or float(u["npc_t"]) > 50.0:      # (and they don't keep at it for ever)
+			_leave(u, 0.0)
+			if game.crew:
+				game.crew.npc_lost(tgt)
+		elif tr2.linear_velocity.length() < 2.5 and d_t < 7.5:
+			u["bust"] = float(u["bust"]) + dt
+			if float(u["bust"]) > BUST_T:
+				_leave(u, 3.0)
+				if game.crew:
+					game.crew.npc_busted(tgt)
 		else:
 			u["bust"] = maxf(0.0, float(u["bust"]) - dt)
 
@@ -968,7 +1016,10 @@ func _close_in(u: Dictionary, c: Car, tgt: Node3D, v: float) -> Vector2:
 		aim3 = spot
 		u["vt"] = 0.0 if ds < 2.5 else clampf(ds * 0.9, 2.0, 14.0)
 		u["mode"] = "box"
-	elif heat >= 2 and along > -5.5 and along < 1.2 and absf(side) < 4.2 and tvl > 8.0:
+	var h := 2 if u.get("npc", false) else heat
+	if tvl < 4.0:
+		pass
+	elif h >= 2 and along > -5.5 and along < 1.2 and absf(side) < 4.2 and tvl > 8.0:
 		# alongside its back end: the PIT, turning in against its rear corner to spin it round
 		aim3 = tp - tf * 2.2 + tr * sgn * 0.2
 		u["vt"] = tvl + 2.5
@@ -977,7 +1028,7 @@ func _close_in(u: Dictionary, c: Car, tgt: Node3D, v: float) -> Vector2:
 		u["mode"] = "pit"
 	else:
 		# on its tail (from two stars, a little off to one side: lining up the PIT)
-		var tail := tp - tf * (6.5 if heat < 2 else 3.2) + tr * sgn * (0.0 if heat < 2 else 2.3)
+		var tail := tp - tf * (6.5 if h < 2 else 3.2) + tr * sgn * (0.0 if h < 2 else 2.3)
 		var lead := clampf(pos.distance_to(tail) / maxf(v, 10.0), 0.0, 0.8)
 		aim3 = tail + tv * lead
 		var gap := pos.distance_to(tail)
@@ -1008,7 +1059,7 @@ func _tidy_up(cp: Vector3) -> void:
 			"block":
 				go = d > 320.0 and not in_view
 			_:
-				go = (int(u["stucks"]) >= 4 or (d > 300.0 and seen)) and not in_view
+				go = (int(u["stucks"]) >= 4 or (d > 300.0 and seen) or (u.get("npc", false) and d > 350.0)) and not in_view
 		if go:
 			c.queue_free()
 			units.erase(u)

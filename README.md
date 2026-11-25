@@ -168,10 +168,11 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   car crumples where it hits (deeper the harder), with sparks, bits of bodywork and glass that bounce and
   skid along the road, a jolt of the camera and, on a big one, a pale flash and a beat of slow motion.
   It comes back from a save looking as battered as it was.
-- Engine damage: knocks to the front hurt the engine most. A hurt engine pulls less, runs rough, and past
-  about half coughs under throttle (a bang from the exhaust, a puff of black smoke, the power gone for a
-  moment); it smokes from under the bonnet, white, then grey, then thick black with flames, and when it's
-  gone you limp along at a third of the power. A hard knock on a front corner bends that wheel: it leans
+- Engine damage: knocks to the front hurt the engine most (small knocks don't touch it; a flat-out
+  head-on takes about a fifth of it). A hurt engine pulls a little less (a wrecked one about 80%), and
+  past two thirds it coughs now and then under throttle (a bang from the exhaust, a puff of black smoke, a
+  moment's dip in power); it smokes from under the bonnet, white, then grey, then thick black with flames,
+  and when it's gone you limp along at a bit over half the power. A hard knock on a front corner bends that wheel: it leans
   and wobbles and pulls the steering. Gas stations fix it all (the condition gauge shows the worse of the
   body and the engine).
 - Rollovers: T-boned by a car at about 40 km/h or more (or slammed sideways into a wall at 60+) and the car
@@ -180,6 +181,21 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   lies. Nose first into something at 80+ kicks the back end up.
 - Trading paint: rubbing along another car (traffic, racers, the police) costs you no speed; the knock
   itself shares the speed out by weight, as before. Scraping a wall still costs some, more the squarer on.
+
+## The drivers
+
+- Named street drivers roam the island in cars like yours (tuned up), fast and loose but skilled: flat out
+  on the straights, braking for the bends, past the traffic when there's room (looking out for what's
+  coming), and drifting corners, some much more than others (drifters, grip drivers, wild ones). Their
+  names float over their cars and they're orange dots on the minimap.
+- Drive up close to one and you swap numbers. The phone (the handset button under the coins, or T) lists
+  your contacts: Call one and they come and find you (up to three at once). Your crew follow the line you
+  drove (so round the corners the way you went), sit off your back quarters at your speed, drift when you
+  drift, park up round you when you stop, and catch up with a squirt of nitrous (left far behind and out of
+  sight, they turn up behind you again). Send off from the phone lets them go. They're green on the minimap.
+- Now and then a patrol car sees one of them fly past and goes after them (no stars for you): they run
+  for it, and lose them or get busted. One of your crew they're after keeps driving with you.
+- During a challenge or a race they're off the streets; your crew come back once it's over.
 
 ## The world
 
@@ -261,6 +277,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `scripts/game/circuits.gd` | The three other circuits (Cliffside, Eastpoint, Southshore): their headlands, tracks, access roads, dressing and races |
 | `scripts/game/heli.gd` | The police helicopter (built in code): flying, banking, its searchlight, what it can see |
 | `scripts/game/police.gd` | The police: patrol cars in the traffic noticing you, wanted stars, the police cars (road-following, ramming, boxing in, getting unstuck, coming in out of sight), busted and escaped, police at street races |
+| `scripts/game/crew.gd` | The drivers: roaming, swapping numbers, your crew following your line, tandem drifts, the police after them |
+| `scripts/ui/phone.gd` | The phone: your contacts, Call and Send off |
 | `scripts/game/race.gd` | Races: the racing line (the streets' middle, or a route along the roads, pulled tight within their width, with a speed for every metre and crests capped), the difficulty levels, the CPU drivers (follow, pass, back off, recover), checkpoints, laps and places |
 | `tools/cars/export_paints.gd` | Bakes each car's other liveries as per-vertex colour rows (`assets/cars/*_paints.res`) |
 
@@ -293,6 +311,8 @@ godot --path . -- --drive --begin=race:cliffside --raceauto --restartat=14 --qui
 godot --path . -- --drive --auto --begin=zone:square --againtest   # the results card's Try again, pressed for you
 godot --path . -- --drive --begin=race:downtown --pauseat=6        # the pause menu (--sheet=settings, help, map, trophies too)
 godot --path . -- --drive --patrolcam             # beside a patrol car in the traffic
+godot --headless --path . -- --auto --crew=3 --crewlog --crashlog   # three of the drivers called to you, logged
+godot --path . -- --drive --crew=Kai,Rico --phone_at=6               # these two with you, the phone up 6 s in
 godot --path . -- --drive --wanted=1 --shot_busted=busted.png   # stand still, get busted, screenshot it
 godot --path . -- --auto --wanted=4 --shot_t=14:heli.png        # a screenshot at a game time
 xvfb-run godot --path . -- --drive --shot=/tmp/x.png --shot_at=200 --quit_after=30
