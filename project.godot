@@ -70,3 +70,7 @@ neon_col={
 "type": "vec4",
 "value": Vector4(0, 0, 0, 1)
 }
+car_detail={
+"type": "sampler2D",
+"value": "res://assets/cars/hoon_detail.png"
+}

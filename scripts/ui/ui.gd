@@ -2375,7 +2375,10 @@ func _cars_tab() -> void:
 	var nxt := K.round_button("right", K.PAPER, K.LINE, 70)
 	_tap(nxt, func(): _garage_step(1))
 	nav.add_child(nxt)
-	g_panel.add_child(K.label("%d of %d" % [g_index + 1, CARS.LIST.size()], 20, K.INK_SOFT, 600))
+	if d.get("legend", false):
+		g_panel.add_child(K.label("LEGENDARY · %d of %d" % [g_index + 1, CARS.LIST.size()], 20, Color("b8892b"), 800))
+	else:
+		g_panel.add_child(K.label("%d of %d" % [g_index + 1, CARS.LIST.size()], 20, K.INK_SOFT, 600))
 	for st in [["Power", d["power"], 0.95, 1.6], ["Top speed", d["speed"], 0.95, 1.25], ["Grip", d["grip"], 0.95, 1.16], ["Drift", d["drift"], 1.0, 1.4]]:
 		var hb := HBoxContainer.new()
 		hb.add_theme_constant_override("separation", 12)

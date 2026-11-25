@@ -27,6 +27,9 @@ uniform vec3 head_col : source_color = vec3(0.85, 0.92, 1.0);
 global uniform vec4 neon_pos;
 global uniform vec4 neon_fwd;
 global uniform vec4 neon_col;
+// livery art for a car made as a textured model (tools/cars/bake_glb_car.gd): vertex alpha 0.8-0.95 reads
+// its colour from here through UV, times the vertex colour
+global uniform sampler2D car_detail : filter_linear_mipmap;
 
 varying vec3 v_col;
 varying float v_glow;
@@ -34,6 +37,7 @@ varying vec3 v_world;
 varying vec3 v_nrm;
 varying float v_direct;
 varying float v_win;
+varying float v_tex;
 
 
 const float PAL_W = 64.0;
@@ -57,6 +61,7 @@ void vertex() {
 	vec4 c = COLOR;
 	v_glow = 0.0;
 	v_win = 0.0;
+	v_tex = 0.0;
 	v_direct = c.a > 0.6 ? 1.0 : 0.0;
 	if (c.a < 0.2) {
 		v_col = pal(floor(c.r * 255.0 + 0.5));
@@ -74,6 +79,9 @@ void vertex() {
 	} else if (c.a < 0.8) {
 		// colours as the artist painted them (the Kenney models)
 		v_col = c.rgb;
+	} else if (c.a < 0.95) {
+		v_col = lin(c.rgb);
+		v_tex = 1.0;
 	} else {
 		v_col = lin(c.rgb);
 	}
@@ -96,7 +104,11 @@ void vertex() {
 }
 
 void fragment() {
-	vec3 col = mix(v_col, vec3(1.0, 0.8, 0.45), v_win * night * 0.75) * tint;
+	vec3 base = v_col;
+	if (v_tex > 0.5) {
+		base *= lin(texture(car_detail, UV).rgb);
+	}
+	vec3 col = mix(base, vec3(1.0, 0.8, 0.45), v_win * night * 0.75) * tint;
 	ALBEDO = col;
 	ROUGHNESS = 1.0;
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
