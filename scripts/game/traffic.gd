@@ -40,6 +40,7 @@ var heads := []             # traffic light heads {"node", "group", "red", "gree
 var stats := {"crossed": 0, "uturns": 0, "respawns": 0}
 var ignore_player := false  # tools: drive as if you weren't there
 var keep_out := Rect2()     # a street race is on here: no traffic
+var parked := Vector3.INF    # your car, left parked while you're on foot: they stop for it as they do for you
 var avoid: Array = []        # where the other cars about are (the drivers, the police): no new traffic car on top of them
 var sirens: Array = []      # [[position, facing]] of police cars with their sirens going: the traffic pulls over
 
@@ -705,6 +706,8 @@ func tick(dt: float, player: Vector3, _player_vel: Vector3, view := Vector3.ZERO
 		if not ignore_player and tp.length() < look + 8.0 and _on_path(fut, Vector2(player.x, player.z), 2.7, p2):
 			blocked = true
 			by_you = true
+		if parked != Vector3.INF and (parked - pos).length() < look + 8.0 and _on_path(fut, Vector2(parked.x, parked.z), 2.9, p2):
+			blocked = true
 		if float(c["hit"]) > 0.0:
 			c["hit"] = float(c["hit"]) - dt
 			blocked = true

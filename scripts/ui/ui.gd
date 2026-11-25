@@ -30,6 +30,8 @@ var wipe_mat: ShaderMaterial
 # hud
 var ctl := {}                 # left, right, gas, brake, hand -> Control
 var speed_lbl: Label
+var speedo: Control
+var foot_mode := false       # on foot: the stick, jump and sprint instead of the car's controls
 var gear_lbl: Label
 var rpm_bar: ProgressBar
 var drift_card: PanelContainer
@@ -74,6 +76,7 @@ var g_view: SubViewport
 var title_go: Button
 var g_root3d: Node3D
 var g_car: Node3D
+const Avatar := preload("res://scripts/game/avatar.gd")
 var g_turn: Node3D
 var g_mat: ShaderMaterial
 var g_index := 0
@@ -526,6 +529,7 @@ func _build_hud() -> void:
 	sp.add_theme_constant_override("separation", -10)
 	sp.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(sp)
+	speedo = sp
 	speed_lbl = K.outlined(K.label("0", 76, Color.WHITE, 700), K.INK, 14)
 	sp.add_child(speed_lbl)
 	var srow := HBoxContainer.new()
@@ -552,6 +556,14 @@ func _build_hud() -> void:
 	ctl["hand"] = _pad("hand", Vector2(-420, -360), Vector2(130, 120), false, K.PAPER)
 	ctl["nos"] = _pad("nos", Vector2(-270, -380), Vector2(150, 116), false, Color("cfe9ff"))
 	ctl["cruise"] = _pad("cruise", Vector2(-528, -356), Vector2(92, 92), false, K.PAPER)
+	# the door: out of the car, or into it (both ways, the same spot)
+	ctl["door"] = _pad("door", Vector2(-424, -484), Vector2(92, 92), false, K.PAPER)
+	# on foot: a stick on the left, jump and sprint on the right
+	ctl["stick"] = _pad("stick", Vector2(60, -300), Vector2(240, 240), true, K.PAPER)
+	ctl["jump"] = _pad("jump", Vector2(-214, -256), Vector2(132, 132), false, K.PAPER)
+	ctl["sprint"] = _pad("sprint", Vector2(-372, -204), Vector2(120, 120), false, K.PAPER)
+	for k in ["stick", "jump", "sprint"]:
+		ctl[k].visible = false
 	reset_hint = K.button("Stuck? Reset car", K.SUN, K.SUN_DK, 28, 0, 72, "home")
 	reset_hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	reset_hint.position = Vector2(-160, 60)
@@ -623,7 +635,66 @@ func _tag(c: Control, text: String, at: Vector2, size: int, bg: Color, fg := K.S
 	_sticker(c, _rbox(Rect2(at - Vector2(w * 0.5, size * 0.75), Vector2(w, size * 1.3)), size * 0.45), bg, 3.0, 3.0)
 	c.draw_string(f, at - Vector2(w * 0.5 - 8.0, -size * 0.32), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, fg)
 
+## The on-foot controls and the door: dark glass discs with white line icons (the lo-fi night look).
+func _draw_glass_disc(c: Control, r: float, on: bool, lit := true) -> Vector2:
+	var cc := c.size * 0.5
+	c.draw_circle(cc, r, Color(0.06, 0.055, 0.09, 0.62 if lit else 0.35))
+	c.draw_arc(cc, r, 0, TAU, 48, Color(1, 1, 1, 0.3 if lit else 0.12), 1.5, true)
+	if on:
+		c.draw_circle(cc, r, Color(1.0, 0.31, 0.55, 0.3))
+	return cc
+
+func _draw_foot_pad(c: Control, name: String) -> void:
+	var on: bool = c.get_meta("on")
+	var w := Color(1, 1, 1, 0.92)
+	match name:
+		"stick":
+			var cc := c.size * 0.5
+			var R := c.size.x * 0.42
+			c.draw_circle(cc, R, Color(0.06, 0.055, 0.09, 0.32))
+			c.draw_arc(cc, R, 0, TAU, 64, Color(1, 1, 1, 0.28), 1.5, true)
+			for k in 4:
+				var a := TAU * k / 4.0
+				var d := Vector2(cos(a), sin(a))
+				var tip := cc + d * (R - 12)
+				c.draw_polyline(PackedVector2Array([tip - d * 8 + d.orthogonal() * 7, tip, tip - d * 8 - d.orthogonal() * 7]), Color(1, 1, 1, 0.4), 2.0, true)
+			var kv: Vector2 = c.get_meta("knob", Vector2.ZERO)
+			var kp := cc + Vector2(kv.x, -kv.y) * R
+			c.draw_circle(kp, R * 0.36, Color(0.1, 0.09, 0.14, 0.75))
+			c.draw_arc(kp, R * 0.36, 0, TAU, 40, Color(1.0, 0.31, 0.55, 0.9 if kv.length() > 0.05 else 0.45), 2.0, true)
+		"jump":
+			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
+			c.draw_polyline(PackedVector2Array([cc + Vector2(-16, 8), cc + Vector2(0, -10), cc + Vector2(16, 8)]), w, 4.0, true)
+			c.draw_polyline(PackedVector2Array([cc + Vector2(-16, 20), cc + Vector2(0, 2), cc + Vector2(16, 20)]), Color(1, 1, 1, 0.45), 3.0, true)
+			_pad_text(c, "JUMP", cc + Vector2(0, 44), 13, Color(1, 1, 1, 0.7))
+		"sprint":
+			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
+			for k in 2:
+				var x := -10.0 + k * 14.0
+				c.draw_polyline(PackedVector2Array([cc + Vector2(x - 6, -12), cc + Vector2(x + 6, 0), cc + Vector2(x - 6, 12)]), w, 4.0, true)
+			_pad_text(c, "RUN", cc + Vector2(0, 40), 13, Color(1, 1, 1, 0.7))
+		"door":
+			var foot: bool = c.get_meta("foot", false)
+			var near: bool = c.get_meta("near", false)
+			var cc := _draw_glass_disc(c, c.size.x * 0.46, on, not foot or near)
+			# in the car: a door with an arrow out; on foot: a little car (lit when you're by yours)
+			if not foot:
+				c.draw_rect(Rect2(cc + Vector2(-14, -16), Vector2(18, 32)), w, false, 3.0)
+				c.draw_line(cc + Vector2(-2, 0), cc + Vector2(18, 0), w, 3.5)
+				c.draw_polyline(PackedVector2Array([cc + Vector2(11, -7), cc + Vector2(18, 0), cc + Vector2(11, 7)]), w, 3.5, true)
+			else:
+				var a := 1.0 if near else 0.4
+				var cw := Color(1, 1, 1, a)
+				c.draw_rect(Rect2(cc + Vector2(-18, -2), Vector2(36, 12)), cw, false, 3.0)
+				c.draw_polyline(PackedVector2Array([cc + Vector2(-11, -2), cc + Vector2(-6, -12), cc + Vector2(7, -12), cc + Vector2(12, -2)]), cw, 3.0, true)
+				c.draw_circle(cc + Vector2(-10, 12), 4.0, cw)
+				c.draw_circle(cc + Vector2(10, 12), 4.0, cw)
+			_pad_text(c, "EXIT" if not foot else "ENTER", cc + Vector2(0, 40), 12, Color(1, 1, 1, 0.7 if (not foot or near) else 0.35))
+
 func _draw_pad(c: Control, name: String) -> void:
+	if name in ["stick", "jump", "sprint", "door"]:
+		_draw_foot_pad(c, name)
+		return
 	var s := c.size
 	var on: bool = c.get_meta("on")
 	match name:
@@ -1014,13 +1085,56 @@ func control_at(pos: Vector2) -> String:
 		var hub := wheel.get_global_rect().position + _wheel_hub()
 		if pos.distance_to(hub) < 250.0:
 			return "wheel"
-	for k in ["rewind", "nos", "cruise", "hand", "gas", "brake", "left", "right"]:
+	for k in (["door", "jump", "sprint", "stick"] if foot_mode else ["rewind", "door", "nos", "cruise", "hand", "gas", "brake", "left", "right"]):
 		var c: Control = ctl[k]
 		if not c.visible:
 			continue
-		if c.get_global_rect().grow(14 if k == "nos" else 22).has_point(pos):
+		if c.get_global_rect().grow(14 if k == "nos" else (60 if k == "stick" else 22)).has_point(pos):
 			return k
 	return ""
+
+## On foot or back in the car: which controls are up.
+func set_foot(on: bool) -> void:
+	foot_mode = on
+	for k in ["gas", "brake", "hand", "nos", "cruise", "rewind", "left", "right"]:
+		ctl[k].visible = not on
+	if on:
+		wheel.visible = false
+	else:
+		wheel.visible = wheel_mode()
+		ctl["left"].visible = not wheel_mode()
+		ctl["right"].visible = not wheel_mode()
+	for k in ["stick", "jump", "sprint"]:
+		ctl[k].visible = on
+	speedo.visible = not on
+	fuel_g.visible = not on
+	cond_g.visible = not on
+	if on:
+		limit_sign.visible = false
+	ctl["door"].set_meta("foot", on)
+	ctl["door"].queue_redraw()
+
+## Where a finger on the stick pushes it: x right, y forward, up to 1.
+func stick_vec(pos: Vector2) -> Vector2:
+	var r := (ctl["stick"] as Control).get_global_rect()
+	var d := (pos - r.get_center()) / (r.size.x * 0.42)
+	return Vector2(d.x, -d.y).limit_length(1.0)
+
+## The HUD while you're on foot: the minimap round you, the clock, coins; the door lit when you're by the car.
+func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> void:
+	_minimap_tick(p, yaw)
+	if bool(game.save.setting("clock")):
+		clock_lbl.text = clock
+	if coins != _last_coins:
+		_last_coins = coins
+		coins_pill.get_meta("label").text = K.fmt(coins)
+	var dc: Control = ctl["door"]
+	if bool(dc.get_meta("near", false)) != near:
+		dc.set_meta("near", near)
+		dc.queue_redraw()
+	(ctl["stick"] as Control).set_meta("knob", game.stick)
+	ctl["stick"].queue_redraw()
+	pressed_controls(game.held)
 
 func pressed_controls(held: Dictionary) -> void:
 	for k in ctl:
@@ -1164,10 +1278,10 @@ func show_hud() -> void:
 func hud_update(d: Dictionary) -> void:
 	_hud_data = d
 	speed_lbl.text = str(int(round(d["kmh"])))
-	var wm := wheel_mode()
+	var wm := wheel_mode() and not foot_mode
 	wheel.visible = wm
-	ctl["left"].visible = not wm
-	ctl["right"].visible = not wm
+	ctl["left"].visible = not wm and not foot_mode
+	ctl["right"].visible = not wm and not foot_mode
 	if wm:
 		wheel.set_meta("a", float(d.get("wheel", 0.0)) * game.WHEEL_MAX)     # (turned with the finger)
 		wheel.set_meta("on", game.wheel_idx >= 0)
@@ -2328,7 +2442,7 @@ func _garage_refresh() -> void:
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 8)
 	g_panel.add_child(tabs)
-	for tdef in [["cars", "Cars", "car"], ["paint", "Paint", "star"], ["tune", "Tune", "tire"], ["up", "Upgrades", "gear"]]:
+	for tdef in [["cars", "Cars", "car"], ["paint", "Paint", "star"], ["tune", "Tune", "tire"], ["up", "Upgrades", "gear"], ["driver", "Driver", "group"]]:
 		var on: bool = g_tab == tdef[0]
 		var b := K.button(tdef[1], K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 18, 0, 62, tdef[2])
 		if not on:
@@ -2341,8 +2455,13 @@ func _garage_refresh() -> void:
 			g_paint = -1
 			_garage_refresh())
 		tabs.add_child(b)
-	_show_car(CARS.LIST[g_index])
-	if g_tab == "cars":
+	if g_tab == "driver":
+		_show_driver()
+	else:
+		_show_car(CARS.LIST[g_index])
+	if g_tab == "driver":
+		_driver_tab()
+	elif g_tab == "cars":
 		_cars_tab()
 	elif g_tab == "paint":
 		_paint_tab()
@@ -2443,6 +2562,60 @@ func _paint_action(id: String, idx: int) -> void:
 		game.car_changed()
 	g_paint = -1
 	_garage_refresh()
+
+## The Driver tab: who you are when you step out of the car. Everyone's free; the accessory rides on your head.
+func _driver_tab() -> void:
+	var s = game.save.data
+	var now := String(s.get("avatar", "male-a"))
+	var l := K.label(Avatar.name_of(now), 30, K.INK, 500)
+	l.add_theme_font_override("font", K.font_spaced(500, 3))
+	g_panel.add_child(l)
+	g_panel.add_child(K.label("Who steps out when you get out of the car", 17, K.INK_SOFT, 500))
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(0, 250)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	g_panel.add_child(sc)
+	_drag_scroll(sc)
+	var grid := GridContainer.new()
+	grid.columns = 4
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	sc.add_child(grid)
+	for c in Avatar.CHARS:
+		var id: String = c[0]
+		var on := id == now
+		var b := K.button(String(c[1]), K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 17, 0, 50)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_tap(b, func():
+			game.save.data["avatar"] = id
+			game.save.save()
+			_garage_refresh())
+		grid.add_child(b)
+	var acc_now := String(s.get("acc", ""))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	g_panel.add_child(row)
+	for a in Avatar.ACCS:
+		var aid: String = a[0]
+		var on2 := aid == acc_now
+		var ab := K.button(String(a[1]), K.CORAL if on2 else K.CREAM, K.CORAL_DK if on2 else K.LINE_DK, 17, 0, 50)
+		ab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_tap(ab, func():
+			game.save.data["acc"] = aid
+			game.save.save()
+			_garage_refresh())
+		row.add_child(ab)
+
+func _show_driver() -> void:
+	for c in g_car.get_children():
+		c.queue_free()
+	g_neon = null
+	var av := Avatar.new()
+	g_car.add_child(av)
+	av.setup(String(game.save.data.get("avatar", "male-a")), String(game.save.data.get("acc", "")), g_mat)
+	av.scale = Vector3.ONE * 1.55         # (bigger than life on the turntable, facing you)
+	av.play("idle")
 
 func _show_car(d: Dictionary) -> void:
 	for c in g_car.get_children():

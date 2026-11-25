@@ -24,6 +24,7 @@ const Police := preload("res://scripts/game/police.gd")
 const Boats := preload("res://scripts/game/boats.gd")
 const Crew := preload("res://scripts/game/crew.gd")
 const Weather := preload("res://scripts/game/weather.gd")
+const OnFoot := preload("res://scripts/game/onfoot.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
 
@@ -146,6 +147,12 @@ var router: Route
 var police: Police
 var boats: Boats
 var crew: Crew               # the drivers out on the island (and the ones driving with you)
+var foot: OnFoot = null      # you, out of the car (null while you're driving)
+var on_foot := false
+var stick := Vector2.ZERO    # the on-foot stick: x right, y forward
+var stick_idx := -1          # the finger on it
+var foot_yaw := 0.0          # the on-foot camera's heading
+var foot_pitch := 0.32
 var weather: Weather
 var route := {}             # where the GPS is taking you: {pos, name, kind}
 var route_pick := {}        # a place you picked on the map
@@ -203,6 +210,9 @@ func _ready() -> void:
 	atmos = Atmos.new()
 	add_child(atmos)
 	atmos.setup(self, toon)
+	if args.has("avatar"):
+		save.data["avatar"] = String(args["avatar"])        # (a test: who you are, and what's on your head)
+		save.data["acc"] = String(args.get("acc", ""))
 	if args.has("season"):
 		atmos.set_season(int(args["season"]))
 	if args.has("hour"):
@@ -405,7 +415,7 @@ func _build_world() -> void:
 				ui.open_achievements()
 	elif args.has("garage"):
 		open_garage()
-		if String(args["garage"]) in ["up", "paint", "tune"]:
+		if String(args["garage"]) in ["up", "paint", "tune", "driver"]:
 			ui.g_tab = String(args["garage"])
 			ui.g_paint = int(args.get("paintprev", "-1"))
 			ui._garage_refresh()
@@ -515,6 +525,7 @@ func _title_mood(on: bool) -> void:
 		_title_hour_back = -1.0
 
 func go_title() -> void:
+	_back_in()
 	_save_now()
 	state = TITLE
 	_end_challenges()
@@ -604,7 +615,19 @@ func car_changed() -> void:
 	sound.set_engine(String(d["engine"]), float(d["pitch"]))
 	sound.turbo = int(save.data["up"].get("turbo", 0))
 
+## Straight back in the car, wherever you are (the title, a reset, a challenge starting).
+func _back_in() -> void:
+	if foot != null:
+		foot.queue_free()
+		foot = null
+	if on_foot:
+		on_foot = false
+		stick = Vector2.ZERO
+		stick_idx = -1
+		ui.set_foot(false)
+
 func reset_car() -> void:
+	_back_in()
 	rw_buf.clear()
 	if race != null and race.state == 1:
 		# in a race: back to the last checkpoint
@@ -745,18 +768,19 @@ func _process(dt: float) -> void:
 		_lamp_lights(dt)
 	if car and state != GARAGE:
 		car.neon_tick(car.get_global_transform_interpolated(), atmos.night)     # (the garage lights its own)
-	var cp := car.global_position
+	var cp := foot.global_position if on_foot else car.global_position
 	boats.tick(dt)
 	if island.rail and (state == DRIVE or state == TITLE):
 		island.rail.tick(dt, cam.global_position)
 	island.night = atmos.night
-	island.tick(dt, cp, car.linear_velocity)
-	if state == DRIVE:
+	island.tick(dt, cp, foot.velocity if on_foot else car.linear_velocity)
+	if state == DRIVE and not on_foot:
 		var half := Vector3(float(car.info["width"]) * 0.5, float(car.info["height"]) * 0.5, float(car.info["length"]) * 0.5)
 		for pr in island.people.hits(car.global_transform, half, (float(car.info["front"]) + float(car.info["back"])) * 0.5, car.linear_velocity):
 			_ped_hit(pr)
 	ragdolls.tick(dt, cp)
-	traffic.tick(dt, cp, car.linear_velocity, -cam.global_transform.basis.z)
+	traffic.parked = car.global_position if on_foot else Vector3.INF
+	traffic.tick(dt, cp, foot.velocity if on_foot else car.linear_velocity, -cam.global_transform.basis.z)
 	if traffic.honk != Vector3.INF and state == DRIVE:
 		var hd: float = traffic.honk.distance_to(cp)
 		sfx(traffic.honk_kind, clampf(-4.0 - hd * 0.3, -16.0, -4.0), randf_range(0.95, 1.08))
@@ -769,15 +793,18 @@ func _process(dt: float) -> void:
 			car.handbrake = 1.0
 			_title_cam(dt)
 		DRIVE:
-			_controls(dt)
-			_intro_tick(dt)
-			_rewind_tick(dt)
-			# (the camera first: the HUD works out where the car is on screen from it, this frame's view)
-			_cam(dt)
-			if not rewinding:
-				_drive(dt)
+			if on_foot:
+				_foot_tick(dt)
 			else:
-				ui.hud_update_light()
+				_controls(dt)
+				_intro_tick(dt)
+				_rewind_tick(dt)
+				# (the camera first: the HUD works out where the car is on screen from it, this frame's view)
+				_cam(dt)
+				if not rewinding:
+					_drive(dt)
+				else:
+					ui.hud_update_light()
 			police.tick(dt)
 			crew.tick(dt)
 			_crew_tests()
@@ -921,6 +948,24 @@ func _crew_tests() -> void:
 		keys.sort_custom(func(a, b): return int(groups[a][1]) > int(groups[b][1]))
 		for k in keys.slice(0, 30):
 			print("PERF %-34s nodes %5d  tris %9d  range %.0f" % [k, groups[k][0], groups[k][1], groups[k][2]])
+	if args.has("foottest") and state == DRIVE:
+		# a test: out of the car at 3 s, walk forward, sprint, jump, turn; back in at the end
+		if not has_meta("ft_out") and time > 3.0:
+			set_meta("ft_out", true)
+			toggle_foot()
+		if on_foot:
+			var ft := time - 3.0
+			stick = Vector2(0.0 if ft < 6.0 else 0.8, 1.0) if ft > 0.5 and ft < 7.5 else Vector2.ZERO
+			keys["sprint"] = ft > 3.0 and ft < 5.0
+			keys["jump"] = ft > 4.0 and ft < 4.1
+			if ft > 8.5 and not has_meta("ft_in"):
+				set_meta("ft_in", true)
+				foot.place(car.global_position - car.global_transform.basis.x * 1.8, 0.0)
+				toggle_foot()
+				print("FOOT back in: on_foot=%s" % str(on_foot))
+			if on_foot and frames % 15 == 0:
+				print("FOOT t=%.1f p=(%.1f,%.1f,%.1f) v=%.1f floor=%s anim=%s" % [ft, foot.global_position.x, foot.global_position.y, foot.global_position.z,
+					Vector3(foot.velocity.x, 0, foot.velocity.z).length(), str(foot.is_on_floor()), foot.avatar.current()])
 	if args.has("perfdraws") and not has_meta("pdr_done") and time > float(args["perfdraws"]):
 		# a test: what's in view and in range (each is at least a draw), grouped, biggest first
 		set_meta("pdr_done", true)
@@ -1925,6 +1970,7 @@ func quit_challenge() -> void:
 		ui.toast("Challenge over: free roam", "flag", K.PAPER, K.INK, 1.6)
 
 func start_challenge_now(kind: String, id: String) -> void:
+	_back_in()
 	_end_challenges()
 	cur_challenge = [kind, id]
 	jump = {}
@@ -3078,6 +3124,119 @@ func _group_view(dt: float, you: Vector3, yaw: float) -> Array:
 var _group_c := Vector3.ZERO
 var _group_r := 6.0
 
+# ------------------------------------------------------------------ on foot
+
+## Out of the car, or back in (the door button, F).
+func toggle_foot() -> void:
+	if on_foot:
+		_enter_car()
+	else:
+		_exit_car()
+
+func _exit_car() -> void:
+	if challenge_on():
+		ui.toast("Not in the middle of a challenge", "car")
+		return
+	if police.wanted():
+		ui.toast("Lose the police first", "eye", Color("ff5c7a"))
+		return
+	if absf(car.speed) > 4.0:
+		ui.toast("Slow down to get out", "car")
+		return
+	var xf := car.global_transform
+	var side := -xf.basis.x          # (the driver's side: the car's left)
+	side.y = 0.0
+	side = side.normalized()
+	var p := xf.origin + side * (float(car.info["width"]) * 0.5 + 0.7)
+	p.y = maxf(p.y, island.height_at(p.x, p.z)) + 0.1
+	foot = OnFoot.new()
+	foot.name = "You"
+	add_child(foot)
+	foot.setup(island, String(save.data.get("avatar", "male-a")), String(save.data.get("acc", "")), toon)
+	foot.place(p, atan2(side.x, side.z) + PI)
+	on_foot = true
+	cruise_on = false
+	nos_toggle = false
+	car.throttle = 0.0
+	car.brake = 0.0
+	car.handbrake = 1.0
+	car.steer_in = 0.0
+	foot_yaw = cam_yaw
+	foot_pitch = 0.32
+	ui.set_foot(true)
+	sfx("door", -6.0) if sound._stream("door") else sfx("bump", -10.0, 1.4)
+
+## In again: to your own car, if you're close enough.
+func _enter_car() -> void:
+	if foot == null:
+		return
+	if foot.global_position.distance_to(car.global_position) > float(car.info["length"]) * 0.5 + 2.6:
+		ui.toast("Walk up to your car to get in", "car")
+		return
+	foot.queue_free()
+	foot = null
+	on_foot = false
+	stick = Vector2.ZERO
+	stick_idx = -1
+	ui.set_foot(false)
+	_cam(0.016, true)
+	sfx("door", -6.0) if sound._stream("door") else sfx("bump", -10.0, 1.4)
+
+## Near enough to the car to get in.
+func near_car() -> bool:
+	return on_foot and foot != null and foot.global_position.distance_to(car.global_position) < float(car.info["length"]) * 0.5 + 2.6
+
+func _foot_tick(dt: float) -> void:
+	_controls_off()
+	car.handbrake = 1.0
+	# the stick (or WASD), the camera's frame
+	var mv := stick
+	var kx := (1.0 if held.get("right", false) else 0.0) - (1.0 if held.get("left", false) else 0.0)
+	var ky := (1.0 if held.get("gas", false) else 0.0) - (1.0 if held.get("brake", false) else 0.0)
+	if kx != 0.0 or ky != 0.0:
+		mv = Vector2(kx, ky).normalized()
+	foot.move = mv
+	foot.cam_yaw = foot_yaw + look_yaw
+	foot.sprint = held.get("sprint", false) or keys.get("sprint", false)
+	if _pressed("jump") or (keys.get("jump", false) and not foot.get_meta("jk", false)):
+		foot.jump_req = true
+	foot.set_meta("jk", keys.get("jump", false))
+	if _pressed("door"):
+		ui_tap()
+		toggle_foot()
+		return
+	_foot_cam(dt)
+	ui.foot_hud(foot.global_position, foot.facing, atmos.clock_text() + (("  ·  " + weather.label()) if weather and weather.label() != "" else ""), int(save.data["coins"]), near_car())
+
+## The on-foot camera: over your shoulder, a few metres back; drag to swing it round, it drifts in behind
+## you as you walk.
+func _foot_cam(dt: float) -> void:
+	var v := foot.velocity
+	v.y = 0.0
+	look_t += dt
+	if look_t > 1.2 and v.length() > 1.0:
+		# walking: ease round behind (not snapping: the drag's still yours)
+		foot_yaw = lerp_angle(foot_yaw, atan2(-v.x, -v.z) - look_yaw_t, 1.0 - exp(-dt * 1.2))
+	look_yaw = lerp_angle(look_yaw, look_yaw_t, 1.0 - exp(-dt * 16.0))
+	look_pitch = lerpf(look_pitch, look_pitch_t, 1.0 - exp(-dt * 16.0))
+	var yaw := foot_yaw + look_yaw
+	var pitch := clampf(foot_pitch + look_pitch * 0.6, -0.1, 1.1)
+	var dist := 4.6 * cam_zoom
+	var head := foot.get_global_transform_interpolated().origin + Vector3(0, 1.55, 0)
+	var back := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
+	var want := head + back * dist + Vector3(-cos(yaw), 0, sin(yaw)) * 0.45     # (a little over the shoulder)
+	# not through walls or the ground
+	var q := PhysicsRayQueryParameters3D.create(head, want, 1 | 2 | 4)
+	q.exclude = [foot.get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if not hit.is_empty():
+		want = (hit["position"] as Vector3) + ((head - want).normalized() * 0.3)
+	want.y = maxf(want.y, island.height_at(want.x, want.z) + 0.4)
+	cam.position = cam.position.lerp(want, 1.0 - exp(-dt * 14.0))
+	cam.look_at(head + Vector3(0, 0.1, 0), Vector3.UP)
+	cam.fov = lerpf(cam.fov, 62.0, 1.0 - exp(-dt * 4.0))
+	cam_pos = cam.position
+
 func toggle_group_cam() -> void:
 	group_cam = not group_cam
 	ui.popup_text("Group ride view" if group_cam else "Group view off")
@@ -3118,8 +3277,15 @@ func _unhandled_input(e: InputEvent) -> void:
 				held["gas"] = on
 			KEY_DOWN, KEY_S:
 				held["brake"] = on
-			KEY_SPACE, KEY_SHIFT:
+			KEY_SPACE:
 				held["hand"] = on
+				keys["jump"] = on
+			KEY_SHIFT:
+				held["hand"] = on
+				keys["sprint"] = on
+			KEY_F, KEY_ENTER:
+				if on and state == DRIVE:
+					toggle_foot()
 			KEY_N, KEY_E:
 				held["nos"] = on
 			KEY_Q:
@@ -3152,6 +3318,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				touches[e.index] = c
 				wheel_idx = e.index
 				wheel_grab = ui.wheel_angle_at(e.position) - wheel_angle
+			elif c == "stick":
+				stick_idx = e.index
+				touches[e.index] = c
+				stick = ui.stick_vec(e.position)
 			elif c != "":
 				touches[e.index] = c
 			elif state == DRIVE:
@@ -3160,6 +3330,9 @@ func _unhandled_input(e: InputEvent) -> void:
 			touches.erase(e.index)
 			if e.index == wheel_idx:
 				wheel_idx = -1
+			if e.index == stick_idx:
+				stick_idx = -1
+				stick = Vector2.ZERO
 			if look_touches.has(e.index):
 				look_touches.erase(e.index)
 				if look_touches.is_empty():
@@ -3168,6 +3341,8 @@ func _unhandled_input(e: InputEvent) -> void:
 	elif e is InputEventScreenDrag:
 		if e.index == wheel_idx:
 			wheel_angle = clampf(wrapf(ui.wheel_angle_at(e.position) - wheel_grab, -PI, PI), -WHEEL_MAX, WHEEL_MAX)
+		elif e.index == stick_idx:
+			stick = ui.stick_vec(e.position)
 		# slide a thumb from one button to its neighbour
 		elif touches.has(e.index):
 			var c2 := ui.control_at(e.position)
@@ -3204,7 +3379,7 @@ func _pressed(k: String) -> bool:
 	return on and not was
 
 func _touch_held() -> void:
-	for k in ["left", "right", "gas", "brake", "hand", "nos", "rewind", "cruise"]:
+	for k in ["left", "right", "gas", "brake", "hand", "nos", "rewind", "cruise", "jump", "sprint", "door"]:
 		var on := false
 		for t in touches.values():
 			if t == k:

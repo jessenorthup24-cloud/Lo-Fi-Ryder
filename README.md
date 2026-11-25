@@ -196,6 +196,12 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   and Garage, Map, Trophies and Settings as quiet text links, over a slow orbit of your car with a dark
   wash and letterbox bars. The garage is a night studio, a neon rim round the turntable. Toasts are
   dark pills, their colour on the icon. The in-car controls keep their illustrated sticker look.
+- On foot: the EXIT button (above the handbrake, or F) gets you out when you're nearly stopped (not
+  while the police are after you, or mid-challenge). You walk, run and jump about in third person: a
+  stick on the left (WASD), JUMP and RUN on the right (Space, Shift), drag to swing the camera round. The
+  traffic stops for you and for your parked car. ENTER (lit when you're by your car) gets you back in.
+- Your driver is one of 20 Kenney mini characters (garage, Driver tab), with glasses or shades if you like.
+  They're rigged and animated (idle, walk, run, jump, fall), drawn in the game's toon style.
 - The HUD: the phone, camera and rewind are one column of matching round buttons beside the minimap
   (the group view sits beside the phone while you've a crew); wanted stars are gold, under the minimap;
   the bars either side of the speedo are fuel and the car's condition (a spanner). Menus hide the
@@ -350,6 +356,9 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `tools/kenney/bake_kenney.gd` | Bakes the chosen Kenney kit models into `assets/kenney/` (people posed, arms loose) |
 | `tools/kenney/bake_hood.gd` | Bakes the Graveyard Kit, more of the Retro Urban Kit and some City Kit Suburban pieces (`k_grave_*`, `k_urb_*`, `k_sub2_*`), and builds the hood's buildings from the Retro Urban Kit's wall blocks (`k_hood_*`) |
 | `scripts/game/hood.gd` | Palmer Street, the Courts, Low Street, Old Hill Cemetery, Sycamore Heights |
+| `scripts/game/onfoot.gd` | You on foot: walking, running, jumping, the animation (main.gd drives it and the camera) |
+| `scripts/game/avatar.gd` | A playable character: the baked Kenney mini character, its animations, an accessory on its head |
+| `tools/chars/bake_chars.gd` | Bakes the Kenney Mini Characters 2.0 (CC0) to `assets/chars/`: rig, animations, colours in the vertices |
 | `scripts/game/green.gd` | Southside Green, the park along the south edge of town |
 | `scripts/game/street_stunts.gd` | Grind rails, kickers, low ramps and a boost pad on the town's open lots (the car's hop and grind are in `drift_car.gd`) |
 | `tools/kenney/bake_klyo.gd` | Bakes the Klyo stunt kit models (and their simple collision meshes, `_col`) into `assets/kenney/k_klyo_*` |
@@ -384,6 +393,8 @@ godot --path . -- --drive --weather=storm         # clear, cloudy, rain, storm, 
 godot --path . -- --drive --grindtest=0          # line up on grind rail 0, hop on, ride it off the end (logged)
 godot --path . -- --drive --ramcop               # drive into the nearest patrol car (--ramcop_v=12 to coast in at 12 m/s)
 godot --path . -- --drive --perfdump=2           # what's drawn, grouped and biggest first (--perfshadow: just what casts shadows)
+godot --path . -- --drive --foottest             # out of the car, walk, run, jump, turn, back in (logged)
+godot --path . -- --garage=driver --avatar=robot --acc=glasses   # the Driver tab, as this character
 godot --path . -- --drive --perfdraws=3          # what's in view and in range right now, grouped (each at least a draw call)
 godot --path . -- --drive --noshadow             # (or --shadowdist=60) to see what shadows cost: RESULT has tris and draws
 godot --path . -- --drive --race=downtown --raceauto --racelog   # straight into a race, CPU drives you too
