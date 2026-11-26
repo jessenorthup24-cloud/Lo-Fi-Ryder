@@ -255,6 +255,9 @@ var _slot := ["", ""]
 ## (hanging) or with the pistol (held low), as there are no crouching clips made for those.
 static func _compose(lib: AnimationLibrary) -> void:
 	_calm(lib)
+	_splice(lib, "fight_back_walk", "fight_fight_idle", "rifle_walk_backward")
+	for nm in ["fight_tonic_seizure", "fight_laying_seizure"]:
+		_floor(lib, nm, 0.11)
 	for kv in [["uc", "act_idle"], ["pc", "pistol_idle"]]:
 		var src: Animation = lib.get_animation(String(kv[1]))
 		for e in SPACE_PTS["rc"]:
@@ -314,6 +317,56 @@ static func _calm(lib: AnimationLibrary) -> void:
 	a.loop_mode = Animation.LOOP_LINEAR
 	lib.add_animation("calm_idle", a)
 
+## A lying-down clip that came with its hips at standing height (floating): brought down so the lowest the
+## hips go is `y` (on the ground, as the knock-out's fall leaves them).
+static func _floor(lib: AnimationLibrary, nm: String, y: float) -> void:
+	if not lib.has_animation(nm):
+		return
+	var a: Animation = lib.get_animation(nm)
+	for t in a.get_track_count():
+		if String(a.track_get_path(t)) != "Skeleton3D:Hips" or a.track_get_type(t) != Animation.TYPE_POSITION_3D:
+			continue
+		var lo := INF
+		for k in a.track_get_key_count(t):
+			lo = minf(lo, (a.track_get_key_value(t, k) as Vector3).y)
+		if lo < y + 0.2:
+			return          # (already down)
+		for k in a.track_get_key_count(t):
+			var v: Vector3 = a.track_get_key_value(t, k)
+			a.track_set_key_value(t, k, Vector3(v.x, v.y - lo + y, v.z))
+
+## A clip made of two: the upper body of one (arms, back, head) on the legs and hips of another, on the
+## legs' clip's timing (the upper one's keys repeated round to fill it).
+static func _splice(lib: AnimationLibrary, nm: String, upper: String, legs: String) -> void:
+	if lib.has_animation(nm) or not lib.has_animation(upper) or not lib.has_animation(legs):
+		return
+	var a: Animation = (lib.get_animation(legs) as Animation).duplicate()
+	var up: Animation = lib.get_animation(upper)
+	var is_lower := func(b: String) -> bool:
+		return b == "Hips" or b.contains("UpLeg") or b.ends_with("Leg") or b.contains("Foot") or b.contains("Toe")
+	for t in range(a.get_track_count() - 1, -1, -1):
+		if not is_lower.call(String(a.track_get_path(t)).get_slice(":", 1)):
+			a.remove_track(t)
+	for t in up.get_track_count():
+		var b := String(up.track_get_path(t)).get_slice(":", 1)
+		if is_lower.call(b):
+			continue
+		var nt := a.add_track(up.track_get_type(t))
+		a.track_set_path(nt, up.track_get_path(t))
+		a.track_set_interpolation_type(nt, up.track_get_interpolation_type(t))
+		var first = null
+		for k in up.track_get_key_count(t):
+			var kt := up.track_get_key_time(t, k)
+			if kt >= a.length:
+				break
+			if first == null:
+				first = up.track_get_key_value(t, k)
+			a.track_insert_key(nt, kt, up.track_get_key_value(t, k))
+		if first != null:
+			a.track_insert_key(nt, a.length, first)
+	a.loop_mode = Animation.LOOP_LINEAR
+	lib.add_animation(nm, a)
+
 static func _make_spaces() -> void:
 	_lib = load(ANIMS)
 	_compose(_lib)
@@ -321,9 +374,15 @@ static func _make_spaces() -> void:
 		var pts: Array = SPACE_PTS[key] if SPACE_PTS.has(key) else SPACE_PTS["rc"]
 		var pre: String = "" if SPACE_PTS.has(key) else key + "_"
 		if key == "f":
-			# (squared up for a fight: the guard stance stood still, walking otherwise as with nothing in hand)
-			pts = (SPACE_PTS["u"] as Array).duplicate()
-			pts[0] = ["fight_fight_idle", 0, 0]
+			# (squared up for a fight: the guard stance; sidestepping, the shuffle (guard up, the locomotion
+			# pack's strafes on the legs); backing off, the guard on a backward walk; ahead, a walk)
+			pts = [["fight_fight_idle", 0, 0], ["act_walking", 0, 1.65], ["act_running", 0, 4.39],
+				["fight_shuffle_left", 1.6, 0], ["fight_shuffle_right", -1.6, 0],
+				["fight_shuffle_left_run", 4.0, 0], ["fight_shuffle_right_run", -4.0, 0],
+				["fight_back_walk", 0, -1.3]]
+			for e in pts:
+				if not _lib.has_animation(String(e[0])):
+					e[0] = "fight_fight_idle"
 			pre = ""
 		if key == "ra" or key == "rca":
 			pts = (SPACE_PTS["r" if key == "ra" else "rc"] as Array).duplicate()

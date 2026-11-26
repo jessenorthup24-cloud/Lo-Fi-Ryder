@@ -5,7 +5,7 @@ extends SceneTree
 ##   ADD="fight=/dir" godot --headless --path . -s tools/chars/add_bp_clips.gd
 
 const OUT := "res://assets/chars/bp_anims.res"
-const LOOPS := ["fight_idle", "laying_seizure", "tonic_seizure"]
+const LOOPS := ["fight_idle", "laying_seizure", "tonic_seizure", "left_strafe_walking", "right_strafe_walking", "left_strafe", "right_strafe"]
 
 func _init() -> void:
 	var lib: AnimationLibrary = load(OUT)
@@ -38,6 +38,9 @@ func _init() -> void:
 				a.track_set_path(t, NodePath("Skeleton3D:" + bone))
 				if bone == "Hips" and a.track_get_type(t) == Animation.TYPE_POSITION_3D and a.track_get_key_count(t) > 0:
 					var v0: Vector3 = a.track_get_key_value(t, 0)
+					var v1: Vector3 = a.track_get_key_value(t, a.track_get_key_count(t) - 1)
+					var span := a.track_get_key_time(t, a.track_get_key_count(t) - 1) - a.track_get_key_time(t, 0)
+					print("TRAVEL %s: %s per s (raw units)" % [f, (v1 - v0) / maxf(span, 0.01)])
 					for k in a.track_get_key_count(t):
 						var v: Vector3 = a.track_get_key_value(t, k)
 						a.track_set_key_value(t, k, Vector3(v0.x, v.y, v0.z))

@@ -362,17 +362,47 @@ func _ko(c: Dictionary, vel: Vector3) -> void:
 		game.police.heat_pts += 0.4
 		return
 	var pr: Dictionary = c["ref"]
+	var face := float(pr["face"])
 	var info: Dictionary = game.island.people.knock_down(pr)
 	if info.is_empty():
 		return
 	pr.erase("fight")
 	var xf: Transform3D = info["xf"]
-	game.ragdolls.spawn(int(info["v"]), xf, info["shoulders"], vel, game.foot)
+	if vel.length() < 7.0 and randf() < 0.6:
+		_ko_drop(int(info["v"]), xf.origin, face)        # (dropped where they stood: out cold, fitting)
+	else:
+		game.ragdolls.spawn(int(info["v"]), xf, info["shoulders"], vel, game.foot)
 	game.save.add_stat("knockouts", 1)
 	game.police.ped_hit(xf.origin)
 	if randf() < 0.5:
 		game.heist.drop_cash(xf.origin + Vector3(vel.x, 0, vel.z).normalized() * 0.8, randi_range(2, 8) * 5)
 	game.island.people.panic(xf.origin, 10.0)
+
+## Out cold where they stand: they crumple, and lie there fitting a while (the seizure clips), then still;
+## the body's cleared away a good while later (they're back on their feet somewhere else by then).
+func _ko_drop(v: int, at: Vector3, face: float) -> void:
+	const M := preload("res://scripts/core/models.gd")
+	var av := Avatar.new()
+	game.add_child(av)
+	av.setup(String(M.CHARS[v % M.CHARS.size()]), "", game.island.people.mat)
+	av.global_position = at
+	av.rotation.y = face + PI
+	var ko_len: float = av.anim.get_animation("fight_knockedout_death").length if av.anim else 3.7
+	av.play_once("fight_knockedout_death", 0.35, (ko_len - 0.35) / 1.15, 1.15, true, 0.06)
+	var fit := "fight_tonic_seizure" if randf() < 0.5 else "fight_laying_seizure"
+	var fit_t := randf_range(4.0, 7.0)
+	var tw := av.create_tween()
+	tw.tween_interval((ko_len - 0.35) / 1.15 - 0.15)
+	tw.tween_callback(func():
+		av.lock_t = 0.0
+		av.play(fit, 1.0, 0.4))
+	tw.tween_interval(fit_t)
+	tw.tween_callback(func():
+		# (then still: the end of the fall held)
+		av._act_in("fight_knockedout_death", 0.6, ko_len - 0.02, 0.0)
+		av.lock_t = 99.0)
+	tw.tween_interval(30.0)
+	tw.tween_callback(av.queue_free)
 
 ## Hit (or swung at) someone who wasn't fighting: they fight back, or run and call it in. A police officer:
 ## that's assault, and they're onto you.
