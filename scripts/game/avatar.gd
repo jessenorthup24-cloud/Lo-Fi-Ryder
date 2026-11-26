@@ -187,8 +187,8 @@ static func _region(bone: String) -> String:
 func _clip(n: String) -> String:
 	var kind := "" if gun_def.is_empty() else ("rifle" if float(gun_def.get("fore", 0.0)) > 0.0 else "pistol")
 	var table := {
-		"": {"idle": "act_idle", "walk": "act_walking", "sprint": "act_running", "jump": "act_jumping_up", "fall": "act_falling_idle",
-			"land": "act_hard_landing", "holding-both": "act_idle", "die": "rifle_death_from_the_front", "get_up": "act_cover_to_stand",
+		"": {"idle": "calm_idle", "walk": "act_walking", "sprint": "act_running", "jump": "act_jumping_up", "fall": "act_falling_idle",
+			"land": "act_hard_landing", "holding-both": "calm_idle", "die": "rifle_death_from_the_front", "get_up": "act_cover_to_stand",
 			"sit": "x_sitting", "sit_down": "x_stand_to_sit", "stand_up": "x_sit_to_stand", "cheer_sit": "x_cheering_while_sitting",
 			"drive": "x_driving", "enter_car": "x_entering_car", "exit_car": "x_exiting_car", "slide": "x_running_slide",
 			"terrified": "x_terrified", "wave": "x_waving", "talk": "x_talking", "text": "x_texting_while_standing",
@@ -213,7 +213,7 @@ func _clip(n: String) -> String:
 ## [clip, x (to the left), y (ahead)] in m/s, the speed each clip's made to travel at (its hips, in the
 ## download); the first three: stood, walking ahead, running ahead.
 const SPACE_PTS := {
-	"u": [["act_idle", 0, 0], ["act_walking", 0, 1.65], ["act_running", 0, 4.39], ["act_walking", 1.65, 0],
+	"u": [["calm_idle", 0, 0], ["act_walking", 0, 1.65], ["act_running", 0, 4.39], ["act_walking", 1.65, 0],
 		["act_walking", -1.65, 0], ["act_walking", 0, -1.65], ["act_running", 4.39, 0], ["act_running", -4.39, 0],
 		["act_running", 0, -4.39]],
 	"p": [["pistol_idle", 0, 0], ["pistol_walk", 0, 2.47], ["pistol_run", 0, 4.6], ["pistol_walk_backward", 0, -1.27],
@@ -254,6 +254,7 @@ var _slot := ["", ""]
 ## The crouched clips for no gun and a pistol: the long gun's crouch with the arms from standing with nothing
 ## (hanging) or with the pistol (held low), as there are no crouching clips made for those.
 static func _compose(lib: AnimationLibrary) -> void:
+	_calm(lib)
 	for kv in [["uc", "act_idle"], ["pc", "pistol_idle"]]:
 		var src: Animation = lib.get_animation(String(kv[1]))
 		for e in SPACE_PTS["rc"]:
@@ -277,6 +278,41 @@ static func _compose(lib: AnimationLibrary) -> void:
 					if kt <= a.length + 0.001:
 						a.track_insert_key(nt, kt, src.track_get_key_value(t, k))
 			lib.add_animation(nm, a)
+
+## Stood with nothing in your hands: the action pack's idle is a fighter's stance (feet half a metre apart,
+## one forward, knees bent, hunched). This keeps its arms and head and stands it on the legs, hips and back
+## of the standing-texting clip: feet under the shoulders, weight easy. Looped on the idle's 4 seconds.
+static func _calm(lib: AnimationLibrary) -> void:
+	if lib.has_animation("calm_idle") or not lib.has_animation("x_texting_while_standing"):
+		return
+	var a: Animation = (lib.get_animation("act_idle") as Animation).duplicate()
+	var src: Animation = lib.get_animation("x_texting_while_standing")
+	var lower := func(b: String) -> bool:
+		return b == "Hips" or b.contains("UpLeg") or b.ends_with("Leg") or b.contains("Foot") or b.contains("Toe") or b == "Spine" or b == "Spine1"
+	for t in range(a.get_track_count() - 1, -1, -1):
+		if lower.call(String(a.track_get_path(t)).get_slice(":", 1)):
+			a.remove_track(t)
+	var span := 3.0
+	for t in src.get_track_count():
+		var b := String(src.track_get_path(t)).get_slice(":", 1)
+		if not lower.call(b):
+			continue
+		var nt := a.add_track(src.track_get_type(t))
+		a.track_set_path(nt, src.track_get_path(t))
+		a.track_set_interpolation_type(nt, src.track_get_interpolation_type(t))
+		var first = null
+		for k in src.track_get_key_count(t):
+			var kt := src.track_get_key_time(t, k)
+			if kt > span:
+				break
+			if first == null:
+				first = src.track_get_key_value(t, k)
+			# (stretched over the idle's length, and back to where it started at the end: a seamless loop)
+			a.track_insert_key(nt, kt * a.length / span, src.track_get_key_value(t, k))
+		if first != null:
+			a.track_insert_key(nt, a.length, first)
+	a.loop_mode = Animation.LOOP_LINEAR
+	lib.add_animation("calm_idle", a)
 
 static func _make_spaces() -> void:
 	_lib = load(ANIMS)

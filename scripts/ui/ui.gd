@@ -3759,7 +3759,7 @@ func _garage_refresh() -> void:
 	var allowed: Array = SHOP_TABS.get(g_mode, ["cars"])
 	if g_title:
 		g_title.text = String(SHOP_NAMES.get(g_mode, "GARAGE"))
-	for tdef in [["cars", "Cars", "car"], ["paint", "Paint", "star"], ["tune", "Tune", "tire"], ["up", "Upgrades", "gear"], ["driver", "Driver", "group"], ["guns", "Guns", "star"]]:
+	for tdef in [["cars", "Cars", "car"], ["paint", "Paint", "paint"], ["tune", "Tune", "tire"], ["up", "Upgrades", "gear"], ["driver", "Driver", "person"], ["guns", "Guns", "target"]]:
 		if not allowed.has(tdef[0]):
 			continue
 		var on: bool = g_tab == tdef[0]

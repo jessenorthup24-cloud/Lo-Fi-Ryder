@@ -67,12 +67,12 @@ func setup(u: Node, g: Node) -> void:
 	var apps := HBoxContainer.new()
 	apps.add_theme_constant_override("separation", 8)
 	vb.add_child(apps)
-	radar_btn = K.button("Safe radar", Color("2c6e49"), Color("1f5036"), 17, 0, 46, "eye")
+	radar_btn = K.button("Safe radar", Color("2c6e49"), Color("1f5036"), 17, 0, 46, "radar")
 	radar_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	radar_btn.pressed.connect(func():
 		game.ui_tap()
 		ui.radar_on = not ui.radar_on
-		ui.toast("Safe radar on: follow the pulse" if ui.radar_on else "Safe radar off", "eye", Color("3fd26b"), Color.WHITE, 1.8)
+		ui.toast("Safe radar on: follow the pulse" if ui.radar_on else "Safe radar off", "radar", Color("3fd26b"), Color.WHITE, 1.8)
 		_radar_label()
 		ui.toggle_phone())
 	apps.add_child(radar_btn)

@@ -166,11 +166,42 @@ func _draw() -> void:
 			draw_rect(Rect2(o + Vector2(s * 0.14, s * 0.66), Vector2(s * 0.16, s * 0.12)), color2)
 			draw_rect(Rect2(o + Vector2(s * 0.7, s * 0.66), Vector2(s * 0.16, s * 0.12)), color2)
 		"tire":
-			draw_circle(c, s * 0.44, color)
-			draw_circle(c, s * 0.22, color2)
-			for i in 8:
-				var a := TAU * i / 8.0
-				draw_circle(c + Vector2(cos(a), sin(a)) * s * 0.36, s * 0.05, color2)
+			# a wheel: a thick tyre, a hub, five spokes (drawn in the one colour, so it reads on any button)
+			draw_arc(c, s * 0.37, 0.0, TAU, 40, color, s * 0.14, true)
+			draw_circle(c, s * 0.1, color)
+			for i in 5:
+				var a := TAU * i / 5.0 - PI * 0.5
+				draw_line(c, c + Vector2(cos(a), sin(a)) * s * 0.3, color, s * 0.06, true)
+		"radar":
+			# a radar: rings, a sweep and a blip
+			draw_arc(c, s * 0.42, 0.0, TAU, 40, color, s * 0.06, true)
+			draw_arc(c, s * 0.25, 0.0, TAU, 32, color, s * 0.05, true)
+			var sw := PackedVector2Array([c])
+			for i in 9:
+				var a := -PI * 0.5 + i * 0.12
+				sw.append(c + Vector2(cos(a), sin(a)) * s * 0.42)
+			draw_colored_polygon(sw, Color(color, 0.55))
+			draw_circle(c + Vector2(s * 0.2, -s * 0.12), s * 0.06, color)
+		"target":
+			# crosshairs
+			draw_arc(c, s * 0.3, 0.0, TAU, 36, color, s * 0.07, true)
+			for d in [Vector2.UP, Vector2.DOWN, Vector2.LEFT, Vector2.RIGHT]:
+				draw_line(c + d * s * 0.16, c + d * s * 0.46, color, s * 0.07, true)
+			draw_circle(c, s * 0.05, color)
+		"paint":
+			# a spray can
+			_round_rect(Rect2(o + Vector2(s * 0.3, s * 0.3), Vector2(s * 0.4, s * 0.6)), s * 0.08, color)
+			draw_rect(Rect2(o + Vector2(s * 0.42, s * 0.18), Vector2(s * 0.16, s * 0.12)), color)
+			for k in 3:
+				draw_circle(o + Vector2(s * (0.76 + 0.07 * k), s * (0.14 + 0.06 * (k % 2))), s * 0.035, color)
+		"person":
+			# a head and shoulders
+			draw_circle(c + Vector2(0, -s * 0.16), s * 0.17, color)
+			var sh := PackedVector2Array()
+			for i in 13:
+				var a := PI + PI * i / 12.0
+				sh.append(c + Vector2(cos(a) * s * 0.34, s * 0.42 + sin(a) * s * 0.34))
+			draw_colored_polygon(sh, color)
 		"rewind":
 			# two triangles pointing back
 			for k in 2:
