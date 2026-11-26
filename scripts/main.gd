@@ -1942,7 +1942,8 @@ func _on_bump(strength: float) -> void:
 		car.dent(at, hn, strength)
 		var was := car.damage
 		var ewas := car.engine_dmg
-		car.damage = minf(100.0, car.damage + strength * 1.4 / Car.TOUGH)
+		# (one knock, however hard, never wrecks a healthy car outright: about a third of it at most)
+		car.damage = minf(100.0, car.damage + minf(strength, 26.0) * 1.4 / Car.TOUGH)
 		# the engine's in the front: a knock there hurts it most (a roll shakes it about a bit too)
 		var lp := car.to_local(at)
 		var half_l: float = float(car.info["length"]) * 0.5
@@ -1950,7 +1951,7 @@ func _on_bump(strength: float) -> void:
 		var nose := clampf((zc - lp.z) / maxf(half_l, 0.1), -1.0, 1.0)       # (+1: right at the front)
 		# (gentler than it was: small knocks leave the engine alone, and it takes a lot of big ones to kill it)
 		var e_k := 0.2 if kind == "roll" else 0.12 + 0.68 * smoothstep(0.2, 0.8, nose)
-		car.engine_dmg = minf(100.0, car.engine_dmg + maxf(strength - 5.0, 0.0) * e_k / Car.TOUGH)
+		car.engine_dmg = minf(100.0, car.engine_dmg + maxf(minf(strength, 26.0) - 5.0, 0.0) * e_k / Car.TOUGH)
 		# a hard knock on a front corner bends that wheel
 		if strength > 9.0 and nose > 0.4 and absf(lp.x) > float(car.info["width"]) * 0.2 and kind != "roll":
 			car.bent = clampf(car.bent + signf(lp.x) * strength * 0.035, -1.0, 1.0)

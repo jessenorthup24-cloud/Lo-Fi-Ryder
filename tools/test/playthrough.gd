@@ -27,6 +27,17 @@ func check(ok: bool, what: String) -> void:
 		fails.append(what)
 		print("FAIL ", what)
 
+## A screenshot of this moment (with --snap=<dir>, run with a display: xvfb-run).
+var _snap_n := 0
+func snap(what: String) -> void:
+	if not game.args.has("snap") or DisplayServer.get_name() == "headless":
+		return
+	await RenderingServer.frame_post_draw
+	_snap_n += 1
+	var path := "%s/%s_%02d_%s.png" % [String(game.args["snap"]), who, _snap_n, what]
+	get_viewport().get_texture().get_image().save_png(path)
+	print("SNAP ", path)
+
 func note(s: String) -> void:
 	notes.append(s)
 	print("NOTE ", s)
@@ -69,6 +80,10 @@ func _run() -> void:
 			await _heister()
 		"builder":
 			await _builder()
+		"ram":
+			await _ram()
+		"ram2":
+			await _ram2()
 	print("PLAY done %s: %d passed, %d failed" % [who, passes, fails.size()])
 	for f in fails:
 		print("PLAY failed: ", f)
@@ -86,13 +101,20 @@ func _give_level(lv: int) -> void:
 # ------------------------------------------------------------------ the racer
 
 func _racer() -> void:
+	await wait(2.0)
+	await snap("title")
 	game.start_drive()
-	await wait(1.0)
+	await wait(1.4)
+	await snap("intro_card")
+	await wait(2.0)
 	check(game.on_foot, "fresh game: you start on foot by the car")
 	check(game.story.step == 0 and game.story.goal() != "", "story: first goal shown (%s)" % game.story.goal())
-	await wait(5.0)
+	await wait(1.6)
+	await snap("jay_text_on_foot")
+	await wait(3.4)
 	game.toggle_foot()
 	await wait(1.0)
+	await snap("driving_hud")
 	check(not game.on_foot, "into Jay's car")
 	await wait_until(func(): return game.story.step >= 1, 4.0)
 	check(game.story.step == 1, "story: on to 'win some cash'")
@@ -106,17 +128,21 @@ func _racer() -> void:
 	game.args["raceauto"] = true
 	game.start_challenge_now("race", rid)
 	await wait(2.0)
+	await snap("race_intro")
 	check(game.race != null, "race %s started" % rid)
 	# the police turn up mid race: rewinding still works, and so does restarting
 	await wait_until(func(): return game.race != null and game.race.state == 1, 20.0)
 	await wait(6.0)
+	await snap("race_mid")
 	game.police.start(2.0, "A test")
 	await wait(0.5)
 	check(game.rewind_ok(), "rewind allowed in a race with the police on you")
 	var rw0: int = int(game.race.rewinds) if game.race else 0
 	var buf0: int = game.rw_buf.size()
 	game.held["rewind"] = true
-	await wait(0.8)
+	await wait(0.5)
+	await snap("rewinding")
+	await wait(0.3)
 	var rewound: bool = game.rewinding or (game.race != null and int(game.race.rewinds) > rw0)
 	game.held["rewind"] = false
 	await wait(0.5)
@@ -129,6 +155,7 @@ func _racer() -> void:
 	var finished := await wait_until(func(): return game.race != null and game.race.state == 2, 420.0)
 	check(finished, "the race finished (CPU driving)")
 	await wait(1.0)
+	await snap("race_result")
 	var earned := int(game.save.data["coins"]) - coins0
 	check(earned > 0, "the race paid out ($%d)" % earned)
 	await wait_until(func(): return game.story.step >= 2, 6.0)
@@ -148,12 +175,14 @@ func _racer() -> void:
 	if not game.island.zones.is_empty():
 		game.start_challenge_now("zone", String(game.island.zones[0]["id"]))
 		await wait(6.0)
+		await snap("zone")
 		check(game.challenge_on(), "drift zone runs")
 		game.quit_challenge()
 		await wait(1.0)
 	if not game.island.trials.is_empty():
 		game.start_challenge_now("trial", String(game.island.trials[0]["id"]))
 		await wait(6.0)
+		await snap("trial")
 		check(game.challenge_on(), "trial runs")
 		game.quit_challenge()
 		await wait(1.0)
@@ -172,6 +201,7 @@ func _shopper() -> void:
 	game.car.place(Transform3D(Basis(), sp + game.shops.shops["customs"]["front"] * 6.0 + Vector3(0, 0.6, 0)))
 	await wait(1.5)
 	game.shops.tick(0.1)
+	await snap("customs_door")
 	check(game.shops.near == "customs", "pulled up at Lo-Fi Customs: the door prompt")
 	game.shops.enter()
 	await wait(0.5)
@@ -179,16 +209,19 @@ func _shopper() -> void:
 	var buy_id := "racer"
 	game.ui.g_index = CARS.index_of(buy_id)
 	game.ui._garage_refresh()
+	await snap("customs_cars")
 	game.ui._garage_action()
+	await wait(0.3)
+	await snap("customs_bought")
 	check(game.save.owns(buy_id) and String(game.save.data["car"]) == buy_id, "bought the Quicksilver")
-	game.ui.g_tab = "paint"
-	game.ui._garage_refresh()
-	game.ui.g_tab = "tune"
-	game.ui._garage_refresh()
-	game.ui.g_tab = "up"
-	game.ui._garage_refresh()
+	for tb in ["paint", "tune", "up"]:
+		game.ui.g_tab = tb
+		game.ui._garage_refresh()
+		await wait(0.3)
+		await snap("customs_" + tb)
 	game.close_garage(game.DRIVE)
 	await wait(1.0)
+	await snap("customs_out_front")
 	check(game.state == game.DRIVE and game.car.global_position.distance_to(sp) < 25.0, "out front of the shop in it")
 	# ---- the Armory: every gun, every preset, every part
 	var bad: Array = []
@@ -238,6 +271,8 @@ func _shopper() -> void:
 	(s["guns"] as Array).append("carbine")
 	game.ui.g_gun = "carbine"
 	game.ui._garage_refresh()
+	await wait(0.3)
+	await snap("armory_carbine")
 	var b1: Dictionary = Weapons.build_of(game.save, "carbine")
 	var nb1 := {"base": b1["base"], "parts": (b1["parts"] as Dictionary).duplicate()}
 	var optic := ""
@@ -259,8 +294,12 @@ func _shopper() -> void:
 	check(optic == "" or float(lw2["zoom"]) > 1.2, "the optic zooms (%.2f)" % float(lw2["zoom"]))
 	check(muz == "" or bool(lw2["quiet"]), "the suppressor quiets it")
 	# the picker for a socket draws
+	await wait(0.3)
+	await snap("armory_built")
 	game.ui.g_slot = "optic"
 	game.ui._garage_refresh()
+	await wait(0.3)
+	await snap("armory_optic_picker")
 	game.ui.g_slot = ""
 	game.close_garage(game.DRIVE)
 	await wait(0.5)
@@ -270,6 +309,8 @@ func _shopper() -> void:
 	game.gunplay.holstered = false
 	game.gunplay.equip()
 	var av = game.foot.avatar
+	await wait(0.5)
+	await snap("carbine_on_foot")
 	check(av.gun != null and av.aim.fore_pt != Vector3.INF, "carrying the carbine, left hand on its hold")
 	check(int(game.gunplay.ammo.get("carbine", 0)) == int(lw2["mag"]), "the magazine matches the build (%d)" % int(lw2["mag"]))
 	game.toggle_foot()
@@ -281,6 +322,8 @@ func _shopper() -> void:
 	var cid: String = Avatar.CHARS[ci][0]
 	game.ui.g_char_try = cid
 	game.ui._garage_refresh()
+	await wait(0.4)
+	await snap("threads_try_on")
 	s["coins"] = int(s["coins"]) - Progress.char_price(ci)
 	var ho: Array = s.get("chars_owned", [])
 	ho.append(cid)
@@ -297,6 +340,13 @@ func _shopper() -> void:
 	await wait(1.0)
 	# ---- Dez brings the Bug
 	var here: Vector3 = game.car.global_position
+	game.ui.toggle_phone()
+	game.ui.phone._mode = "dez"
+	game.ui.phone._sig = ""
+	game.ui.phone.refresh()
+	await wait(0.6)
+	await snap("phone_dez")
+	game.ui.toggle_phone()
 	game.deliver_car("bug")
 	await wait(7.5)
 	check(String(game.save.data["car"]) == "bug", "Dez delivered the Bug")
@@ -312,10 +362,12 @@ func _fighter() -> void:
 	game.toggle_foot()
 	await wait(1.0)
 	check(game.on_foot, "out on foot")
+	await snap("on_foot")
 	var f = game.foot
 	# crouch, stand, slide out of a sprint
 	f.toggle_crouch()
 	await wait(0.6)
+	await snap("crouched")
 	check(f.crouch and f.avatar.crouch, "crouched")
 	f.toggle_crouch()
 	await wait(0.4)
@@ -323,8 +375,10 @@ func _fighter() -> void:
 	game.held["sprint"] = true
 	game.stick = Vector2(0, 1)
 	await wait(2.0)
+	await snap("sprinting")
 	f.toggle_crouch()
-	await wait(0.1)
+	await wait(0.25)
+	await snap("sliding")
 	check(f.slide_t > 0.0 and f.crouch, "slid into a crouch from a sprint")
 	await wait(1.2)
 	check(f.crouch and f.slide_t <= 0.0, "crouched after the slide")
@@ -342,7 +396,9 @@ func _fighter() -> void:
 		check(String(game.gunplay.weapon.get("id", "")) == String(gid) and f.avatar.gun != null, "%s in hand" % gid)
 		game.gunplay.ammo[gid] = 1
 		game.held["fire"] = true
-		await wait(0.6)
+		await wait(0.3)
+		await snap("firing_" + String(gid))
+		await wait(0.3)
 		game.held["fire"] = false
 		await wait(0.2)
 		game.held["reload"] = true
@@ -365,6 +421,8 @@ func _fighter() -> void:
 	for k in 30:
 		game.gunplay.hp = maxf(game.gunplay.hp, 60.0)      # (staying up long enough to see it)
 		await wait(0.5)
+		if k % 10 == 5:
+			await snap("shootout")
 	var downs: int = int(game.gunplay.kills["police"])
 	note("officers down in 15 s: %d, your hp %.0f" % [downs, float(game.gunplay.hp)])
 	game.args.erase("guntest")
@@ -373,7 +431,8 @@ func _fighter() -> void:
 		game.toggle_foot()
 		await wait(1.0)
 	game.gunplay.hurt(500.0, game.foot.global_position + Vector3(5, 1, 0))
-	await wait(0.5)
+	await wait(0.8)
+	await snap("wasted")
 	check(game.gunplay.dying, "down")
 	await wait(4.5)
 	check(not game.gunplay.dying and float(game.gunplay.hp) > 0.0 and not game.police.wanted(), "back up after WASTED, the police gone")
@@ -382,7 +441,9 @@ func _fighter() -> void:
 	await wait(1.0)
 	if game.has_method("_busted_scene"):
 		game.police._busted()
-		await wait(7.0)
+		await wait(1.5)
+		await snap("busted")
+		await wait(5.5)
 		check(game.busted_t <= 0.0 and game.state == game.DRIVE, "let go after being busted")
 
 # ------------------------------------------------------------------ the heister
@@ -416,22 +477,28 @@ func _heister() -> void:
 	game.foot.place(front, float(hs["yaw"]))
 	await wait(1.0)
 	game.heist.tick(0.1)
+	await snap("safe_start")
 	check(not game.heist.near.is_empty(), "by the safe: START HEIST shows")
 	game.heist.start()
 	check(game.heist.active() and game.heist.crew_in.size() == 2, "heist on, crew in: %s" % str(game.heist.crew_in))
 	check(game.heist.bags_total == 3, "tier 4: three bags")
+	await wait(1.0)
+	await snap("heist_fetch")
 	# the tool bag, back to the safe
 	game.foot.place(game.heist.drill.global_position + Vector3(1.0, 0.5, 0), 0.0)
 	await wait(1.0)
 	check(game.heist.carrying == "tool_duffle", "got the tool bag")
 	game.foot.place(front, float(hs["yaw"]))
 	await wait(1.5)
+	await snap("heist_drilling")
 	check(game.heist.state == game.heist.DEFEND, "drill on the safe")
 	# your crew get out and fight
 	game.police.start(3.0, "A test")
 	var out := await wait_until(func(): return game.allies.list.size() > 0, 20.0)
 	check(out, "your crew got out to fight (%d)" % game.allies.list.size())
-	await wait(10.0)
+	await wait(5.0)
+	await snap("crew_fighting")
+	await wait(5.0)
 	note("officers out %d, down %d, crew up %d" % [game.gunplay.officers.size(), int(game.gunplay.kills["police"]), game.allies.alive().size()])
 	# skip the drilling (through a breakdown if there is one)
 	var guard := 0
@@ -456,6 +523,8 @@ func _heister() -> void:
 		game.foot.place(safe_in, float(hs["yaw"]))
 		await wait(1.0)
 		if k < 2:
+			if k == 0:
+				await snap("bag_on_back")
 			check(game.heist.state == game.heist.STASH, "bag %d: take it to the car" % (k + 1))
 			game.foot.place(game.car.global_position + Vector3(2.2, 0.5, 0), 0.0)
 			await wait(1.0)
@@ -467,6 +536,7 @@ func _heister() -> void:
 	var c0 := int(game.save.data["coins"])
 	game.foot.place(game.heist._drop_at() + Vector3(0, 0.5, 0), 0.0)
 	await wait(1.5)
+	await snap("heist_complete")
 	var got := int(game.save.data["coins"]) - c0
 	check(game.heist.state == game.heist.IDLE and got == pay - int(float(pay) * 0.15) * 2, "heist done: $%d of $%d after the crew's cut" % [got, pay])
 	await wait(1.0)
@@ -479,6 +549,16 @@ func _heister() -> void:
 
 # ------------------------------------------------------------------ the builder
 
+## Park out in front of a plot, looking at it.
+func _look_at_plot(id: String) -> void:
+	var pl: Dictionary = game.property.props[id]["plot"]
+	var c: Vector2 = pl["c"]
+	var f := Vector2(sin(float(pl["yaw"])), cos(float(pl["yaw"])))
+	var at := c + f * (Vector2(pl["hs"]).y + 26.0)
+	var y: float = game.island.height_at(at.x, at.y) + 0.8
+	game.car.place(Transform3D(Basis(Vector3.UP, atan2(f.x, f.y)), Vector3(at.x, y, at.y)))
+	game._snap_cam()
+
 func _builder() -> void:
 	game.args["drive"] = true
 	game.start_drive()
@@ -486,7 +566,8 @@ func _builder() -> void:
 	var c0 := int(game.save.data["coins"])
 	var lv0 := Progress.level(game.save)
 	_give_level(8)
-	await wait(0.5)
+	await wait(0.7)
+	await snap("level_up")
 	check(Progress.level(game.save) == 8 and int(game.save.data.get("level_seen", 0)) == 8, "levelled 1 -> 8")
 	var expect := 0
 	for l in range(lv0 + 1, 9):
@@ -495,6 +576,7 @@ func _builder() -> void:
 	check(game.Cards.packs(game.save) >= 7, "card packs waiting (%d)" % game.Cards.packs(game.save))
 	# build the garage all the way up
 	game.save.data["coins"] = 2000000
+	_look_at_plot("garage")
 	var g: Node = game.property.props["garage"]["node"]
 	var tg: Array = game.property.props["garage"]["def"]["targets"]
 	var stages := 0
@@ -504,11 +586,13 @@ func _builder() -> void:
 		game.save.data["coins"] = int(game.save.data["coins"]) - took
 		stages += 1
 		await wait(2.0)
+	await snap("garage_built")
 	check(game.property.finished("garage"), "garage built (%d stages)" % stages)
 	check(game.property.garage_open(), "its bays are up")
 	game.save.data["owned"] = ["bug", "roadster", "taxi", "racer"]
 	game.open_garage("own")
 	await wait(0.5)
+	await snap("your_cars")
 	var seen := {}
 	for k in 6:
 		game.ui._garage_step(1)
@@ -521,6 +605,8 @@ func _builder() -> void:
 	game.close_garage(game.DRIVE)
 	await wait(0.5)
 	# the mansion
+	_look_at_plot("mansion")
+	await wait(1.0)
 	var m: Node = game.property.props["mansion"]["node"]
 	var tm: Array = game.property.props["mansion"]["def"]["targets"]
 	stages = 0
@@ -529,7 +615,19 @@ func _builder() -> void:
 		m.call("deposit", maxi(need2, 1))
 		stages += 1
 		await wait(2.0)
+	await snap("mansion_built")
 	check(game.property.finished("mansion"), "mansion built (%d stages)" % stages)
+	game.pause()
+	await wait(0.6)
+	await snap("pause_menu")
+	game.resume()
+	await wait(0.3)
+	game.pause(false)
+	game.ui.open_map()
+	await wait(1.0)
+	await snap("map")
+	game.ui._map_close()
+	await wait(0.5)
 	# the story all the way through
 	game.story.step = 3
 	_give_level(10)
@@ -544,3 +642,104 @@ func _builder() -> void:
 	s2.load_data()
 	check(int(s2.data["coins"]) == int(game.save.data["coins"]) and int(s2.data.get("story", -1)) == game.story.step, "saved and loaded back")
 	check((s2.data.get("owned", []) as Array).size() == 4, "owned cars kept")
+
+# ------------------------------------------------------------------ the ram test (the police car made on top of you)
+
+func _ram() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(2.0)
+	for trial in 5:
+		game.car.damage = 0.0
+		game.car.engine_dmg = 0.0
+		var xf: Transform3D = game.car.global_transform
+		var p0: Vector3 = xf.origin
+		# a police car right where you are (a patrol car you touched, turning on its lights), coming at you
+		# (the last two: its nose wedged under yours, driving in hard)
+		var off: Vector3 = [xf.basis.x * 0.6, xf.basis.x * 1.2, Vector3.ZERO, -xf.basis.z * 3.4 - Vector3(0, 0.25, 0), xf.basis.x * 2.6 - Vector3(0, 0.3, 0)][trial]
+		var pxf := Transform3D(xf.basis.rotated(Vector3.UP, [0.0, 1.2, 3.0, PI, PI * 0.5][trial]), p0 + off + Vector3(0, 0.3, 0))
+		var u: Dictionary = game.police._unit(pxf, -pxf.basis.z * [14.0, 14.0, 14.0, 25.0, 25.0][trial], game.you())
+		game.police.units.append(u)
+		var top := 0.0
+		var far := 0.0
+		for k in 20:
+			await wait(0.1)
+			top = maxf(top, game.car.linear_velocity.length())
+			far = maxf(far, game.car.global_position.distance_to(p0))
+		check(top < 25.0 and far < 25.0 and game.car.damage < 60.0, "police car made on top of you (%d): top speed %.0f m/s, moved %.0f m, damage %.0f" % [trial, top, far, game.car.damage])
+		game.police.clear()
+		game.car.place(xf)
+		await wait(1.0)
+
+var _bumps: Array = []
+
+func _bump_log(st: float) -> void:
+	_bumps.append(st)
+
+## Rammed for real: police cars driving into you head-on, side-on and from behind, and a patrol car you hit.
+func _ram2() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(2.0)
+	game.car.bumped.connect(_bump_log)
+	var setups := [["head-on", PI, Vector3(0, 0, -14), 28.0], ["T-bone", PI * 0.5, Vector3(9, 0, -9), 28.0], ["rear", 0.0, Vector3(0, 0, 10), 30.0], ["T-bone fast", PI * 0.5, Vector3(9, 0, -12), 40.0]]
+	for su in setups:
+		game.car.damage = 0.0
+		game.car.engine_dmg = 0.0
+		_bumps.clear()
+		var xf: Transform3D = game.car.global_transform
+		var off: Vector3 = xf.basis * (su[2] as Vector3)
+		var pb := xf.basis.rotated(Vector3.UP, float(su[1]))
+		var pxf := Transform3D(pb, xf.origin + off + Vector3(0, 0.2, 0))
+		var tgt: Vector3 = xf.origin
+		var dir: Vector3 = (tgt - pxf.origin)
+		dir.y = 0
+		pxf.basis = Basis(Vector3.UP, atan2(-dir.x, -dir.z))
+		var u: Dictionary = game.police._unit(pxf, dir.normalized() * float(su[3]), game.you())
+		game.police.units.append(u)
+		var p0: Vector3 = xf.origin
+		var top := 0.0
+		var up := 0.0
+		var dmin := 99.0
+		for k in 30:
+			dmin = minf(dmin, (u["car"] as Node3D).global_position.distance_to(game.car.global_position)) if is_instance_valid(u["car"]) else dmin
+			await wait(0.05)
+			top = maxf(top, game.car.linear_velocity.length())
+			up = maxf(up, game.car.global_position.y - p0.y)
+		var mb := 0.0
+		for b in _bumps:
+			mb = maxf(mb, b)
+		check(game.car.damage < 60.0 and up < 6.0, "rammed %s: closest %.1f m, top %.0f m/s, up %.1f m, bump %.0f, damage %.0f" % [su[0], dmin, top, up, mb, game.car.damage])
+		game.police.clear()
+		game.car.place(xf)
+		await wait(1.5)
+	# a patrol car in the traffic you drive into
+	for k in 2:
+		game.car.damage = 0.0
+		_bumps.clear()
+		var xf: Transform3D = game.car.global_transform
+		var c: Dictionary = {}
+		for tc in game.traffic.cars:
+			if int(tc["mode"]) < game.traffic.KNOCKED:
+				c = tc
+				break
+		if c.is_empty():
+			note("no traffic car to use")
+			break
+		var b: Node3D = c["body"]
+		b.global_transform = Transform3D(xf.basis, xf.origin - xf.basis.z * (4.6 - k * 0.6))
+		game.police.patrol_hit(c, -xf.basis.z * 18000.0, b.global_position)
+		var p0: Vector3 = xf.origin
+		var top := 0.0
+		var up := 0.0
+		for i in 30:
+			await wait(0.05)
+			top = maxf(top, game.car.linear_velocity.length())
+			up = maxf(up, game.car.global_position.y - p0.y)
+		var mb := 0.0
+		for bb in _bumps:
+			mb = maxf(mb, bb)
+		check(game.car.damage < 60.0 and up < 6.0, "patrol car hit (%d): top %.0f m/s, up %.1f m, bump %.0f, damage %.0f" % [k, top, up, mb, game.car.damage])
+		game.police.clear()
+		game.car.place(xf)
+		await wait(1.5)

@@ -777,6 +777,12 @@ func _unit(xf: Transform3D, vel: Vector3, target: Node3D) -> Dictionary:
 	c.place(xf)
 	c.linear_velocity = vel
 	c.reset_physics_interpolation()
+	# (made where a traffic car was, touching you: it'd be pushed out of you hard enough to throw you across
+	# the island. It passes through you instead till the two of you are clear, then it's solid)
+	var ghost := false
+	if game.car and is_instance_valid(game.car) and not _clear_of(c, game.car):
+		c.add_collision_exception_with(game.car)
+		ghost = true
 	c.rammed.connect(func(b, v, j, at): traffic.knock(b, v, j, at))     # (bumping the traffic it can't get round)
 	_light_bar(c)
 	var blip := MeshInstance3D.new()
@@ -824,6 +830,7 @@ func _unit(xf: Transform3D, vel: Vector3, target: Node3D) -> Dictionary:
 	units.append(u)
 	_pick_target(u)
 	stats["spawned"] += 1
+	u["ghost"] = ghost
 	return u
 
 ## Red and blue lights over the bar on the roof (the bulbs, and a haze round each that shows from afar).
@@ -850,6 +857,26 @@ func _light_bar(c: Car) -> void:
 		halo.position = Vector3(float(side[1]), top + 0.05, 0.1)
 		bar.add_child(halo)
 
+## Whether a car's body is clear of another's (not overlapping it).
+func _clear_of(c: Node3D, other: Node3D) -> bool:
+	var shape: CollisionShape3D = null
+	for ch in c.get_children():
+		if ch is CollisionShape3D:
+			shape = ch
+			break
+	if shape == null or not c.is_inside_tree():
+		return true
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = shape.shape
+	q.transform = shape.global_transform
+	q.margin = 0.15
+	q.collision_mask = (other as CollisionObject3D).collision_layer
+	q.exclude = [(c as CollisionObject3D).get_rid()]
+	for hit in c.get_world_3d().direct_space_state.intersect_shape(q, 8):
+		if hit["collider"] == other:
+			return false
+	return true
+
 ## Drive one police car.
 func _drive(u: Dictionary, dt: float) -> void:
 	if not is_instance_valid(u["car"]):
@@ -858,6 +885,9 @@ func _drive(u: Dictionary, dt: float) -> void:
 	var c: Car = u["car"]
 	if c.freeze:
 		return
+	if u.get("ghost", false) and is_instance_valid(game.car) and _clear_of(c, game.car):
+		c.remove_collision_exception_with(game.car)       # (clear of you now: solid again)
+		u["ghost"] = false
 	if u.get("foot_out", false):
 		if game.on_foot:
 			# its officers are out on foot: it stands where it stopped, lights going

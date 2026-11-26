@@ -103,6 +103,7 @@ var last_grind := {}           # the one just finished (main scores it): {time, 
 var hops := 0                  # (counted: main puffs a little dust)
 var can_hop := false        # (bunny hops and rail grinds are gone; left off)
 var sturdy := false          # (police cars: hard to tip over)
+const MAX_KNOCK := 16.0       # m/s: the most another car can change your speed in one step
 var hop_cd := 0.0
 var _hb_down := 0.0
 var _hb_prev := false
@@ -238,6 +239,8 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 		if who_o is Node and (who_o as Node).has_meta("ped"):
 			continue                      # (someone knocked down: no crash, no scrape; their weight does the rest)
 		var n := st.get_contact_local_normal(i)
+		if who_o is Node and ((who_o as Node).has_meta("traffic_id") or (who_o as Node).has_meta("wreck") or (who_o as Node).has_meta("racer") or (who_o as Node).has_meta("police")):
+			touch_car = true              # (another car, whichever way it's touching: under you or on top too)
 		# lying on its roof: the ground underneath pushes up into it (hanging upside down at the top of the
 		# loop, the track above pushes down instead)
 		var n_in := n if (com - st.get_contact_local_position(i)).dot(n) >= 0.0 else -n
@@ -291,6 +294,19 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 				st.linear_velocity = vb + n * j / mass
 				_ram_cd = 0.4
 				rammed.emit(col, vt, -n * j, cp)
+	# a safety net: no knock from another car changes your speed by more than a hard crash really could in a
+	# step, or sets you spinning like a top (two bodies pushed apart after overlapping can do both: it threw
+	# cars across the island)
+	if touch_car:
+		var prev: Vector3 = _vh[0]
+		var dv := st.linear_velocity - prev
+		var dh := Vector3(dv.x, 0.0, dv.z)
+		if dh.length() > MAX_KNOCK:
+			dh = dh.normalized() * MAX_KNOCK
+		var up_dv := minf(dv.y, 3.0)
+		st.linear_velocity = prev + dh + Vector3(0, up_dv, 0)
+		if st.angular_velocity.length() > 7.0:
+			st.angular_velocity = st.angular_velocity.normalized() * 7.0
 	if wall:
 		wall_t = 0.3
 		# scraping along a wall costs some speed, more the squarer on it is. Trading paint with another car

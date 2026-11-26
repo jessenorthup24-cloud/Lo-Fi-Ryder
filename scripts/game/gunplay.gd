@@ -706,7 +706,6 @@ func explode(n: Node3D) -> void:
 		game.car.apply_central_impulse((away.normalized() * 0.8 + Vector3.UP * 0.35) * game.car.mass * 3.5 * near_k)
 		game.car.damage = minf(100.0, game.car.damage + 28.0 * near_k)
 		game.car.dent(p, (game.car.global_position - p).normalized(), 0.6 * near_k)
-		game.car.damage = minf(100.0, game.car.damage + 35.0)
 
 ## What's left after a car blows: blackened, thrown up and over.
 func _shell(n: Node3D) -> void:

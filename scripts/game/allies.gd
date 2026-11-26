@@ -1,5 +1,8 @@
 extends Node3D
-## Your crew on foot. When you're out of the car with the police on you or a heist on, the friends driving
+## Your crew on foot. They play by your rules: the same health, hit the same way by the same bullets, getting
+## it back the same way when they're out of the fight. Shot down, they're down, not out: walk up and help
+## them to their feet, or they'll pick themselves up after a while.
+## When you're out of the car with the police on you or a heist on, the friends driving
 ## with you pull up, get out (each with their own look and gun) and fight beside you: they keep close, take
 ## cover a few metres off you and shoot the police officers that come at you. They can get hurt and go down
 ## (back up and in their car when you drive off). Back in your car, they get back in theirs and drive with you
@@ -9,7 +12,10 @@ const Avatar := preload("res://scripts/game/avatar.gd")
 const Weapons := preload("res://scripts/game/weapons.gd")
 
 const LAYER := 512
-const HP := 160.0
+const HP := 100.0              # the same as you: same health, same bullets, back up the same way
+const REGEN := 2.0             # (health back a second, five seconds out of the line of fire: like you)
+const GET_UP := 22.0           # down: up again by themselves after this long, or sooner if you help them up
+const HELP_R := 2.4
 const SHOT_DMG := {"pistol": 26.0, "smg": 17.0, "rifle": 32.0, "carbine": 30.0, "shotgun": 45.0}
 ## Who looks like who, and what they carry (by their place in crew.gd's roster).
 const LOOKS := ["male_hoodie", "women_casual2", "male_jacket", "woman_casual3", "male_constructor", "women_coat",
@@ -55,8 +61,20 @@ func tick(dt: float) -> void:
 			continue
 		var n: CharacterBody3D = a["node"]
 		var av: Avatar = a["av"]
+		a["hurt_t"] = float(a.get("hurt_t", 99.0)) + dt
 		if a["down"]:
+			# you crouched by them: helping them up (a moment); otherwise up by themselves in a while
+			a["down_t"] = float(a.get("down_t", 0.0)) + dt
+			var helping: bool = (n.global_position.distance_to(yp) < HELP_R) and not game.gunplay.dying
+			a["help"] = float(a.get("help", 0.0)) + dt if helping else 0.0
+			if helping and int(a.get("help_said", 0)) == 0:
+				a["help_said"] = 1
+				game.ui.toast("Helping %s up..." % String(game.crew.ROSTER[int(a["who"])]["name"]), "heart", Color(0.12, 0.13, 0.16, 0.9), Color.WHITE, 1.4)
+			if float(a["help"]) > 1.6 or float(a["down_t"]) > GET_UP:
+				_get_up(a, float(a["help"]) > 1.6)
 			continue
+		if float(a["hurt_t"]) > 5.0:
+			a["hp"] = minf(HP, float(a["hp"]) + REGEN * dt)
 		i += 1
 		# the nearest officer up and about, in range
 		var tgt: Dictionary = {}
@@ -144,6 +162,7 @@ func hurt(a: Dictionary, dmg: float, from: Vector3) -> void:
 	if a["down"]:
 		return
 	a["hp"] = float(a["hp"]) - dmg
+	a["hurt_t"] = 0.0
 	var n: Node3D = a["node"]
 	var d: Vector3 = (n.global_position - from)
 	d.y = 0.0
@@ -154,8 +173,25 @@ func hurt(a: Dictionary, dmg: float, from: Vector3) -> void:
 	(a["av"] as Avatar).hit(chest, d, 1.0)
 	if float(a["hp"]) <= 0.0:
 		a["down"] = true
+		a["down_t"] = 0.0
+		a["help"] = 0.0
+		a["help_said"] = 0
 		(a["av"] as Avatar).go_limp(self, Vector3.ZERO, d * 3.0 + Vector3(0, 0.5, 0))
-		game.ui.toast("%s is down!" % String(game.crew.ROSTER[int(a["who"])]["name"]), "heart", Color("ff4f6b"), Color.WHITE, 2.0)
+		game.ui.toast("%s is down! Get to them to help them up" % String(game.crew.ROSTER[int(a["who"])]["name"]), "heart", Color("ff4f6b"), Color.WHITE, 2.4)
+
+## Back on their feet (helped up, or by themselves): where they fell, with some health back.
+func _get_up(a: Dictionary, helped: bool) -> void:
+	var av: Avatar = a["av"]
+	var n: CharacterBody3D = a["node"]
+	var at: Vector3 = av.limp.torso_pos() if av.limp else n.global_position
+	av.recover()
+	n.global_position = Vector3(at.x, game.island.height_at(at.x, at.z) + 0.1, at.z)
+	av.play_once("get_up", 0.0, 1.1, 1.2)
+	a["down"] = false
+	a["hp"] = HP * (0.6 if helped else 0.35)
+	a["hurt_t"] = 0.0
+	if helped:
+		game.ui.toast("%s's back up" % String(game.crew.ROSTER[int(a["who"])]["name"]), "heart", Color("3fd26b"), Color.WHITE, 1.6)
 
 ## Back in your car: they get back in theirs (the ones who went down too: patched up) and drive on.
 func _all_back() -> void:
