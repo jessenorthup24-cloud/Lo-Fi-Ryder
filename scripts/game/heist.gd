@@ -723,6 +723,9 @@ func _complete() -> void:
 	if cut > 0:
 		game.ui.toast("%s took %s between them" % [", ".join(crew_in), "$" + _fmt(cut)], "group", Color(0.12, 0.13, 0.16, 0.9), Color.WHITE, 3.0)
 	_reset()
+	# (job done: the gun's put away, hands empty again)
+	if game.on_foot and not game.gunplay.holstered:
+		game.gunplay.select("")
 	game._save_now()
 
 ## It's over, without the money: you died, or got busted.

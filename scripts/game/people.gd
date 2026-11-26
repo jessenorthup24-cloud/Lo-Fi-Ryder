@@ -17,6 +17,7 @@ var cheer_t := 0.0
 var _vis_t := 0.0
 const SEEN := 170.0          # people further than this aren't drawn (too small to make out anyway)
 var cheer_pos := Vector3.ZERO
+var on_foot := false         # (main: you're out walking, not driving: nobody hops out of your way)
 
 func setup(w: Node, material: ShaderMaterial) -> void:
 	world = w
@@ -231,6 +232,11 @@ func _place_live(pr: Dictionary, base: Vector3, _t: float) -> void:
 		pr.erase("live")
 		return
 	var av: Avatar = pr["live"]
+	if pr.has("fight"):
+		# squared up to you (melee.gd moves and animates them): just where they stand, facing you
+		av.global_position = base
+		av.rotation.y = float(pr["face"]) + PI
+		return
 	var sitting: bool = pr["pose"] == "sit"
 	# (a sitter's origin is the seat; the character's is its feet)
 	av.global_position = base - Vector3(0, (SIT_LIFT + _seat()) if sitting else 0.0, 0)
@@ -283,6 +289,9 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 			# moved along by its place (the skater)
 			_place(pr, t)
 			continue
+		if pr.has("fight"):
+			_place(pr, t)          # (fighting you: melee.gd has them)
+			continue
 		var walking: bool = pr.has("path")
 		if float(pr.get("exit_t", 0.0)) > 0.0:
 			pr["exit_t"] = float(pr["exit_t"]) - dt      # (climbing out of a car: going nowhere yet)
@@ -319,7 +328,8 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 			# (at a crawl anyone steps out of the way; going at a lick, only the quick ones get clear)
 			if not pr.has("quick") or randf() < dt * 0.15:
 				pr["quick"] = randf() < 0.3
-			var can_dodge: bool = v2.length() < 8.0 or pr["quick"]
+			# (only out of a car's way: someone walking up on foot isn't something to jog off from)
+			var can_dodge: bool = (v2.length() < 8.0 or pr["quick"]) and not on_foot
 			if can_dodge and miss.length() < 3.2 and pr["y"] == 0.0 and float(pr.get("dodge_t", 0.0)) <= 0.0 and pr["pose"] != "sit" and (dist < 4.0 or v2.length() > 3.0):
 				# a quick jog sideways out of its path (not a leap)
 				var side := Vector3(v2.z, 0, -v2.x).normalized() if v2.length() > 0.5 else -d.normalized()

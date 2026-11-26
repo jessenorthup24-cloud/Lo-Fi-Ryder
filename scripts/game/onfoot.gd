@@ -16,6 +16,9 @@ const HEIGHT := 1.7
 
 var avatar: Avatar
 var move := Vector2.ZERO       # stick, in the camera's frame: x right, y forward (-1..1)
+var move_scale := 1.0          # (melee.gd: slowed to a shuffle mid-swing)
+var shove := Vector3.ZERO      # (melee.gd: a lunge into a punch, a dodge's sidestep, knocked back a step)
+var _last_shove := Vector3.ZERO
 var cam_yaw := 0.0             # the camera's heading (main sets it): forward on the stick is where it looks
 var sprint := false
 var jump_req := false
@@ -88,7 +91,13 @@ func _physics_process(dt: float) -> void:
 		acc = 16.0       # (a hard change of direction digs in)
 	if slide_t > 0.0:
 		acc = 6.5        # (the slide: the run bleeds off along the ground)
+	want *= move_scale
+	cur -= _last_shove                  # (the walking on its own: the shove's laid on top, below)
 	var hv := cur.move_toward(want, acc * dt)
+	# (a lunge or a sidestep on top: it carries you, then fades)
+	shove = shove.move_toward(Vector3.ZERO, dt * 9.0)
+	_last_shove = shove
+	hv += shove
 	velocity.x = hv.x
 	velocity.z = hv.z
 	if grounded:

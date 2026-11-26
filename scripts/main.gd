@@ -27,6 +27,7 @@ const Crew := preload("res://scripts/game/crew.gd")
 const Weather := preload("res://scripts/game/weather.gd")
 const OnFoot := preload("res://scripts/game/onfoot.gd")
 const Gunplay := preload("res://scripts/game/gunplay.gd")
+const Melee := preload("res://scripts/game/melee.gd")
 const Heist := preload("res://scripts/game/heist.gd")
 const Property := preload("res://scripts/game/property.gd")
 const Shops := preload("res://scripts/game/shops.gd")
@@ -161,6 +162,7 @@ var boats: Boats
 var crew: Crew               # the drivers out on the island (and the ones driving with you)
 var foot: OnFoot = null      # you, out of the car (null while you're driving)
 var gunplay: Gunplay         # guns, your health, the police on foot
+var melee: Melee             # fists: punches, blocks, people who fight back, greeting and taunting
 var heist: Heist             # the safes, the heists, dropped cash
 var property: Node3D        # the mansion and the garage you build up (property.gd)
 var shops: Node3D           # Lo-Fi Customs, the Armory, Lo-Fi Threads (shops.gd)
@@ -324,6 +326,10 @@ func _build_world() -> void:
 	gunplay.name = "Gunplay"
 	add_child(gunplay)
 	gunplay.setup(self)
+	melee = Melee.new()
+	melee.name = "Melee"
+	add_child(melee)
+	melee.setup(self)
 	heist = Heist.new()
 	heist.name = "Heist"
 	add_child(heist)
@@ -3753,6 +3759,7 @@ func _exit_car() -> void:
 	foot.setup(island, String(save.data.get("avatar", "male-a")), String(save.data.get("acc", "")), toon)
 	foot.place(p, atan2(side.x, side.z) + PI)
 	on_foot = true
+	gunplay.holstered = true          # (out of the car, hands empty: a gun comes off the wheel)
 	gunplay.equip()
 	cruise_on = false
 	nos_toggle = false
@@ -3796,6 +3803,8 @@ func _enter_cancel() -> void:
 func _enter_car_now(t: Dictionary) -> void:
 	if foot == null or t.is_empty():
 		return
+	melee.stand_down()
+	island.people.on_foot = false
 	match String(t["kind"]):
 		"parked":
 			_swap_into(t["pk"]["def"], int(t["pk"]["paint"]), (t["pk"]["node"] as Node3D).global_transform, t["pk"])
@@ -4002,7 +4011,15 @@ func _foot_tick(dt: float) -> void:
 		ui_tap()
 	foot.set_meta("ak", keys.get("aim", false))
 	var reload_now: bool = _pressed("reload") or keys.get("reload", false)
-	gunplay.tick(dt, fire_edge, fire_now, aim_toggle, reload_now)
+	var block_now: bool = (held.get("block", false) or keys.get("block", false)) and not busy
+	if _pressed("greet") or (keys.get("greet", false) and not foot.get_meta("gk", false)):
+		melee.greet()
+	foot.set_meta("gk", keys.get("greet", false))
+	if _pressed("taunt") or (keys.get("taunt", false) and not foot.get_meta("tk", false)):
+		melee.taunt()
+	foot.set_meta("tk", keys.get("taunt", false))
+	island.people.on_foot = true
+	gunplay.tick(dt, fire_edge, fire_now, aim_toggle, reload_now, block_now)
 	if not on_foot:
 		return
 	_foot_cam(dt)
@@ -4035,6 +4052,12 @@ func _foot_cam(dt: float) -> void:
 	look_yaw = lerp_angle(look_yaw, look_yaw_t, 1.0 - exp(-dt * 16.0))
 	look_pitch = lerpf(look_pitch, look_pitch_t, 1.0 - exp(-dt * 16.0))
 	aim_kick = lerpf(aim_kick, 0.0, 1.0 - exp(-dt * 9.0))
+	# in a fist fight: the view eases round onto whoever you're squared up to (not snapped: still yours to drag)
+	var mf: Vector3 = melee.focus() if melee else Vector3.INF
+	if mf != Vector3.INF and look_t > 0.6:
+		var md: Vector3 = mf - foot.global_position
+		var mwant := atan2(-md.x, -md.z) - look_yaw_t
+		foot_yaw = lerp_angle(foot_yaw, mwant, 1.0 - exp(-dt * 2.2))
 	# locked on: the view drifts onto them (the reticle settles on the one you're shooting)
 	if gunplay.lock_pos != Vector3.INF and ak > 0.3 and gunplay.manual_t <= 0.0:
 		var d: Vector3 = gunplay.lock_pos - cam.global_position
@@ -4184,6 +4207,11 @@ func _unhandled_input(e: InputEvent) -> void:
 				held["nos"] = on
 			KEY_Q:
 				held["cruise"] = on
+				keys["block"] = on
+			KEY_Y:
+				keys["greet"] = on
+			KEY_U:
+				keys["taunt"] = on
 			KEY_BACKSPACE, KEY_Z:
 				held["rewind"] = on
 			KEY_R:
@@ -4291,7 +4319,7 @@ func _pressed(k: String) -> bool:
 	return on and not was
 
 func _touch_held() -> void:
-	for k in ["left", "right", "gas", "brake", "hand", "nos", "rewind", "cruise", "jump", "sprint", "door", "fire", "swap", "aim", "reload", "crouch"]:
+	for k in ["left", "right", "gas", "brake", "hand", "nos", "rewind", "cruise", "jump", "sprint", "door", "fire", "swap", "aim", "reload", "crouch", "block"]:
 		var on := false
 		for t in touches.values():
 			if t == k:

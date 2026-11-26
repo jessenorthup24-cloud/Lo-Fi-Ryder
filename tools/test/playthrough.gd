@@ -82,6 +82,8 @@ func _run() -> void:
 			await _builder()
 		"tutor":
 			await _tutor()
+		"brawler":
+			await _brawler()
 		"ram":
 			await _ram()
 		"ram2":
@@ -527,7 +529,7 @@ func _heister() -> void:
 		if k < 2:
 			if k == 0:
 				await snap("bag_on_back")
-			check(game.heist.state == game.heist.STASH, "bag %d: take it to the car" % (k + 1))
+			check(game.heist.state == game.heist.STASH, "bag %d: take it to the car (state %d, left %d, duffle d %.1f)" % [k + 1, game.heist.state, game.heist.bags_left, game.heist.duffle.global_position.distance_to(game.foot.global_position) if game.heist.duffle else -1.0])
 			game.foot.place(game.car.global_position + Vector3(2.2, 0.5, 0), 0.0)
 			await wait(1.0)
 			check(game.heist.state == game.heist.CRACKED, "bag %d stashed" % (k + 1))
@@ -784,15 +786,16 @@ func _tutor() -> void:
 	game.held["hand"] = false
 	game.held["gas"] = false
 	await wait(1.0)
-	await snap("tut_go_race")
-	check(game.tutorial.step_id() == "go_race" and game.route.get("kind", "") == "tut", "coach: off to the first race, GPS on it")
-	# (driving there takes a while: put the car at the beacon; and no police along for it)
+	# (the drift may have run someone down: the coach says lose the police first; then they're called off)
 	if game.police.wanted():
 		await wait(1.0)
 		await snap("tut_police")
 		check(game.ui.coach_ui.title.text.begins_with("Lose the police"), "coach: lose the police first (%s)" % game.ui.coach_ui.title.text)
 		game.police.clear()
-
+		await wait(1.0)
+	await snap("tut_go_race")
+	check(game.tutorial.step_id() == "go_race" and game.route.get("kind", "") == "tut", "coach: off to the first race, GPS on it")
+	# (driving there takes a while: put the car at the beacon)
 	var m: Dictionary = game.tutorial._race_marker()
 	game.car.place(game.on_ground(Transform3D(Basis(), (m["pos"] as Vector3) + Vector3(0, 0.5, 0))))
 	await wait_until(func(): return game.tutorial.step_id() == "start", 6.0)
@@ -827,3 +830,155 @@ func _tutor() -> void:
 	await wait(5.0)
 	check(not game.tutorial.active and bool(game.save.data.get("tut", false)), "tutorial over and saved")
 	check(game.ui.goal_lbl != null and game.ui.goal_lbl.visible, "Jay's goal line back (%s)" % game.story.goal())
+
+# ------------------------------------------------------------------ fists
+
+## Someone stood about near the road, made into a real character by you, and you right in front of them.
+func _walk_up_to_someone() -> Dictionary:
+	var people = game.island.people
+	var me: Vector3 = game.foot.global_position
+	var best := {}
+	var bd := INF
+	for pr in people.list:
+		if pr["gone"] or pr.get("down", false) or pr["pose"] != "stand" or pr.has("path") or pr.has("ride") or pr.has("fight"):
+			continue
+		var d := (pr["pos"] as Vector3).distance_to(me)
+		if d < bd:
+			bd = d
+			best = pr
+	if best.is_empty():
+		return {}
+	var p: Vector3 = best["pos"]
+	var face := float(best["face"])
+	var front := Vector3(-sin(face), 0, -cos(face))
+	game.foot.place(p + front * 1.5, atan2(front.x, front.z))
+	await wait(1.0)
+	return best
+
+func _brawler() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.0)
+	game.save.data["guns"] = ["pistol", "rifle"]
+	game.gunplay.holstered = false
+	game.toggle_foot()
+	await wait(1.0)
+	check(game.on_foot and game.gunplay.holstered, "out of the car with empty hands")
+	var ui = game.ui
+	check(ui.ctl["swap"].get_global_rect().position.y < 400.0, "weapon wheel up by the minimap (y %.0f)" % ui.ctl["swap"].get_global_rect().position.y)
+	check(ui.ctl["door"].visible, "ENTER showing by the car")
+	game.foot.global_position += Vector3(14, 0, 0)
+	await wait(1.0)
+	check(not ui.ctl["door"].visible, "ENTER gone away from the car")
+	check(bool(ui.ctl["fire"].get_meta("fist", false)) and not ui.ctl["reload"].visible, "PUNCH instead of FIRE, no reload")
+	# up to someone: they stay put (no jogging off), the greet/taunt prompt comes up
+	var pr := await _walk_up_to_someone()
+	check(not pr.is_empty(), "found someone")
+	if pr.is_empty():
+		return
+	var p0: Vector3 = pr["pos"]
+	await wait(1.5)
+	check((pr["pos"] as Vector3).distance_to(p0) < 0.3, "they didn't run off when you walked up")
+	check(pr.has("live") and not game.melee.social.is_empty() and ui.social_box.visible, "GREET / TAUNT up by them")
+	await snap("social")
+	game.melee.greet()
+	await wait(1.2)
+	await snap("greet")
+	check(game.foot.avatar.current() != "", "waved")
+	# a punch: they reel; keep going and it's a fight or they run
+	pr["grit"] = 1.0          # (this one fights)
+	game.held["fire"] = true
+	await wait(0.05)
+	game.held["fire"] = false
+	await wait(0.12)
+	await snap("punch_windup")
+	await wait(0.2)
+	await snap("punch_land")
+	await wait(0.4)
+	check(float(pr.get("fist_hp", 60.0)) < 60.0, "the punch landed (hp %.0f)" % float(pr.get("fist_hp", 60.0)))
+	check(game.melee.foes.size() == 1 and pr.has("fight"), "they're fighting back")
+	var bp: Control = ui.ctl["block"]
+	check(bp.visible and bp.modulate.a > 0.9 and bp.scale.x > 0.9 and bp.is_visible_in_tree(), "BLOCK up in the fight (at %s, a %.2f, scale %.2f, in tree %s, parent %s)" % [bp.get_global_rect(), bp.modulate.a, bp.scale.x, bp.is_visible_in_tree(), bp.get_parent().name])
+	check(game.foot.avatar.fight, "squared up (guard stance)")
+	await snap("fight_stance")
+	# they swing: block it
+	var f: Dictionary = game.melee.foes[0]
+	f["cool"] = 0.0
+	var hp0: float = game.gunplay.hp
+	var blocked := false
+	for k in 60:
+		await wait(0.05)
+		if not f["atk"].is_empty() and not f["atk"]["landed"]:
+			var a: Dictionary = f["atk"]
+			var t_hit: float = (float(a["def"]["hit"]) - float(a["def"]["from"])) / float(a["def"]["speed"])
+			if t_hit - float(a["t"]) < 0.3:
+				game.held["block"] = true
+				await wait(0.1)
+				game.held["block"] = false
+				blocked = true
+				break
+	await wait(0.6)
+	check(blocked and game.gunplay.hp >= hp0 - 0.1, "blocked their punch (hp %.0f -> %.0f)" % [hp0, game.gunplay.hp])
+	# they swing again: take it
+	f["cool"] = 0.0
+	f["stun"] = 0.0
+	hp0 = game.gunplay.hp
+	await wait(2.2)
+	await snap("got_hit")
+	check(game.gunplay.hp < hp0, "took a punch when not guarding (hp %.0f -> %.0f)" % [hp0, game.gunplay.hp])
+	# dodge: held
+	f["cool"] = 0.0
+	f["stun"] = 0.0
+	var pos0: Vector3 = game.foot.global_position
+	game.held["block"] = true
+	await wait(0.35)
+	await snap("dodge")
+	game.held["block"] = false
+	await wait(0.4)
+	check(game.foot.global_position.distance_to(pos0) > 0.5, "dodged a step aside (%.1f m)" % game.foot.global_position.distance_to(pos0))
+	# the combo till they're down
+	game.gunplay.hp = game.gunplay.MAX_HP
+	var downed := false
+	for k in 30:
+		if pr.get("down", false):
+			downed = true
+			break
+		game.held["fire"] = true
+		await wait(0.05)
+		game.held["fire"] = false
+		await wait(0.18)
+		if k == 6:
+			await snap("combo")
+	await wait(0.6)
+	await snap("knocked_out")
+	check(downed or pr.get("down", false), "knocked them out")
+	check(game.melee.foes.is_empty(), "the fight's over")
+	game.police.clear()
+	# a taunt: someone else reacts (fights, runs to call it in, or shrugs)
+	await wait(4.0)
+	var pr2 := await _walk_up_to_someone()
+	if not pr2.is_empty():
+		pr2["grit"] = 0.0          # (this one runs)
+		pr2["react"] = 0.1
+		await wait(0.6)
+		note("taunt: social is pr2 %s, fight_t %.1f, social empty %s" % [game.melee.social == pr2, game.melee.fight_t, game.melee.social.is_empty()])
+		game.melee.taunt()
+		await wait(0.4)
+		await snap("taunt")
+		await wait(1.0)
+		check(pr2.get("fled", false), "taunted: they ran off")
+		await wait(5.0)
+		check(game.police.wanted(), "and called the police")
+	game.police.clear()
+	# a gun only off the wheel
+	game.gunplay.select("pistol")
+	await wait(0.4)
+	check(not game.gunplay.holstered and not ui.ctl["block"].visible and ui.ctl["reload"].visible, "gun out from the wheel: FIRE, reload, no BLOCK")
+	game.foot.global_position = game.car.global_position - game.car.global_transform.basis.x * 2.0
+	await wait(0.3)
+	game.toggle_foot()
+	await wait(0.6)
+	check(not game.on_foot, "back in the car")
+	game.toggle_foot()
+	await wait(0.8)
+	check(game.gunplay.holstered, "out of the car again: hands empty")

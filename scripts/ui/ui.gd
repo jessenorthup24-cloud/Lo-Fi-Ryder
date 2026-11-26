@@ -614,7 +614,10 @@ func _build_hud() -> void:
 	ctl["sprint"] = _pad("sprint", Vector2(-372, -204), Vector2(120, 120), false, K.PAPER)
 	ctl["crouch"] = _pad("crouch", Vector2(-198, -384), Vector2(100, 100), false, K.PAPER)     # (above jump)
 	ctl["fire"] = _pad("fire", Vector2(-424, -392), Vector2(160, 160), false, K.PAPER)
-	ctl["swap"] = _pad("swap", Vector2(-566, -372), Vector2(112, 112), false, K.PAPER)       # (the weapon wheel)
+	ctl["swap"] = _pad("swap", Vector2(-566, -372), Vector2(96, 96), false, K.PAPER)       # (the weapon wheel)
+	_place(ctl["swap"], Control.PRESET_TOP_RIGHT, Vector2(-316, 248))      # (up by the minimap, under the phone and camera)
+	ctl["block"] = _pad("block", Vector2(-566, -372), Vector2(116, 116), false, K.PAPER)     # (in a fight: guard, held a dodge)
+	ctl["block"].visible = false
 	ctl["reload"] = _pad("reload", Vector2(-540, -226), Vector2(92, 92), false, K.PAPER)
 	ctl["aim"] = _pad("aim", Vector2(-652, -470), Vector2(100, 100), false, K.PAPER)     # (left of the door)
 	for k in FOOT_PADS:
@@ -722,6 +725,21 @@ func _pad(name: String, pos: Vector2, size: Vector2, left_side: bool, _col: Colo
 	hud.add_child(p)
 	return p
 
+## A fist, knuckles forward (empty hands: punching).
+func _fist(c: Control, cc: Vector2, col: Color, k := 1.0) -> void:
+	var r := Rect2(cc + Vector2(-17, -15) * k, Vector2(34, 26) * k)
+	c.draw_rect(Rect2(r.position + Vector2(4, 0) * k, r.size - Vector2(8, 0) * k), col)
+	c.draw_rect(Rect2(r.position + Vector2(0, 4) * k, r.size - Vector2(0, 8) * k), col)
+	for i in 4:
+		c.draw_circle(r.position + Vector2(4.5 + i * 8.3, 4.0) * k, 4.5 * k, col)
+	# the fingers' creases and the thumb across the front
+	var dk := Color(0.1, 0.08, 0.12, 0.55)
+	for i in 3:
+		var x := r.position.x + (8.5 + i * 8.3) * k
+		c.draw_line(Vector2(x, r.position.y + 2.0 * k), Vector2(x, r.position.y + 12.0 * k), dk, 2.0 * k)
+	c.draw_line(r.position + Vector2(3, 16) * k, r.position + Vector2(24, 16) * k, dk, 2.5 * k)
+	c.draw_rect(Rect2(cc + Vector2(-10, 11) * k, Vector2(20, 9) * k), col)
+
 func _pad_text(c: Control, text: String, at: Vector2, size: int, col: Color) -> void:
 	var f := K.font(750)
 	var w := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
@@ -816,13 +834,28 @@ func _draw_foot_pad(c: Control, name: String) -> void:
 		"fire":
 			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
 			c.draw_circle(cc, c.size.x * 0.46, Color(1.0, 0.31, 0.55, 0.22 if not on else 0.45))
-			c.draw_arc(cc, 22.0, 0, TAU, 32, w, 3.0, true)
-			for k in 4:
-				var a := TAU * k / 4.0
-				var dv := Vector2(cos(a), sin(a))
-				c.draw_line(cc + dv * 14.0, cc + dv * 32.0, w, 3.0)
-			c.draw_circle(cc, 3.5, w)
-			_pad_text(c, "FIRE", cc + Vector2(0, 58), 14, Color(1, 1, 1, 0.75))
+			if c.get_meta("fist", false):
+				# empty hands: a fist
+				_fist(c, cc, w)
+				_pad_text(c, "PUNCH", cc + Vector2(0, 58), 14, Color(1, 1, 1, 0.75))
+			else:
+				c.draw_arc(cc, 22.0, 0, TAU, 32, w, 3.0, true)
+				for k in 4:
+					var a := TAU * k / 4.0
+					var dv := Vector2(cos(a), sin(a))
+					c.draw_line(cc + dv * 14.0, cc + dv * 32.0, w, 3.0)
+				c.draw_circle(cc, 3.5, w)
+				_pad_text(c, "FIRE", cc + Vector2(0, 58), 14, Color(1, 1, 1, 0.75))
+		"block":
+			# two forearms up in a guard; a tap blocks, held it's a dodge
+			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
+			for sx in [-1.0, 1.0]:
+				var p0 := cc + Vector2(sx * 9.0, 18.0)
+				var p1 := cc + Vector2(sx * 7.0, -10.0)
+				c.draw_line(p0, p1, w, 9.0, true)
+				c.draw_circle(p1 + Vector2(0, -4), 7.5, w)
+			_pad_text(c, "BLOCK", cc + Vector2(0, 46), 13, Color(1, 1, 1, 0.8))
+			_pad_text(c, "hold: dodge", cc + Vector2(0, 62), 10, Color(1, 1, 1, 0.5))
 		"swap":
 			# the gun you've out (or a hand), its rounds under it; ticks round the rim: there's a wheel
 			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
@@ -832,11 +865,12 @@ func _draw_foot_pad(c: Control, name: String) -> void:
 				c.draw_line(cc + dv * (c.size.x * 0.46 - 6.0), cc + dv * (c.size.x * 0.46 - 2.0), Color(1, 1, 1, 0.3), 2.0)
 			var lines := String(c.get_meta("txt", "")).split("\n")
 			var gid := String(c.get_meta("gid", "pistol"))
-			gun_glyph(c, gid, cc + Vector2(0, -10), 24.0, w)
-			if lines.size() > 1:
-				c.draw_string(K.font(600), cc + Vector2(-50, 26), lines[1], HORIZONTAL_ALIGNMENT_CENTER, 100, 14, Color(1, 1, 1, 0.7))
-			if lines.size() > 0:
-				_pad_text(c, lines[0].to_upper(), cc + Vector2(0, 66), 12, Color(1, 1, 1, 0.75))
+			if gid == "":
+				_fist(c, cc + Vector2(0, -4), w, 0.8)
+			else:
+				gun_glyph(c, gid, cc + Vector2(0, -8), 22.0, w)
+			if lines.size() > 1 and lines[1] != "":
+				c.draw_string(K.font(600), cc + Vector2(-50, 24), lines[1], HORIZONTAL_ALIGNMENT_CENTER, 100, 13, Color(1, 1, 1, 0.75))
 		"aim":
 			var lit: bool = c.get_meta("set", false)
 			var cc := _draw_glass_disc(c, c.size.x * 0.46, on or lit)
@@ -888,7 +922,7 @@ func _draw_foot_pad(c: Control, name: String) -> void:
 				Color("ff6b80") if steal else Color(1, 1, 1, 0.7 if (not foot or near) else 0.35))
 
 func _draw_pad(c: Control, name: String) -> void:
-	if name in FOOT_PADS or name == "door":
+	if name in FOOT_PADS or name == "door" or name == "block":
 		_draw_foot_pad(c, name)
 		return
 	var s := c.size
@@ -1407,7 +1441,7 @@ func control_at(pos: Vector2) -> String:
 			return "wheel"
 	if not foot_mode and speedo.visible and speedo.get_global_rect().grow(12).has_point(pos):
 		return "cruise"         # (tap the speedo: cruise control)
-	for k in (["door", "fire", "reload", "swap", "jump", "sprint", "crouch", "stick"] if foot_mode else ["rewind", "door", "nos", "cruise", "hand", "gas", "brake", "left", "right"]):
+	for k in (["door", "fire", "block", "reload", "swap", "jump", "sprint", "crouch", "stick"] if foot_mode else ["rewind", "door", "nos", "cruise", "hand", "gas", "brake", "left", "right"]):
 		var c: Control = ctl[k]
 		if not c.visible:
 			continue
@@ -1435,6 +1469,14 @@ func set_foot(on: bool) -> void:
 	if on:
 		limit_sign.visible = false
 	ctl["door"].set_meta("foot", on)
+	ctl["block"].visible = false
+	ctl["block"].set_meta("want", false)
+	if not on:
+		ctl["door"].set_meta("want", true)
+		ctl["door"].visible = true
+		ctl["door"].modulate.a = 1.0
+		ctl["door"].scale = Vector2.ONE
+		_social_prompt({})
 	# in the car, EXIT sits up top by the phone; on foot ENTER's down by your thumb
 	if on:
 		_place(ctl["door"], Control.PRESET_BOTTOM_RIGHT, Vector2(-528, -470))
@@ -1442,6 +1484,52 @@ func set_foot(on: bool) -> void:
 		_place(ctl["door"], Control.PRESET_TOP_RIGHT, Vector2(-404, 80))
 	group_btn.position = Vector2(-376, 94) if on else Vector2(-480, 94)
 	ctl["door"].queue_redraw()
+
+## A pad that comes and goes: it pops up when it's wanted, fades away when it's not.
+func _pop(c: Control, want: bool) -> void:
+	if bool(c.get_meta("want", c.visible)) == want:
+		return
+	c.set_meta("want", want)
+	if c.has_meta("tw"):
+		var old = c.get_meta("tw")
+		if old is Tween and (old as Tween).is_valid():
+			(old as Tween).kill()
+	c.pivot_offset = c.size * 0.5
+	var tw := c.create_tween()
+	c.set_meta("tw", tw)
+	if want:
+		c.visible = true
+		c.modulate.a = 0.0
+		c.scale = Vector2(0.6, 0.6)
+		tw.set_parallel(true)
+		tw.tween_property(c, "modulate:a", 1.0, 0.14)
+		tw.tween_property(c, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	else:
+		tw.set_parallel(true)
+		tw.tween_property(c, "modulate:a", 0.0, 0.16)
+		tw.tween_property(c, "scale", Vector2(0.8, 0.8), 0.16)
+		tw.chain().tween_callback(func(): c.visible = false)
+
+## By someone you could talk to: GREET and TAUNT, low in the middle.
+var social_box: HBoxContainer
+func _social_prompt(pr: Dictionary) -> void:
+	if social_box == null:
+		social_box = HBoxContainer.new()
+		social_box.add_theme_constant_override("separation", 14)
+		social_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+		social_box.position = Vector2(-150, -150)
+		social_box.size = Vector2(300, 64)
+		social_box.alignment = BoxContainer.ALIGNMENT_CENTER
+		hud.add_child(social_box)
+		var g := K.button("Greet", K.TEAL, K.TEAL_DK, 22, 140, 60, "person")
+		_tap(g, func(): game.melee.greet())
+		social_box.add_child(g)
+		var t := K.button("Taunt", K.CORAL, K.CORAL_DK, 22, 140, 60, "target")
+		_tap(t, func(): game.melee.taunt())
+		social_box.add_child(t)
+		social_box.visible = false
+		social_box.set_meta("want", false)
+	_pop(social_box, not pr.is_empty() and foot_mode)
 
 ## A control moved to `pos` from the corner `preset` names (its size kept).
 func _place(c: Control, preset: int, pos: Vector2) -> void:
@@ -1472,6 +1560,16 @@ func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> 
 		dc.set_meta("near", near)
 		dc.set_meta("steal", steal)
 		dc.queue_redraw()
+	# ENTER only comes up by a car (a pop in, a fade out); BLOCK only in a fight; RELOAD only with a gun out
+	_pop(dc, near)
+	var gp0 = game.gunplay
+	_pop(ctl["block"], gp0.holstered and game.melee.in_fight() and not gp0.dying)
+	ctl["reload"].visible = not gp0.holstered
+	var fc: Control = ctl["fire"]
+	if bool(fc.get_meta("fist", false)) != gp0.holstered:
+		fc.set_meta("fist", gp0.holstered)
+		fc.queue_redraw()
+	_social_prompt(game.melee.social)
 	(ctl["stick"] as Control).set_meta("knob", game.stick)
 	ctl["stick"].queue_redraw()
 	var gp = game.gunplay

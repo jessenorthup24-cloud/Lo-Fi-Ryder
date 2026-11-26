@@ -233,7 +233,7 @@ const SPACE_PTS := {
 		["rifle_walk_crouching_backward_right", -1.3, -1.3], ["rifle_walk_crouching_right", -1.9, 0],
 		["rifle_walk_crouching_forward_right", -1.29, 1.3]],
 }
-const SPACE_KEYS := ["u", "p", "r", "uc", "pc", "rc", "ra", "rca"]     # (ra, rca: a long gun up, aimed: stood still, it's held to the eye)
+const SPACE_KEYS := ["u", "p", "r", "uc", "pc", "rc", "ra", "rca", "f"]     # (ra, rca: a long gun up, aimed: stood still, it's held to the eye)
 const LOCO := ["idle", "walk", "sprint", "holding-both"]
 static var _spaces := {}       # key -> [AnimationNodeBlendSpace2D, its outline (convex, closed), walk y, run y]
 static var _lib: AnimationLibrary
@@ -320,6 +320,11 @@ static func _make_spaces() -> void:
 	for key in SPACE_KEYS:
 		var pts: Array = SPACE_PTS[key] if SPACE_PTS.has(key) else SPACE_PTS["rc"]
 		var pre: String = "" if SPACE_PTS.has(key) else key + "_"
+		if key == "f":
+			# (squared up for a fight: the guard stance stood still, walking otherwise as with nothing in hand)
+			pts = (SPACE_PTS["u"] as Array).duplicate()
+			pts[0] = ["fight_fight_idle", 0, 0]
+			pre = ""
 		if key == "ra" or key == "rca":
 			pts = (SPACE_PTS["r" if key == "ra" else "rc"] as Array).duplicate()
 			pts[0] = ["rifle_idle_aiming" if key == "ra" else "rifle_idle_crouching_aiming", 0, 0]
@@ -403,7 +408,10 @@ static func _ease_curve() -> Curve:
 	return _curve
 
 var _aim_pose_t := 0.0         # (asked for "holding-both" lately: a long gun's held up to the eye)
+var fight := false             # squared up for a fist fight (melee.gd): the guard stance
 func _kind_key() -> String:
+	if fight and gun_def.is_empty() and not crouch:
+		return "f"
 	var k := "u" if gun_def.is_empty() else ("r" if float(gun_def.get("fore", 0.0)) > 0.0 else "p")
 	k += "c" if crouch else ""
 	if k.begins_with("r") and _aim_pose_t > 0.0:
@@ -451,7 +459,7 @@ func _anim_tick(dt: float) -> void:
 	_ab = move_toward(_ab, _ab_to, dt * _ab_rate)
 	anim.set("parameters/mix/blend_amount", smoothstep(0.0, 1.0, _act))
 	if legs:
-		var stand := 0.0 if (crouch or limp != null or _act > 0.5) else 1.0
+		var stand := 0.0 if (crouch or fight or limp != null or _act > 0.5) else 1.0
 		legs.on = move_toward(legs.on, stand, dt * 4.0)
 	anim.set("parameters/ab/blend_amount", smoothstep(0.0, 1.0, _ab))
 	var key := _kind_key()

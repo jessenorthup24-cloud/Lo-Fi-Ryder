@@ -86,6 +86,8 @@ func equip() -> void:
 	if holstered:
 		av.hold({}, game.toon)
 		return
+	if game.melee:
+		game.melee.stand_down()
 	av.hold(weapon, game.toon)
 	gun_node = av.gun
 
@@ -140,7 +142,7 @@ func ammo_text() -> String:
 
 ## fire_tap: the trigger's just pulled this frame; fire_held: it's down (an automatic fires as fast as it
 ## goes; the rest fire on each tap, or held, a bit slower); aim_on: the AIM toggle; reload: the reload key.
-func tick(dt: float, fire_tap: bool, fire_held: bool, aim_on: bool, reload: bool) -> void:
+func tick(dt: float, fire_tap: bool, fire_held: bool, aim_on: bool, reload: bool, block_held := false) -> void:
 	var you: CharacterBody3D = game.foot
 	if dying:
 		aim_k = move_toward(aim_k, 0.0, dt * 4.0)      # (the camera pulls back to watch you fall)
@@ -149,20 +151,18 @@ func tick(dt: float, fire_tap: bool, fire_held: bool, aim_on: bool, reload: bool
 	manual_t = maxf(0.0, manual_t - dt)
 	shot_t = maxf(0.0, shot_t - dt)
 	if holstered:
-		# put away: hands free, walking about like anyone. FIRE or AIM draws it (a moment before it'll fire)
+		# empty hands: FIRE throws punches (melee.gd). A gun only comes out off the weapon wheel
 		aiming = false
 		aim_k = move_toward(aim_k, 0.0, dt * 6.0)
 		lock_pos = Vector3.INF
-		if fire_tap or (aim_on and not aiming):
-			holstered = false
-			equip()
-			cool = 0.3
-			game.sfx("mag_in", -6.0, 1.3)
-		else:
-			(you.avatar as Avatar).aim_at(Vector3.INF, true, dt)
-			_officers_tick(dt, you)
-			_burn_tick(dt)
-			return
+		hurt_t += dt
+		if hurt_t > 5.0:
+			hp = minf(MAX_HP, hp + REGEN * dt)
+		(you.avatar as Avatar).aim_at(Vector3.INF, true, dt)
+		game.melee.tick(dt, fire_tap, block_held)
+		_officers_tick(dt, you)
+		_burn_tick(dt)
+		return
 	var semi_wait: float = 0.55 / float(weapon["rate"])
 	var fire: bool = fire_held if bool(weapon.get("auto", false)) else (fire_tap or (fire_held and cool <= -semi_wait))
 	cool -= dt
