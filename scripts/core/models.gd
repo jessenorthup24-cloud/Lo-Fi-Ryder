@@ -1641,11 +1641,13 @@ static func _k_mesh(name: String) -> ArrayMesh:
 	return scaled(src, sc)
 
 # ---------------------------------------------------------------- the people (the Quaternius character)
-# Each outfit (avatar.gd CHARS) has a body and two loose arms (pivots at the shoulders) for standing and for
+# Each of these (a Blendpoly character in one of its colour sheets: avatar.gd) has a body and two loose arms (pivots at the shoulders) for standing and for
 # sitting, baked still by tools/chars/bake_people.gd: assets/chars/qp_<outfit>_<pose>[_al|_ar].res.
 
-const CHARS := ["marcus", "dee", "jonah", "theo", "rico", "sam", "kenji", "maya", "rosa", "ivy", "nia", "lena", "jade",
-	"sarge", "bo", "raider", "bolt", "zib", "lance", "mort"]
+const CHARS := ["male_teacher@01_A", "male_casual2@02_C", "women_fitness@04_B", "male_t_shirt@02_A", "woman_casual3@03_C", "woman_casual1@01_B",
+	"businessman_suit@03_A", "male_casual1@04_C", "women_beach@02_B", "women_coat@04_A", "male_casual1@01_C", "women_teacher@03_B",
+	"women_greengrocer@01_A", "man_fitness@02_C", "male_waiter1@04_B", "woman_waiter1@02_A", "male_doctor@03_C", "woman_casual1@01_B",
+	"male_constructor@03_A", "male_greengrocer@04_C", "male_engineer@02_B", "businesswoman@04_A", "male_t_shirt@01_C", "factoryman@03_B"]
 static var _qp := {}
 static var _qp_meta := {}
 

@@ -118,7 +118,7 @@ func _place(pr: Dictionary, t: float) -> void:
 			pools[key + ("_al" if i == 0 else "_ar")].put(pr["al"] if i == 0 else pr["ar"],
 				Transform3D(lb * Basis(Vector3.BACK, sg * 0.25), lo + lb * (sh[i] as Vector3)))
 		return
-	var b := Basis(Vector3.UP, pr["face"])
+	var b := Basis(Vector3.UP, float(pr["face"]) + PI)       # (the character meshes look down +Z; "face" is the way they look as -Z)
 	# shot: a flinch, the body jerked back away from it for a moment
 	var fl: float = pr.get("flinch", 0.0)
 	if fl > 0.0:
@@ -217,7 +217,7 @@ func _place_live(pr: Dictionary, base: Vector3, _t: float) -> void:
 		pr.erase("live")
 		return
 	av.global_position = base - Vector3(0, SIT_LIFT if pr["pose"] == "sit" else 0.0, 0)
-	av.rotation.y = float(pr["face"])
+	av.rotation.y = float(pr["face"]) + PI
 	if float(pr.get("flinch", 0.0)) > 0.9 and pr.has("flinch_ax"):
 		av.flinch(Vector3(pr["flinch_ax"]).cross(Vector3.UP))
 	if float(pr.get("exit_t", 0.0)) > 0.0:
@@ -341,7 +341,7 @@ func knock_down(pr: Dictionary) -> Dictionary:
 		_unlive(pr)
 	var key: String = pr["key"]
 	# the body as it stands now (seated: they come off the seat as they'd stand; lying: as they lie)
-	var xf := Transform3D(Basis(Vector3.UP, pr["face"]), pr["pos"] + Vector3(0, float(pr["y"]), 0))
+	var xf := Transform3D(Basis(Vector3.UP, float(pr["face"]) + PI), pr["pos"] + Vector3(0, float(pr["y"]), 0))
 	if pr["pose"] == "sit":
 		xf.origin.y -= SIT_LIFT
 	elif pr["pose"] == "lie":

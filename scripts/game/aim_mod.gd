@@ -24,11 +24,15 @@ func _ready() -> void:
 	var sk := get_skeleton()
 	if sk == null:
 		return
-	for n in ["Torso", "Head", "Neck", "UpperArm.R", "LowerArm.R", "Fist.R", "Fist.R_end", "UpperArm.L", "LowerArm.L", "Fist.L", "Fist.L_end"]:
-		_b[n] = sk.find_bone(n)
+	# (our names for the parts, the Mixamo skeleton's bones)
+	var names := {"Torso": "Spine2", "Head": "Head", "Neck": "Neck", "UpperArm.R": "RightArm", "LowerArm.R": "RightForeArm",
+		"Fist.R": "RightHand", "Fist.R_end": "RightHandMiddle1", "UpperArm.L": "LeftArm", "LowerArm.L": "LeftForeArm",
+		"Fist.L": "LeftHand", "Fist.L_end": "LeftHandMiddle1"}
+	for n in names:
+		_b[n] = sk.find_bone(names[n])
 	if int(_b["LowerArm.R"]) >= 0:
 		_up_len = sk.get_bone_rest(int(_b["LowerArm.R"])).origin.length()
-		_lo_len = sk.get_bone_rest(int(_b["Fist.R"])).origin.length() + sk.get_bone_rest(int(_b["Fist.R_end"])).origin.length() * 0.5
+		_lo_len = sk.get_bone_rest(int(_b["Fist.R"])).origin.length() + sk.get_bone_rest(int(_b["Fist.R_end"])).origin.length() * 0.55
 
 func aim_point_local(sk: Skeleton3D) -> Vector3:
 	if target_local != Vector3.INF:

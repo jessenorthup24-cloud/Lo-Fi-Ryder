@@ -7,15 +7,25 @@ extends SceneTree
 ## -> assets/chars/qp_<outfit index>_<pose>[_al|_ar].res and assets/chars/qp_meta.json (the shoulders)
 
 const Avatar := preload("res://scripts/game/avatar.gd")
-const FootFix := preload("res://scripts/game/foot_fix.gd")
+const M := preload("res://scripts/core/models.gd")
 const OUT := "res://assets/chars/"
-const POSES := {"stand": ["q_idle", 0.0], "sit": ["x_sitting_idle", 0.5]}
+const POSES := {"stand": ["act_idle", 0.0], "sit": ["x_sitting", 0.5]}
 const KEEP := 0.45
 
 var meta := {}
 
-func _init() -> void:
-	for v in Avatar.CHARS.size():
+var _done := false
+
+## (baked on the first frame, not in _init: before the tree's running, the animation players don't pose anything)
+func _process(_dt: float) -> bool:
+	if _done:
+		return true
+	_done = true
+	_bake_all()
+	return true
+
+func _bake_all() -> void:
+	for v in M.CHARS.size():
 		for pose in POSES:
 			_bake(v, pose)
 	var f := FileAccess.open(OUT + "qp_meta.json", FileAccess.WRITE)
@@ -27,18 +37,12 @@ func _init() -> void:
 func _bake(v: int, pose: String) -> void:
 	var av = Avatar.new()
 	root.add_child(av)
-	av.setup(String(Avatar.CHARS[v][0]), "", null)
+	av.setup(String(M.CHARS[v]), "", null)
 	var sk: Skeleton3D = av.skel
 	var ap: AnimationPlayer = av.anim
 	ap.play(String(POSES[pose][0]))
 	ap.seek(float(POSES[pose][1]), true)
-	# the feet onto the shins (the Mixamo clips leave them behind)
-	for s in ["L", "R"]:
-		var fb := sk.find_bone("Foot." + s)
-		var eb := sk.find_bone("LowerLeg.%s_end" % s)
-		var rel := FootFix._rest_global(sk, eb).affine_inverse() * FootFix._rest_global(sk, fb)
-		var g := sk.get_bone_global_pose(eb) * rel
-		sk.set_bone_global_pose(fb, Transform3D(g.basis.orthonormalized(), g.origin))
+	sk.force_update_all_bone_transforms()      # (headless, the bones' world poses don't follow the clip by themselves)
 	var to_me: Transform3D = av._skel_xf()
 	var mi: MeshInstance3D = av.model.find_children("*", "MeshInstance3D", true, false)[0]
 	var skin: Skin = mi.skin
@@ -85,8 +89,8 @@ func _bake(v: int, pose: String) -> void:
 					bname = bind_bone[bb[i * per + k]]
 			pv[i] = p
 			pn[i] = n.normalized()
-			side[i] = "al" if (bname.begins_with("UpperArm.L") or bname.begins_with("LowerArm.L") or bname.begins_with("Fist.L")) else \
-				("ar" if (bname.begins_with("UpperArm.R") or bname.begins_with("LowerArm.R") or bname.begins_with("Fist.R")) else "")
+			side[i] = "al" if (bname == "LeftArm" or bname == "LeftForeArm" or bname.begins_with("LeftHand")) else \
+				("ar" if (bname == "RightArm" or bname == "RightForeArm" or bname.begins_with("RightHand")) else "")
 		var idx := PackedInt32Array()
 		if a[Mesh.ARRAY_INDEX] != null and (a[Mesh.ARRAY_INDEX] as PackedInt32Array).size() > 0:
 			idx = a[Mesh.ARRAY_INDEX]
@@ -107,8 +111,8 @@ func _bake(v: int, pose: String) -> void:
 				(arr[2] as Array).append(cc[vi])
 	# the shoulders: where each arm turns
 	var sh := []
-	for s in ["L", "R"]:
-		sh.append((to_me * sk.get_bone_global_pose(sk.find_bone("UpperArm." + s))).origin)
+	for s in ["Left", "Right"]:
+		sh.append((to_me * sk.get_bone_global_pose(sk.find_bone(s + "Arm"))).origin)
 	meta["%d_%s" % [v, pose]] = [sh[0].x, sh[0].y, sh[0].z, sh[1].x, sh[1].y, sh[1].z]
 	for k in parts:
 		var arr: Array = parts[k]

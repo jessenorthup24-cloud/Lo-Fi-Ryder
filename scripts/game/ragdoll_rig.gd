@@ -9,16 +9,16 @@ extends SkeletonModifier3D
 const LAYER := 32
 # part: [bone, the bone its box reaches to, thickness (of its length), mass, joint ("cone"/"pin"), parent part bone]
 const PARTS := [
-	["Hips", "Neck", 0.55, 30.0, "", ""],
-	["Head", "Head_end", 0.85, 6.0, "cone", "Hips"],
-	["UpperArm.L", "LowerArm.L", 0.32, 2.5, "pin", "Hips"],
-	["UpperArm.R", "LowerArm.R", 0.32, 2.5, "pin", "Hips"],
-	["LowerArm.L", "Fist.L_end", 0.26, 2.0, "pin", "UpperArm.L"],
-	["LowerArm.R", "Fist.R_end", 0.26, 2.0, "pin", "UpperArm.R"],
-	["UpperLeg.L", "LowerLeg.L", 0.3, 7.0, "cone", "Hips"],
-	["UpperLeg.R", "LowerLeg.R", 0.3, 7.0, "cone", "Hips"],
-	["LowerLeg.L", "LowerLeg.L_end", 0.26, 5.0, "pin", "UpperLeg.L"],
-	["LowerLeg.R", "LowerLeg.R_end", 0.26, 5.0, "pin", "UpperLeg.R"],
+	["Hips", "Neck", 0.5, 30.0, "", ""],
+	["Head", "HeadTop_End", 0.75, 6.0, "cone", "Hips"],
+	["LeftArm", "LeftForeArm", 0.3, 2.5, "pin", "Hips"],
+	["RightArm", "RightForeArm", 0.3, 2.5, "pin", "Hips"],
+	["LeftForeArm", "LeftHandMiddle1", 0.22, 2.0, "pin", "LeftArm"],
+	["RightForeArm", "RightHandMiddle1", 0.22, 2.0, "pin", "RightArm"],
+	["LeftUpLeg", "LeftLeg", 0.28, 7.0, "cone", "Hips"],
+	["RightUpLeg", "RightLeg", 0.28, 7.0, "cone", "Hips"],
+	["LeftLeg", "LeftFoot", 0.24, 5.0, "pin", "LeftUpLeg"],
+	["RightLeg", "RightFoot", 0.24, 5.0, "pin", "RightUpLeg"],
 ]
 
 var bodies := {}               # bone index -> RigidBody3D
@@ -34,7 +34,7 @@ func start(sk: Skeleton3D, world: Node3D, vel: Vector3, push: Vector3) -> void:
 	holder.name = "LimpBody"
 	world.add_child(holder)
 	var sg := sk.global_transform
-	root_i = sk.find_bone("Body")
+	root_i = -1                       # (the hips are the root of this skeleton)
 	torso_i = sk.find_bone("Hips")
 	if root_i >= 0 and torso_i >= 0:
 		root_rel = sk.get_bone_global_pose(torso_i).affine_inverse() * sk.get_bone_global_pose(root_i)
@@ -64,7 +64,7 @@ func start(sk: Skeleton3D, world: Node3D, vel: Vector3, push: Vector3) -> void:
 		var cs := CollisionShape3D.new()
 		var bx := BoxShape3D.new()
 		var th: float = ln * float(p[2])
-		bx.size = Vector3(th, ln, th * (0.7 if String(p[0]) == "Hips" else 1.0))
+		bx.size = Vector3(th * (1.25 if String(p[0]) == "Hips" else 1.0), ln, th * (0.6 if String(p[0]) == "Hips" else 1.0))
 		cs.shape = bx
 		rb.add_child(cs)
 		holder.add_child(rb)
@@ -91,10 +91,10 @@ func start(sk: Skeleton3D, world: Node3D, vel: Vector3, push: Vector3) -> void:
 	torso.angular_velocity = Vector3.UP.cross(away).normalized() * -4.0 + Vector3(0, randf_range(-1.5, 1.5), 0)
 	torso.linear_velocity += away * 1.5
 	for p in PARTS:
-		if String(p[0]).begins_with("LowerLeg") or String(p[0]).begins_with("UpperLeg"):
+		if String(p[0]).ends_with("Leg"):
 			var lb: RigidBody3D = bodies.get(sk.find_bone(String(p[0])))
 			if lb:
-				lb.linear_velocity += -away * (2.2 if String(p[0]).begins_with("Lower") else 1.2)
+				lb.linear_velocity += -away * (1.2 if String(p[0]).contains("Up") else 2.2)
 	# the joints: each part onto the one above it, at its own bone
 	for p in PARTS:
 		if String(p[5]) == "" or not by_name.has(p[0]) or not by_name.has(p[5]):

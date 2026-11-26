@@ -3609,7 +3609,12 @@ func _exit_car() -> void:
 		buzz(60, 1.0)
 		shake = maxf(shake, 0.3)
 	else:
-		foot.avatar.play_once("exit_car", 1.8, 2.3, 1.35)      # (up out of the seat and a step away)
+		# out of the seat: the clip from the start, eased from the seat to the door
+		var seat: Vector3 = car.global_transform * Vector3(-car.info["width"] * 0.18, 0.0, -0.2)
+		_exit_seq = {"from": Vector3(seat.x, foot.global_position.y, seat.z), "to": foot.global_position, "time": 0.0}
+		foot.scripted = true
+		foot.global_position = _exit_seq["from"]
+		foot.avatar.play_once("exit_car", 0.5, 2.4, 1.45)
 
 ## In again: the car you got out of, a parked one, or one off the road (you take it: its driver runs).
 ## Not straight in: you walk round to the driver's door, turn to it, open it and climb in (the clip, while
@@ -3667,7 +3672,7 @@ func _enter_tick(dt: float) -> void:
 			_enter["time"] = 0.0
 			_enter["from"] = foot.global_position
 			foot.scripted = true
-			foot.facing = float(dd[2]) + PI
+			foot.facing = float(dd[2])           # (looking at the car: onfoot faces its avatar to facing + PI)
 			foot.avatar.play_once("enter_car", 0.2, 2.2, 1.35)
 			var tt: Dictionary = _enter["t"]
 			if String(tt["kind"]) == "traffic" and not tt["c"].get("driver_out", false):
@@ -3690,6 +3695,18 @@ func _enter_tick(dt: float) -> void:
 		if foot:
 			foot.scripted = false
 		_enter_car_now(t)
+
+var _exit_seq := {}
+func _exit_tick(dt: float) -> void:
+	if _exit_seq.is_empty() or foot == null:
+		return
+	_exit_seq["time"] = float(_exit_seq["time"]) + dt
+	var k := clampf(float(_exit_seq["time"]) / 1.6, 0.0, 1.0)
+	foot.global_position = (_exit_seq["from"] as Vector3).lerp(_exit_seq["to"], 1.0 - (1.0 - k) * (1.0 - k))
+	if float(_exit_seq["time"]) >= 2.4 or (stick.length() > 0.5 and k >= 1.0):
+		_exit_seq = {}
+		foot.scripted = false
+		foot.avatar.lock_t = 0.0
 
 func _enter_cancel() -> void:
 	if not _enter.is_empty():
@@ -3791,7 +3808,7 @@ func _driver_out(c: Dictionary) -> void:
 		pr["wdir"] = 1.0
 		pr["exit_t"] = 1.6
 		pr["flee"] = 6.0
-		pr["face"] = atan2(side.x, side.z)
+		pr["face"] = atan2(-side.x, -side.z)      # (looking away from the car: "face" is the -Z way)
 		island.people.make_live(pr)
 
 func _take_traffic(c: Dictionary) -> void:
@@ -3879,6 +3896,7 @@ func _foot_tick(dt: float) -> void:
 		mv = Vector2.ZERO
 	foot.move = mv
 	_enter_tick(dt)          # (walking round to a car's door and climbing in)
+	_exit_tick(dt)           # (climbing out)
 	if not on_foot or foot == null:
 		return
 	foot.cam_yaw = foot_yaw + look_yaw
