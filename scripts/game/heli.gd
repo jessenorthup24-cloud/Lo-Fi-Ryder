@@ -8,9 +8,11 @@ extends Node3D
 const MB := preload("res://scripts/core/mesh_builder.gd")
 
 const ALT := 40.0           # height over the ground
-const VMAX := 32.0          # top speed, m/s
+const VMAX := 46.0          # top speed, m/s (it keeps up with all but the quickest cars)
 const ACC := 9.0
 const WATCH_R := 34.0       # the circle on the ground it can see (around where it's looking)
+const SEE_R := 70.0         # and anything out in the open this near below it: you have to get under something
+const HP := 650.0           # (twenty-odd rifle rounds bring it down)
 
 var island: Node
 var vel := Vector3.ZERO
@@ -21,6 +23,9 @@ var beam: MeshInstance3D
 var pool: MeshInstance3D
 var leaving := false
 var gone := false
+var hp := HP
+var downed := false         # shot down: falling, smoking, spinning
+var crashed := false        # hit the ground (police.gd blows it up)
 var _sound: AudioStreamPlayer3D
 var _t := 0.0
 
@@ -113,8 +118,33 @@ func build(isl: Node, mat: Material, atmos: Node) -> void:
 	add_child(_sound)
 
 ## Fly: towards a spot back and to one side of `focus` (and over it), watching `aim`.
+## Shot: true when this one brings it down.
+func hit(dmg: float) -> bool:
+	if downed or leaving:
+		return false
+	hp -= dmg
+	if hp <= 0.0:
+		downed = true
+		beam.visible = false
+		pool.visible = false
+		return true
+	return false
+
 func tick(dt: float, focus: Vector3, aim: Vector3, night: float) -> void:
 	_t += dt
+	if downed:
+		# falling: tail spinning round, nose down, till it hits
+		vel.y -= 16.0 * dt
+		vel.x *= 1.0 - dt * 0.4
+		vel.z *= 1.0 - dt * 0.4
+		global_position += vel * dt
+		rotate_y(dt * 5.0)
+		rotation.x = move_toward(rotation.x, -0.5, dt * 0.6)
+		rotor.rotate_y(dt * 20.0)
+		if global_position.y <= maxf(island.height_at(global_position.x, global_position.z), island.sea_y) + 1.0:
+			crashed = true
+			gone = true
+		return
 	var gy: float = maxf(island.height_at(global_position.x, global_position.z), island.sea_y)
 	var want: Vector3
 	if leaving:
@@ -164,9 +194,10 @@ func tick(dt: float, focus: Vector3, aim: Vector3, night: float) -> void:
 
 ## Whether it can see p: inside the circle it's watching, nothing in between.
 func sees(p: Vector3) -> bool:
-	if leaving:
+	if leaving or downed:
 		return false
-	if Vector2(p.x - look.x, p.z - look.z).length() > WATCH_R:
+	var under := Vector2(p.x - global_position.x, p.z - global_position.z).length() < SEE_R
+	if not under and Vector2(p.x - look.x, p.z - look.z).length() > WATCH_R:
 		return false
 	var q := PhysicsRayQueryParameters3D.create(global_position + Vector3(0, -2.0, 0), p + Vector3(0, 1.0, 0), 1)
 	return get_world_3d().direct_space_state.intersect_ray(q).is_empty()

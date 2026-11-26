@@ -558,11 +558,15 @@ func go_title() -> void:
 	_title_mood(true)
 	ui.show_title()
 
+var _paused_v: Array = []
+
 func pause(menu := true) -> void:
 	if state != DRIVE:
 		return
 	state = PAUSED
 	get_tree().paused = false
+	# (freezing the car loses its motion: kept, to hand back on resume, so a look at the phone doesn't stop you dead)
+	_paused_v = [car.linear_velocity, car.angular_velocity]
 	car.freeze = true
 	if race != null:
 		race.hold(true)
@@ -580,6 +584,10 @@ func resume() -> void:
 		return
 	state = DRIVE
 	car.freeze = false
+	if _paused_v.size() == 2:
+		car.linear_velocity = _paused_v[0]
+		car.angular_velocity = _paused_v[1]
+		_paused_v = []
 	if race != null:
 		race.hold(false)
 	police.hold(false)
@@ -1025,7 +1033,10 @@ func _crew_tests() -> void:
 			# (shot dead: the ragdoll, WASTED)
 			set_meta("gd_done", true)
 			gunplay.hurt(150.0, foot.global_position + Vector3(4, 1, 1))
-		if on_foot and args.has("gunhold"):
+		if on_foot and args.has("gunidle"):
+			# (stood still, gun out, not aiming: the camera round to the side to see it in the hand)
+			look_yaw_t = float(args.get("gunyaw", "2.0"))
+		elif on_foot and args.has("gunhold"):
 			# (aim and hold still: to look at the pose and the reticle)
 			aim_toggle = true
 			look_yaw_t = float(args.get("gunyaw", "0"))
@@ -3306,6 +3317,7 @@ func _cam(dt: float, snap := false) -> void:
 	if look_touches.is_empty() and look_t > 1.2:
 		look_yaw_t = lerp_angle(look_yaw_t, 0.0, 1.0 - exp(-dt * 2.5))
 		look_pitch_t = lerpf(look_pitch_t, 0.0, 1.0 - exp(-dt * 2.5))
+	look_pitch_t = clampf(look_pitch_t, -0.25, 1.0)     # (on foot it goes further: not in the car)
 	look_yaw = lerp_angle(look_yaw, look_yaw_t, 1.0 - exp(-dt * 16.0))
 	look_pitch = lerpf(look_pitch, look_pitch_t, 1.0 - exp(-dt * 16.0))
 	dist *= cam_zoom
@@ -3663,7 +3675,10 @@ func _foot_tick(dt: float) -> void:
 		ui_tap()
 		toggle_foot()
 		return
-	if _pressed("swap") or (keys.get("swap", false) and not foot.get_meta("sk", false)):
+	if _pressed("swap"):
+		ui.open_weapon_wheel()
+		return
+	if keys.get("swap", false) and not foot.get_meta("sk", false):
 		gunplay.cycle()
 	foot.set_meta("sk", keys.get("swap", false))
 	var fire_now: bool = held.get("fire", false) or keys.get("fire", false)
@@ -3711,7 +3726,8 @@ func _foot_cam(dt: float) -> void:
 		ak = gunplay.aim_k
 		foot_pitch = lerpf(foot_pitch, 0.7, 1.0 - exp(-dt * 2.0))
 	var yaw := foot_yaw + look_yaw
-	var pitch := clampf(foot_pitch + look_pitch * 0.6 - aim_kick, lerpf(-0.1, -0.45, ak), 1.1)
+	# (aiming, the drag tilts the view fully: up at a balcony, down at someone at your feet)
+	var pitch := clampf(foot_pitch + look_pitch * lerpf(0.6, 1.0, ak) - aim_kick, lerpf(-0.45, -1.05, ak), lerpf(1.1, 1.2, ak))
 	var dist := lerpf(4.6 * cam_zoom, 4.1, ak)
 	var head := foot.get_global_transform_interpolated().origin + Vector3(0, lerpf(1.55, 2.15, ak), 0)
 	if body != Vector3.INF:
@@ -3854,7 +3870,7 @@ func _unhandled_input(e: InputEvent) -> void:
 		# the finger holding FIRE (on foot): dragging it steers the aim, so you can fire and turn at once
 		elif on_foot and touches.get(e.index, "") == "fire":
 			look_yaw_t = wrapf(look_yaw_t - e.relative.x * 0.0045, -PI, PI)
-			look_pitch_t = clampf(look_pitch_t + e.relative.y * 0.0035, -0.25, 1.0)
+			look_pitch_t = clampf(look_pitch_t + e.relative.y * 0.0035, -1.3, 1.1)
 			gunplay.manual_t = 0.35
 			look_t = 0.0
 		# slide a thumb from one button to its neighbour
@@ -3881,9 +3897,21 @@ func _look_drag(idx: int, pos: Vector2) -> void:
 	else:
 		var dlt := pos - old
 		look_yaw_t = wrapf(look_yaw_t - dlt.x * 0.005, -PI, PI)
-		look_pitch_t = clampf(look_pitch_t + dlt.y * 0.004, -0.25, 1.0)
+		look_pitch_t = clampf(look_pitch_t + dlt.y * 0.004, -1.3 if on_foot else -0.25, 1.1 if on_foot else 1.0)
 	look_touches[idx] = pos
 	look_t = 0.0
+
+## Every finger let go (an overlay took the touches, so their lifts never reached us).
+func drop_touches() -> void:
+	touches.clear()
+	look_touches.clear()
+	stick_idx = -1
+	wheel_idx = -1
+	stick = Vector2.ZERO
+	for k in held.keys():
+		held[k] = false
+	for k in _press_was.keys():
+		_press_was[k] = true      # (so the button you opened it with isn't "pressed" again)
 
 ## A control just pressed this frame (for the switches).
 func _pressed(k: String) -> bool:

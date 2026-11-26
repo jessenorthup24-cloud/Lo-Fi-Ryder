@@ -557,8 +557,56 @@ func _roadblocks() -> void:
 
 ## Four stars and up: the helicopter. It watches you while they've got you, and searches round where you
 ## were last seen when they haven't.
+var heli_cd := 0.0           # (shot one down: a while before another comes)
+
+## The helicopter on the minimap: a dot, and the circle of ground it can see (keep out of it, or get under something).
+func _heli_blip() -> void:
+	if not heli.has_meta("blip"):
+		var dot := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = 6.5
+		cyl.bottom_radius = 6.5
+		cyl.height = 0.2
+		cyl.radial_segments = 16
+		dot.mesh = cyl
+		dot.material_override = _blip_mat
+		var ring := MeshInstance3D.new()
+		var rc := CylinderMesh.new()
+		rc.top_radius = heli.SEE_R
+		rc.bottom_radius = heli.SEE_R
+		rc.height = 0.1
+		rc.radial_segments = 40
+		ring.mesh = rc
+		var rm := StandardMaterial3D.new()
+		rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		rm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		rm.albedo_color = Color(0.35, 0.55, 1.0, 0.22)
+		ring.material_override = rm
+		for m in [ring, dot]:
+			m.layers = island.MAP_LAYER
+			m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			m.top_level = true
+			m.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+			heli.add_child(m)
+		heli.set_meta("blip", [dot, ring])
+	var hp: Vector3 = heli.global_position
+	var bl: Array = heli.get_meta("blip")
+	(bl[0] as Node3D).global_position = Vector3(hp.x, 301.0, hp.z)
+	(bl[1] as Node3D).global_position = Vector3(hp.x, 300.6, hp.z)
+	(bl[1] as Node3D).visible = not heli.leaving and not heli.downed
+
 func _heli_tick(dt: float, cp: Vector3) -> void:
-	if heat >= 4 and heli == null:
+	heli_cd = maxf(0.0, heli_cd - dt)
+	if heli and heli.downed:
+		if randf() < 0.6:
+			game.fx.puff(heli.global_position + Vector3(0, 1.0, 0), Color(0.12, 0.11, 0.11), randf_range(1.2, 2.2), Vector3(0, 2.0, 0), 2.0, 1.4)
+		if heli.crashed:
+			game.gunplay.boom(heli.global_position + Vector3(0, 1.0, 0))
+			heli.queue_free()
+			heli = null
+			heli_cd = 60.0
+		return
+	if heat >= 4 and heli == null and heli_cd <= 0.0:
 		heli = Heli.new()
 		heli.name = "PoliceHeli"
 		game.add_child(heli)
@@ -568,6 +616,7 @@ func _heli_tick(dt: float, cp: Vector3) -> void:
 		heli.look = cp
 	if heli == null:
 		return
+	_heli_blip()
 	var focus: Vector3 = cp + game.you_vel() * 0.8 if seen else last_seen + Vector3(cos(chase_t * 0.3), 0, sin(chase_t * 0.3)) * 45.0
 	var aim: Vector3 = cp if seen else focus
 	heli.tick(dt, focus, aim, game.atmos.night)

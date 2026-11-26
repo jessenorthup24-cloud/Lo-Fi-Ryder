@@ -88,7 +88,23 @@ func equip() -> void:
 	av.hold(weapon, look, game.toon)
 	gun_node = av.gun
 
-## Next gun you own (the swap button).
+## A gun off the weapon wheel ("": put it away).
+func select(id: String) -> void:
+	if id == "":
+		if holstered:
+			return
+		holstered = true
+	else:
+		if not holstered and id == String(weapon.get("id", "")):
+			return
+		holstered = false
+		game.save.data["gun"] = id
+	reload_t = 0.0
+	equip()
+	game.ui.popup_text("Holstered" if holstered else String(weapon["name"]))
+	game.sfx("mag_in", -8.0, 1.2 if not holstered else 0.8)
+
+## Next gun you own (the swap key on a keyboard).
 func cycle() -> void:
 	var s: Dictionary = game.save.data
 	var owned: Array = s.get("guns", ["pistol"])
@@ -210,10 +226,10 @@ func _pose(you: CharacterBody3D, dt: float) -> void:
 		you.aiming = 0.3
 		at = aim_point
 		extra = Basis(Vector3.RIGHT, _recoil * (0.18 if bool(weapon.get("auto", false)) else 0.4))
-	elif moving or float(weapon.get("fore", 0.0)) > 0.0:
-		# the low ready: pointing at the ground a few metres ahead (walking or running; a long gun stood still)
-		at = you.global_position + ahead * (3.0 if moving else 2.2) + Vector3(0, 0.2, 0)
-	# (stood still, a pistol just hangs at your side: at stays INF, the arms go back to the animation)
+	else:
+		# the low ready: both hands on it, pointing at the ground a few metres ahead (stood still too:
+		# held, not dangling from a limp arm)
+		at = you.global_position + ahead * (3.0 if moving else 2.4) + Vector3(0, 0.2, 0)
 	av.aim_at(at, true, dt)
 	if not moving:
 		av.play("holding-both" if aiming else "idle", 1.0, 0.2)
@@ -325,6 +341,20 @@ func _ray(from: Vector3, d: Vector3, rng: float, dmg: float, you: Node3D, muzzle
 		if (from + d * t).distance_to(c) < 0.6:
 			best_t = t
 			best_pr = pr
+	# the police helicopter (no body to hit: near enough the line counts)
+	var hl = game.police.heli
+	if best_pr.is_empty() and hl != null and is_instance_valid(hl) and not hl.downed:
+		var hc: Vector3 = hl.global_position
+		var ht := (hc - from).dot(d)
+		if ht > 0.0 and ht < rng and ht <= from.distance_to(end) + 4.0 and (from + d * ht).distance_to(hc) < 4.5:
+			_tracer(muzzle, from + d * ht)
+			game.fx.spark_burst(from + d * ht, -d, 6, 6.0)
+			var down: bool = hl.hit(dmg)
+			if down:
+				game.ui.popup_text("Helicopter down!")
+				game.police.heat_pts += 0.6
+				game.save.add_stat("helis_down", 1)
+			return 2 if down else 1
 	if not best_pr.is_empty():
 		_tracer(muzzle, from + d * best_t)
 		return _hit_person(best_pr, d, dmg, from + d * best_t)
@@ -574,6 +604,24 @@ func _burn_tick(dt: float) -> void:
 
 ## Boom: a fireball, a shove for everything near, people and officers down, you hurt if you're close;
 ## the car's left a burnt-out shell, thrown up in the air.
+## A blast with nothing under it (the helicopter coming down): fire, smoke, the bang; anyone near is hurt.
+func boom(p: Vector3) -> void:
+	game.sfx("explosion", 3.0, randf_range(0.8, 0.95))
+	flash.global_position = p
+	flash.light_energy = 18.0
+	for k in 18:
+		var dv := Vector3(randf_range(-1, 1), randf_range(0.2, 1.2), randf_range(-1, 1)).normalized()
+		game.fx.puff(p + dv * 0.8, Color(1.0, randf_range(0.45, 0.7), 0.15), randf_range(1.4, 2.4), dv * randf_range(4.0, 9.0), randf_range(0.7, 1.1), 0.8)
+	for k in 12:
+		var dv2 := Vector3(randf_range(-1, 1), randf_range(0.5, 1.5), randf_range(-1, 1)).normalized()
+		game.fx.puff(p + dv2, Color(0.1, 0.09, 0.09), randf_range(1.4, 2.4), dv2 * randf_range(1.5, 3.5), 3.0, 1.8)
+	game.fx.spark_burst(p, Vector3.UP, 40, 14.0)
+	var you: Vector3 = game.you().global_position
+	game.shake = maxf(game.shake, 0.6 if you.distance_to(p) < 30.0 else 0.2)
+	game.ui.impact_flash(0.45)
+	if game.on_foot and you.distance_to(p) < BLAST_R * 1.3:
+		hurt(80.0 * (1.0 - you.distance_to(p) / (BLAST_R * 1.3)), p)
+
 func explode(n: Node3D) -> void:
 	if not is_instance_valid(n):
 		return

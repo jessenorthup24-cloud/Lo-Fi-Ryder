@@ -49,7 +49,7 @@ var heist_box: PanelContainer   # a heist on: what to do, the clock, a bar
 var _heist_title: Label
 var _heist_sub: Label
 var _heist_bar: ProgressBar
-const FOOT_PADS := ["stick", "jump", "sprint", "fire", "swap", "aim", "reload"]
+const FOOT_PADS := ["stick", "jump", "sprint", "fire", "swap", "reload"]     # (no AIM: holding FIRE aims)
 var reticle: Control        # on foot, aiming: the crosshair in the middle (red when it's locked on)
 var _hit_t := 0.0            # a hit marker showing (s left)
 var _hit_kill := false
@@ -192,6 +192,9 @@ func _tap(b: BaseButton, f: Callable) -> void:
 var _drag_dist := 0.0
 
 func _input(e: InputEvent) -> void:
+	if wheel_open():
+		_wheel_input(e)
+		return
 	if (e is InputEventScreenTouch and e.pressed) or (e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT):
 		_drag_dist = 0.0
 	elif e is InputEventScreenDrag:
@@ -596,11 +599,12 @@ func _build_hud() -> void:
 	ctl["jump"] = _pad("jump", Vector2(-214, -256), Vector2(132, 132), false, K.PAPER)
 	ctl["sprint"] = _pad("sprint", Vector2(-372, -204), Vector2(120, 120), false, K.PAPER)
 	ctl["fire"] = _pad("fire", Vector2(-424, -392), Vector2(160, 160), false, K.PAPER)
-	ctl["swap"] = _pad("swap", Vector2(-610, -330), Vector2(170, 70), false, K.PAPER)
-	ctl["reload"] = _pad("reload", Vector2(-610, -250), Vector2(170, 58), false, K.PAPER)
+	ctl["swap"] = _pad("swap", Vector2(-566, -372), Vector2(112, 112), false, K.PAPER)       # (the weapon wheel)
+	ctl["reload"] = _pad("reload", Vector2(-540, -226), Vector2(92, 92), false, K.PAPER)
 	ctl["aim"] = _pad("aim", Vector2(-652, -470), Vector2(100, 100), false, K.PAPER)     # (left of the door)
 	for k in FOOT_PADS:
 		ctl[k].visible = false
+	ctl["aim"].visible = false
 	# your health, on foot: a slim bar under the minimap
 	hp_bar = K.bar(196, 10, Color("ff4f6b"), Color(0, 0, 0, 0.35))
 	hp_bar.visible = false
@@ -788,15 +792,19 @@ func _draw_foot_pad(c: Control, name: String) -> void:
 			c.draw_circle(cc, 3.5, w)
 			_pad_text(c, "FIRE", cc + Vector2(0, 58), 14, Color(1, 1, 1, 0.75))
 		"swap":
-			var r := Rect2(Vector2(4, 4), c.size - Vector2(8, 8))
-			_rrect(c, r, 18, Color(0.06, 0.055, 0.09, 0.62), Color(1, 1, 1, 0.3), 1)
+			# the gun you've out (or a hand), its rounds under it; ticks round the rim: there's a wheel
+			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
+			for k in 12:
+				var a := TAU * k / 12.0
+				var dv := Vector2(cos(a), sin(a))
+				c.draw_line(cc + dv * (c.size.x * 0.46 - 6.0), cc + dv * (c.size.x * 0.46 - 2.0), Color(1, 1, 1, 0.3), 2.0)
 			var lines := String(c.get_meta("txt", "")).split("\n")
-			var f := K.font(650)
-			if lines.size() > 0:
-				c.draw_string(f, Vector2(18, 32), lines[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 19, w)
+			var gid := String(c.get_meta("gid", "pistol"))
+			gun_glyph(c, gid, cc + Vector2(0, -10), 24.0, w)
 			if lines.size() > 1:
-				c.draw_string(K.font(500), Vector2(18, 54), lines[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 1, 1, 0.6))
-			c.draw_polyline(PackedVector2Array([Vector2(c.size.x - 30, 24), Vector2(c.size.x - 20, 35), Vector2(c.size.x - 30, 46)]), Color(1, 1, 1, 0.6), 2.5, true)
+				c.draw_string(K.font(600), cc + Vector2(-50, 26), lines[1], HORIZONTAL_ALIGNMENT_CENTER, 100, 14, Color(1, 1, 1, 0.7))
+			if lines.size() > 0:
+				_pad_text(c, lines[0].to_upper(), cc + Vector2(0, 66), 12, Color(1, 1, 1, 0.75))
 		"aim":
 			var lit: bool = c.get_meta("set", false)
 			var cc := _draw_glass_disc(c, c.size.x * 0.46, on or lit)
@@ -808,13 +816,25 @@ func _draw_foot_pad(c: Control, name: String) -> void:
 				c.draw_line(cc + dv * 9.0, cc + dv * 22.0, ac, 2.5)
 			_pad_text(c, "AIM", cc + Vector2(0, 40), 12, Color(1, 1, 1, 0.75))
 		"reload":
-			var r2 := Rect2(Vector2(4, 4), c.size - Vector2(8, 8))
-			_rrect(c, r2, 16, Color(0.06, 0.055, 0.09, 0.62 if not on else 0.8), Color(1, 1, 1, 0.3), 1)
-			# a magazine, and the word
-			c.draw_rect(Rect2(Vector2(20, 14), Vector2(12, 22)), w, false, 2.5)
-			c.draw_line(Vector2(23, 20), Vector2(29, 20), w, 2.0)
-			c.draw_line(Vector2(23, 26), Vector2(29, 26), w, 2.0)
-			c.draw_string(K.font(650), Vector2(44, 33), "RELOAD", HORIZONTAL_ALIGNMENT_LEFT, -1, 17, w)
+			# round arrows; a ring fills while the new magazine goes in; it pulses when you're empty
+			var empty: bool = c.get_meta("empty", false)
+			var prog: float = c.get_meta("prog", 0.0)
+			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
+			var rc := Color(1.0, 0.45, 0.6) if empty else w
+			if empty:
+				var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.008)
+				c.draw_arc(cc, c.size.x * 0.46, 0, TAU, 48, Color(K.CORAL, 0.4 + 0.5 * pulse), 3.0, true)
+			for half in 2:
+				var a0 := -PI * 0.15 + half * PI
+				c.draw_arc(cc, 16.0, a0, a0 + PI * 0.72, 16, rc, 3.0, true)
+				var tip := a0 + PI * 0.72
+				var tp := cc + Vector2(cos(tip), sin(tip)) * 16.0
+				var tg := Vector2(-sin(tip), cos(tip))
+				var nr := Vector2(cos(tip), sin(tip))
+				c.draw_colored_polygon(PackedVector2Array([tp + tg * 7.0, tp + nr * 6.0, tp - nr * 6.0]), rc)
+			if prog > 0.0:
+				c.draw_arc(cc, c.size.x * 0.46 - 1.5, -PI * 0.5, -PI * 0.5 + TAU * prog, 48, K.CORAL, 4.0, true)
+			_pad_text(c, "RELOAD", cc + Vector2(0, 40), 12, Color(1, 1, 1, 0.75))
 		"door":
 			var foot: bool = c.get_meta("foot", false)
 			var near: bool = c.get_meta("near", false)
@@ -957,6 +977,7 @@ func _draw_pad(c: Control, name: String) -> void:
 ## few seconds. No banners. And a speed limit sign by the speedo whenever a patrol car's about.
 var wanted_why: Label
 var _wanted_fade := 0.0      # (fading the stars out after you've lost them)
+var _searching := false      # (the "searching" line's up)
 var _wanted_shown := 0       # (stars lit last frame)
 var _why_t := 0.0
 var mini_ring: Panel
@@ -1210,6 +1231,15 @@ func _wanted_update2(pd: Dictionary, kmh: float) -> void:
 				st.modulate = Color(0.7, 0.7, 0.72, 0.55) if flash else lit
 			else:
 				st.modulate = Color(0.3, 0.3, 0.34, 0.6)
+		# out of their sight: a line under the stars says they're searching, and how near you are to losing them
+		if not bool(pd["seen"]) and _why_t <= 0.0:
+			_searching = true
+			wanted_why.visible = true
+			wanted_why.modulate.a = 1.0
+			wanted_why.text = "Out of sight · searching  %d%%" % int(clampf(float(pd.get("evade", 0.0)), 0.0, 1.0) * 100.0)
+		elif _searching and bool(pd["seen"]):
+			_searching = false
+			wanted_why.visible = false
 		# the minimap's rim: red and blue while they've got you; grey and white while they're looking
 		var phase := fmod(now, 0.5) < 0.25
 		if bool(pd["seen"]):
@@ -1217,6 +1247,9 @@ func _wanted_update2(pd: Dictionary, kmh: float) -> void:
 		else:
 			_ring_col(Color("c9ccd4") if fmod(now, 0.9) < 0.45 else Color(1, 1, 1, 0.55))
 	elif _wanted_fade > 0.0:
+		if _searching:
+			_searching = false
+			wanted_why.visible = false
 		_wanted_fade -= dt
 		wanted_box.modulate.a = clampf(_wanted_fade / 1.2, 0.0, 1.0)
 		if _wanted_fade <= 0.0:
@@ -1327,7 +1360,7 @@ func control_at(pos: Vector2) -> String:
 			return "wheel"
 	if not foot_mode and speedo.visible and speedo.get_global_rect().grow(12).has_point(pos):
 		return "cruise"         # (tap the speedo: cruise control)
-	for k in (["door", "aim", "fire", "reload", "swap", "jump", "sprint", "stick"] if foot_mode else ["rewind", "door", "nos", "cruise", "hand", "gas", "brake", "left", "right"]):
+	for k in (["door", "fire", "reload", "swap", "jump", "sprint", "stick"] if foot_mode else ["rewind", "door", "nos", "cruise", "hand", "gas", "brake", "left", "right"]):
 		var c: Control = ctl[k]
 		if not c.visible:
 			continue
@@ -1338,8 +1371,9 @@ func control_at(pos: Vector2) -> String:
 ## On foot or back in the car: which controls are up.
 func set_foot(on: bool) -> void:
 	foot_mode = on
-	for k in ["gas", "brake", "hand", "nos", "cruise", "rewind", "left", "right"]:
+	for k in ["gas", "brake", "hand", "nos", "rewind", "left", "right"]:
 		ctl[k].visible = not on
+	ctl["cruise"].visible = false        # (never a button: tap the speedo)
 	if on:
 		wheel.visible = false
 	else:
@@ -1354,7 +1388,22 @@ func set_foot(on: bool) -> void:
 	if on:
 		limit_sign.visible = false
 	ctl["door"].set_meta("foot", on)
+	# in the car, EXIT sits up top by the phone; on foot ENTER's down by your thumb
+	if on:
+		_place(ctl["door"], Control.PRESET_BOTTOM_RIGHT, Vector2(-528, -470))
+	else:
+		_place(ctl["door"], Control.PRESET_TOP_RIGHT, Vector2(-404, 80))
+	group_btn.position = Vector2(-376, 94) if on else Vector2(-480, 94)
 	ctl["door"].queue_redraw()
+
+## A control moved to `pos` from the corner `preset` names (its size kept).
+func _place(c: Control, preset: int, pos: Vector2) -> void:
+	var sz := c.size
+	c.set_anchors_preset(preset)
+	c.offset_left = pos.x
+	c.offset_top = pos.y
+	c.offset_right = pos.x + sz.x
+	c.offset_bottom = pos.y + sz.y
 
 ## Where a finger on the stick pushes it: x right, y forward, up to 1.
 func stick_vec(pos: Vector2) -> Vector2:
@@ -1381,10 +1430,20 @@ func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> 
 	var gp = game.gunplay
 	_gauge_set(hp_g, gp.hp / gp.MAX_HP)
 	var sw: Control = ctl["swap"]
-	var gtxt: String = String(gp.weapon.get("name", "")) + "\n" + gp.ammo_text()
+	var gtxt: String = ("Hands" if gp.holstered else String(gp.weapon.get("name", ""))) + "\n" + ("" if gp.holstered else gp.ammo_text())
 	if String(sw.get_meta("txt", "")) != gtxt:
 		sw.set_meta("txt", gtxt)
+		sw.set_meta("gid", "" if gp.holstered else String(gp.weapon.get("id", "pistol")))
 		sw.queue_redraw()
+	var rl: Control = ctl["reload"]
+	var prog: float = 0.0
+	if gp.reload_t > 0.0 and not gp.weapon.is_empty():
+		prog = 1.0 - gp.reload_t / float(gp.weapon["reload"])
+	var empty: bool = not gp.holstered and not gp.weapon.is_empty() and int(gp.ammo.get(gp.weapon["id"], 1)) <= 0 and gp.reload_t <= 0.0
+	if prog != float(rl.get_meta("prog", 0.0)) or empty or bool(rl.get_meta("empty", false)) != empty:
+		rl.set_meta("prog", prog)
+		rl.set_meta("empty", empty)
+		rl.queue_redraw()
 	var cam: Camera3D = game.cam
 	if gp.lock_pos != Vector3.INF and gp.aim_k > 0.2 and not cam.is_position_behind(gp.lock_pos):
 		if not aim_mark.visible:
@@ -1399,7 +1458,7 @@ func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> 
 	reticle.visible = gp.aim_k > 0.05 or _hit_t > 0.0
 	reticle.modulate.a = clampf(gp.aim_k * 1.4, 0.0, 1.0) if _hit_t <= 0.0 else 1.0
 	reticle.queue_redraw()
-	(ctl["aim"] as Control).set_meta("set", game.aim_toggle)
+	_wanted_update(game.police.hud(), 0.0)        # (the stars and the searching line, on foot too)
 	pressed_controls(game.held)
 
 ## A shot landed: an X on the reticle (red, bigger, if it killed).
@@ -2094,6 +2153,7 @@ func toggle_phone() -> void:
 		t.tween_callback(func():
 			phone_layer.visible = false
 			phone.visible = false
+			game.drop_touches()
 			game.resume())
 		return
 	if game.state != game.DRIVE:
@@ -3852,3 +3912,167 @@ func _garage_input(e: InputEvent) -> void:
 		g_spin += e.relative.x * 0.01
 	elif e is InputEventScreenTouch and not e.pressed:
 		g_drag = 0.0          # (a swipe only turns the car: the arrows change it)
+
+# ---------------------------------------------------------------- the weapon wheel
+## Hold the weapon button and slide onto a gun (let go to take it), or tap the button and tap a gun.
+## "Hands" puts it away. The world waits while it's open.
+var wheel_layer: Control
+var _wh_ring: Control
+var _wh_ids: Array = []      # round the wheel from the top, clockwise: "" (hands), then your guns
+var _wh_hi := -1             # the one under your finger
+var _wh_t := 0
+var _wh_moved := false
+const WH_R := 214.0
+const WH_IN := 86.0
+
+func wheel_open() -> bool:
+	return wheel_layer != null and wheel_layer.visible
+
+func open_weapon_wheel() -> void:
+	if game.state != game.DRIVE or wheel_open():
+		return
+	if wheel_layer == null:
+		wheel_layer = Control.new()
+		wheel_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		wheel_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+		add_child(wheel_layer)
+		var dim := ColorRect.new()
+		dim.color = Color(K.DIM, 0.45)
+		dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		wheel_layer.add_child(dim)
+		_wh_ring = Control.new()
+		_wh_ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_wh_ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_wh_ring.draw.connect(_draw_weapon_wheel)
+		wheel_layer.add_child(_wh_ring)
+	var gp = game.gunplay
+	_wh_ids = [""]
+	var owned: Array = game.save.data.get("guns", ["pistol"])
+	for w in Weapons.LIST:
+		if w["id"] in owned:
+			_wh_ids.append(String(w["id"]))
+	_wh_hi = 0 if gp.holstered else maxi(0, _wh_ids.find(String(gp.weapon.get("id", ""))))
+	_wh_t = Time.get_ticks_msec()
+	_wh_moved = false
+	game.pause(false)
+	wheel_layer.visible = true
+	wheel_layer.modulate.a = 0.0
+	create_tween().tween_property(wheel_layer, "modulate:a", 1.0, 0.1)
+	_wh_ring.queue_redraw()
+
+func _close_wheel(pick: Variant) -> void:
+	wheel_layer.visible = false
+	game.drop_touches()
+	game.resume()
+	if pick != null:
+		game.gunplay.select(String(pick))
+
+## Which slice is under pos (-1: the middle, or off the wheel).
+func _wheel_seg(pos: Vector2) -> int:
+	var d := pos - _vs() * 0.5
+	var r := d.length()
+	if r < WH_IN * 0.75 or r > WH_R * 1.12:
+		return -1
+	var n := _wh_ids.size()
+	var step := TAU / n
+	return int(floor(fposmod(atan2(d.y, d.x) + PI * 0.5 + step * 0.5, TAU) / step)) % n
+
+func _wheel_input(e: InputEvent) -> void:
+	var pos := Vector2.INF
+	var press := -1           # 1 down, 0 up, -1 a move
+	if DisplayServer.is_touchscreen_available():
+		if e is InputEventScreenTouch:
+			pos = e.position
+			press = 1 if e.pressed else 0
+		elif e is InputEventScreenDrag:
+			pos = e.position
+	else:
+		if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT:
+			pos = e.position
+			press = 1 if e.pressed else 0
+		elif e is InputEventMouseMotion and (e.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+			pos = e.position
+	if pos == Vector2.INF:
+		return
+	get_viewport().set_input_as_handled()
+	var seg := _wheel_seg(pos)
+	if press != 0:
+		if seg >= 0 and seg != _wh_hi:
+			_wh_hi = seg
+			_wh_moved = true
+			game.ui_tap()
+			_wh_ring.queue_redraw()
+		return
+	# let go: on a slice takes it; a quick tap on the button leaves it open for a second tap;
+	# anywhere else shuts it as it was
+	if seg >= 0:
+		_close_wheel(_wh_ids[seg])
+	elif Time.get_ticks_msec() - _wh_t < 350 and not _wh_moved:
+		return
+	else:
+		_close_wheel(null)
+
+func _draw_weapon_wheel() -> void:
+	var ci := _wh_ring
+	var c := _vs() * 0.5
+	var n := _wh_ids.size()
+	var step := TAU / n
+	var gp = game.gunplay
+	ci.draw_circle(c, WH_R + 10.0, Color(0.04, 0.035, 0.06, 0.5))
+	for i in n:
+		var a0 := -PI * 0.5 + (float(i) - 0.5) * step + 0.03
+		var a1 := a0 + step - 0.06
+		var pts := PackedVector2Array()
+		for k in 21:
+			var a := lerpf(a0, a1, k / 20.0)
+			pts.append(c + Vector2(cos(a), sin(a)) * WH_R)
+		for k in 21:
+			var a := lerpf(a1, a0, k / 20.0)
+			pts.append(c + Vector2(cos(a), sin(a)) * WH_IN)
+		var hi := i == _wh_hi
+		ci.draw_colored_polygon(pts, Color(K.CORAL, 0.9) if hi else Color(0.1, 0.095, 0.14, 0.9))
+		pts.append(pts[0])
+		ci.draw_polyline(pts, Color(1, 1, 1, 0.55 if hi else 0.2), 1.5, true)
+		var am := -PI * 0.5 + i * step
+		var mid := c + Vector2(cos(am), sin(am)) * (WH_IN + WH_R) * 0.5
+		var id: String = _wh_ids[i]
+		var col := Color.WHITE if hi else Color(1, 1, 1, 0.82)
+		gun_glyph(ci, id, mid + Vector2(0, -10), 30.0, col)
+		var nm := "Hands" if id == "" else String(Weapons.by_id(id)["name"])
+		ci.draw_string(K.font(650), mid + Vector2(-60, 30), nm, HORIZONTAL_ALIGNMENT_CENTER, 120, 15, col)
+	# the middle: what you'd take, and its rounds
+	ci.draw_circle(c, WH_IN - 8.0, Color(0.06, 0.055, 0.09, 0.92))
+	ci.draw_arc(c, WH_IN - 8.0, 0, TAU, 48, Color(1, 1, 1, 0.18), 1.5, true)
+	if _wh_hi >= 0 and _wh_hi < n:
+		var id2: String = _wh_ids[_wh_hi]
+		var title := "Hands" if id2 == "" else String(Weapons.by_id(id2)["name"])
+		var sub := "put it away" if id2 == "" else "%d / %d" % [int(gp.ammo.get(id2, Weapons.by_id(id2)["mag"])), int(Weapons.by_id(id2)["mag"])]
+		ci.draw_string(K.font(700), c + Vector2(-70, -2), title, HORIZONTAL_ALIGNMENT_CENTER, 140, 20, Color.WHITE)
+		ci.draw_string(K.font(500), c + Vector2(-70, 22), sub, HORIZONTAL_ALIGNMENT_CENTER, 140, 14, Color(1, 1, 1, 0.6))
+
+## A flat silhouette of a gun (pointing right), s pixels to half its length; "" is an open hand.
+func gun_glyph(ci: CanvasItem, id: String, p: Vector2, s: float, col: Color) -> void:
+	var shapes: Array = GLYPHS.get(id, GLYPHS["pistol"]) if id != "" else GLYPHS["hand"]
+	for sh in shapes:
+		var pts := PackedVector2Array()
+		var a: Array = sh
+		if a.size() == 4:
+			pts = PackedVector2Array([Vector2(a[0], a[1]), Vector2(a[2], a[1]), Vector2(a[2], a[3]), Vector2(a[0], a[3])])
+		else:
+			for k in range(0, a.size(), 2):
+				pts.append(Vector2(a[k], a[k + 1]))
+		for k in pts.size():
+			pts[k] = p + pts[k] * s
+		ci.draw_colored_polygon(pts, col)
+
+## Each a list of boxes [x0, y0, x1, y1] or polygons [x, y, x, y, ...], in half-lengths.
+const GLYPHS := {
+	"pistol": [[-0.62, -0.42, 0.62, -0.1], [-0.55, -0.1, -0.2, -0.1, -0.05, 0.55, -0.42, 0.55], [-0.12, -0.1, 0.12, -0.1, 0.12, 0.12, -0.05, 0.12]],
+	"revolver": [[-0.05, -0.34, 0.82, -0.16], [-0.32, -0.4, 0.02, 0.04], [-0.6, -0.04, -0.3, -0.04, -0.36, 0.56, -0.72, 0.5], [-0.45, -0.36, -0.3, 0.0]],
+	"smg": [[-0.55, -0.3, 0.55, 0.02], [0.55, -0.2, 0.86, -0.1], [-0.02, 0.02, 0.16, 0.66], [-0.42, 0.02, -0.24, 0.02, -0.3, 0.45, -0.48, 0.45], [-0.95, -0.22, -0.55, -0.12], [-0.95, -0.12, -0.85, 0.2]],
+	"shotgun": [[-0.38, -0.24, -0.02, 0.06], [-0.02, -0.2, 1.0, -0.08], [0.2, -0.08, 0.62, 0.06], [-1.0, -0.12, -0.38, -0.24, -0.38, 0.06, -0.9, 0.24, -1.0, 0.24], [-0.32, 0.06, -0.2, 0.06, -0.24, 0.3, -0.36, 0.3]],
+	"rifle": [[-0.48, -0.26, 0.32, 0.04], [0.32, -0.2, 1.0, -0.12], [0.3, -0.3, 0.42, -0.2], [0.0, 0.04, 0.16, 0.04, 0.3, 0.56, 0.12, 0.6], [-0.36, 0.04, -0.2, 0.04, -0.26, 0.42, -0.42, 0.42], [-1.0, -0.2, -0.48, -0.24, -0.48, 0.04, -1.0, 0.2]],
+	"sniper": [[-0.4, -0.2, 0.22, 0.06], [0.22, -0.14, 1.05, -0.06], [-0.3, -0.44, 0.22, -0.3], [-0.12, -0.3, 0.0, -0.2], [-0.02, 0.06, 0.1, 0.06, 0.08, 0.36, -0.04, 0.36], [-1.0, -0.16, -0.4, -0.2, -0.4, 0.06, -0.7, 0.06, -0.84, 0.28, -1.0, 0.28]],
+	"hand": [[-0.36, -0.05, 0.3, 0.55], [-0.36, -0.5, -0.22, -0.05], [-0.18, -0.62, -0.04, -0.05], [0.0, -0.58, 0.14, -0.05], [0.18, -0.46, 0.3, -0.05], [0.3, 0.1, 0.3, 0.3, 0.58, 0.0, 0.52, -0.12]],
+}

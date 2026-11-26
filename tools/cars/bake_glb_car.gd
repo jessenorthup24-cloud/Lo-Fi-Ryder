@@ -7,6 +7,8 @@ extends SceneTree
 ## tagged with vertex alpha 0.9. Lamps ("light" front, "red" back) are tagged to glow.
 ##   GLB=/path/car.glb KEY=hoon LEN=4.25 ONE_SIDED=1 KEEP=0.35 COARSE=1 godot --headless --path . -s tools/cars/bake_glb_car.gd
 ##   (the Mountain Ghost: KEY=ae86 LEN=4.2 NOTEX=1, the rest the same: only one car can use the texture atlas)
+##   An FBX works too, coloured from its swatch sheet (the Designersoup cars):
+##   GLB=/path/car.fbx PALETTE=/path/palette.png KEY=wedge LEN=4.2 godot --headless --path . -s tools/cars/bake_glb_car.gd
 ## Expects the glTF's front along -X, its left along +Z, wheel nodes named Wheel_Front_L and so on.
 
 const OUT := "res://assets/cars/"
@@ -23,10 +25,14 @@ func _init() -> void:
 	key = OS.get_environment("KEY")
 	var want_len := float(OS.get_environment("LEN")) if OS.get_environment("LEN") != "" else 4.2
 	print("BAKE start ", path)
-	var doc := GLTFDocument.new()
-	var st := GLTFState.new()
+	var fbx := path.get_extension().to_lower() == "fbx"
+	var doc: GLTFDocument = FBXDocument.new() if fbx else GLTFDocument.new()
+	var st: GLTFState = FBXState.new() if fbx else GLTFState.new()
+	if OS.get_environment("PALETTE") != "":
+		palette = Image.load_from_file(OS.get_environment("PALETTE"))
+		notex = true
 	two_sided = OS.get_environment("ONE_SIDED") == ""
-	notex = OS.get_environment("NOTEX") != ""
+	notex = OS.get_environment("NOTEX") != "" or palette != null
 	if OS.get_environment("KEEP") != "":
 		keep = float(OS.get_environment("KEEP"))
 	if OS.get_environment("KEEP_WHEEL") != "":
@@ -40,7 +46,14 @@ func _init() -> void:
 	print("BAKE scene")
 	var wheel_groups := {}      # "Front_L" -> Node3D
 	var body_parts := []        # [MeshInstance3D, Transform3D in the car's space]
-	_walk(root, Transform3D(), wheel_groups, body_parts)
+	if fbx:
+		_walk_fbx(root, Transform3D(), wheel_groups, body_parts)
+		# DROP=0.28: the body lowered onto its wheels (a car modelled hovering, wheels folded under)
+		var drop := float(OS.get_environment("DROP")) if OS.get_environment("DROP") != "" else 0.0
+		for bp in body_parts:
+			bp[1] = Transform3D(Basis(), Vector3(0, -drop, 0)) * (bp[1] as Transform3D)
+	else:
+		_walk(root, Transform3D(), wheel_groups, body_parts)
 	# size: as long as want_len (bumper to bumper) once the game grows it
 	var lo := Vector3(INF, INF, INF)
 	var hi := -lo
@@ -105,6 +118,47 @@ func _walk(n: Node, xf: Transform3D, wheels: Dictionary, body: Array) -> void:
 		if c is MeshInstance3D:
 			body.append([c, cx])
 		_walk(c, cx, wheels, body)
+
+## An FBX car (the Designersoup pack): its wheels are meshes named something with "wheel" in it, the
+## names not to be trusted for the corner (they're copied and renamed), so each goes to the corner it
+## sits at. A wheel modelled lying flat (a car in its flying pose) is stood back up on its tyre.
+func _walk_fbx(n: Node, xf: Transform3D, wheels: Dictionary, body: Array) -> void:
+	var found := []
+	_collect_fbx(n, xf, found, body)
+	var mid := Vector3.ZERO
+	for w in found:
+		mid += (w[1] as Transform3D) * (w[0] as MeshInstance3D).mesh.get_aabb().get_center()
+	mid /= maxf(1.0, found.size())
+	for w in found:
+		var mi: MeshInstance3D = w[0]
+		var wx: Transform3D = w[1]
+		var ab: AABB = wx * mi.mesh.get_aabb()
+		var c := ab.get_center()
+		var up := Basis()
+		if ab.size.y < minf(ab.size.x, ab.size.z) * 0.6:
+			up = Basis(Vector3.RIGHT, PI * 0.5)       # (axis up the way: tip it so the axle runs across)
+			c.y = maxf(ab.size.x, ab.size.z) * 0.5
+		var k := ("Front_" if c.x < mid.x else "Rear_") + ("L" if c.z > mid.z else "R")
+		var g := Node3D.new()
+		g.set_meta("at", c)
+		var part := MeshInstance3D.new()
+		part.mesh = mi.mesh
+		for si in mi.mesh.get_surface_count():
+			part.set_surface_override_material(si, mi.get_active_material(si))
+		var local := Transform3D(Basis(), -ab.get_center()) * wx
+		part.transform = Transform3D(up, Vector3.ZERO) * local
+		g.add_child(part)
+		wheels[k] = g
+
+func _collect_fbx(n: Node, xf: Transform3D, found: Array, body: Array) -> void:
+	for c in n.get_children():
+		var cx := xf * (c as Node3D).transform if c is Node3D else xf
+		if c is MeshInstance3D:
+			if "wheel" in String(c.name).to_lower():
+				found.append([c, cx])
+				continue
+			body.append([c, cx])
+		_collect_fbx(c, cx, found, body)
 
 func _tex_of(mat: Material) -> Texture2D:
 	if mat is BaseMaterial3D:
@@ -199,7 +253,10 @@ func _bake(parts: Array, lamps: bool, centred := false) -> ArrayMesh:
 				base_col = (mat as BaseMaterial3D).albedo_color
 			var mname := String(mat.resource_name) if mat else ""
 			var t := _tex_of(mat)
-			if t and notex:
+			var pal := palette != null and t != null
+			if pal:
+				t = null
+			elif t and notex:
 				# (no atlas for this one: a small texture, a number plate, say, as its average colour)
 				var im: Image = t.get_image()
 				im.decompress()
@@ -207,7 +264,7 @@ func _bake(parts: Array, lamps: bool, centred := false) -> ArrayMesh:
 				base_col = base_col * im.get_pixel(0, 0)
 				t = null
 			var rect: Rect2 = atlas_rects.get(t.get_rid(), Rect2()) if t else Rect2()
-			var glow := lamps and (mname in ["light", "red", "Warm headlight lens"])
+			var glow := lamps and (mname in ["light", "red", "Warm headlight lens"] or mname.begins_with("gradientEmmisive"))
 			var v0 := verts.size()
 			var i0 := idx.size()
 			if OS.get_environment("DEBUG") != "":
@@ -265,6 +322,10 @@ func _bake(parts: Array, lamps: bool, centred := false) -> ArrayMesh:
 							uvs.append(Vector2((rect.position.x + uv.x * rect.size.x) / atlas.get_width(), (rect.position.y + uv.y * rect.size.y) / atlas.get_height()))
 							cols.append(Color(c.r, c.g, c.b, 0.9))
 						else:
+							if pal and uu != null and (uu as PackedVector2Array).size() > vi:
+								var puv: Vector2 = uu[vi]
+								c = palette.get_pixel(clampi(int(fposmod(puv.x, 1.0) * palette.get_width()), 0, palette.get_width() - 1),
+									clampi(int(fposmod(puv.y, 1.0) * palette.get_height()), 0, palette.get_height() - 1))
 							uvs.append(Vector2.ZERO)
 							cols.append(Color(c.r, c.g, c.b, 0.5 if glow else 1.0))
 					idx.append(at)
@@ -314,6 +375,7 @@ func _bake(parts: Array, lamps: bool, centred := false) -> ArrayMesh:
 ## `keep` of them, then the vertices nothing uses any more dropped. Dents and the GPU both pay per vertex.
 var keep := 1.0
 var keep_wheel := 1.0
+var palette: Image     # PALETTE=/path.png: the car's textures are a colour swatch sheet: each vertex takes its swatch
 var notex := false     # NOTEX=1: no texture atlas (the toon shader has one, the Hoon's): textures as flat colour
 
 func _simplify(arr: Array, want: float) -> Array:
