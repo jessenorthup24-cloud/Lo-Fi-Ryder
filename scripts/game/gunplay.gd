@@ -315,8 +315,8 @@ func _fire(you: CharacterBody3D) -> void:
 		hit_any = hit_any or r > 0
 		killed = killed or r > 1
 	if hit_any:
-		game.ui.hit_marker(killed)
-		game.sfx("kill_ding" if killed else "hit_tick", -4.0 if killed else -8.0)
+		# (no marker on the screen: the blood and the body tell you)
+		game.sfx("kill_ding" if killed else "hit_tick", -10.0 if killed else -14.0)
 	# shots fired where anyone can hear: people scatter, and the police get a call
 	game.island.people.panic(you.global_position, 40.0)
 	if not game.police.wanted():
@@ -437,9 +437,13 @@ func _hit_person(pr: Dictionary, d: Vector3, dmg: float, at: Vector3) -> int:
 	if float(pr["hp"]) <= 0.0:
 		_kill_person(pr, d, dmg)
 		return 2
-	game.fx.blood(at, d, 12, 4.0)
-	game.sfx("body_hit_%d" % randi_range(1, 3), -8.0, randf_range(1.0, 1.15))
+	game.fx.blood(at, d, 16, 5.5)
+	game.sfx("body_hit_%d" % randi_range(1, 3), -6.0, randf_range(1.0, 1.15))
 	game.island.people.flinch(pr, d)
+	var pav = pr.get("live")
+	if pav != null and is_instance_valid(pav):
+		(pav as Avatar).wound(at, d)
+		(pav as Avatar).hit(at, d, 1.0)
 	game.island.people.panic(pr["pos"], 3.0)
 	game.police.heat_pts += 0.1
 	return 1
@@ -460,21 +464,26 @@ func _kill_person(pr: Dictionary, d: Vector3, dmg: float) -> void:
 	game.police.ped_hit(xf.origin)
 
 func _blood(p: Vector3, d: Vector3) -> void:
-	game.fx.blood(p, d, 18, 4.5)
-	game.fx.splat(Vector3(p.x, game.island.height_at(p.x, p.z), p.z) + d * 0.6, 0.55)
+	game.fx.blood(p, d, 26, 6.0)
+	# a pool spreading out slowly under where they fell
+	game.fx.splat(Vector3(p.x, game.island.height_at(p.x, p.z), p.z) + d * 0.7, randf_range(1.1, 1.5), 5.0)
 	game.sfx("body_hit_%d" % randi_range(1, 3), -6.0, randf_range(0.95, 1.1))
 
 func _hit_officer(o: Dictionary, dmg: float, d: Vector3, at: Vector3) -> int:
 	o["hp"] = float(o["hp"]) - dmg
 	var n: CharacterBody3D = o["node"]
-	game.fx.blood(at, d, 12, 4.0)
-	game.sfx("body_hit_%d" % randi_range(1, 3), -8.0, randf_range(1.0, 1.15))
+	game.fx.blood(at, d, 16, 5.5)
+	game.sfx("body_hit_%d" % randi_range(1, 3), -6.0, randf_range(0.95, 1.1))
+	(o["av"] as Avatar).wound(at, d)
 	if float(o["hp"]) > 0.0:
-		n.velocity += d * 2.5           # (a flinch: knocked back a step, the body jolting)
-		(o["av"] as Avatar).flinch(d)
-		o["cool"] = maxf(float(o["cool"]), 0.5)
+		# hit: knocked back a step or two, the part that's hit snapping away from the shot, off their aim
+		# for a moment (they stagger, then come back up shooting)
+		n.velocity += d * 4.5 + Vector3(0, 0.6, 0)
+		(o["av"] as Avatar).hit(at, d, clampf(dmg / 30.0, 0.6, 1.4))
+		o["cool"] = maxf(float(o["cool"]), 0.85)
+		o["stagger"] = 0.45
 		return 1
-	_officer_down(o, d * clampf(dmg * 0.06, 1.8, 5.0) + Vector3(0, 0.5, 0))
+	_officer_down(o, d * clampf(dmg * 0.12, 3.5, 8.0) + Vector3(0, 0.8, 0))
 	game.save.add_stat("cops_down", 1)
 	kills["police"] += 1
 	game.police.heat_pts += 0.6
@@ -756,6 +765,16 @@ func _officers_tick(dt: float, you: CharacterBody3D) -> void:
 			av.aim_at(Vector3.INF, true, dt)
 			continue
 		var want := Vector3.ZERO
+		if float(o.get("stagger", 0.0)) > 0.0:
+			# (staggering from a hit: carried back by it, the gun down, no shooting)
+			o["stagger"] = float(o["stagger"]) - dt
+			av.aim_at(Vector3.INF, true, dt * 3.0)
+			n.velocity.x = lerpf(n.velocity.x, 0.0, 1.0 - exp(-dt * 3.0))
+			n.velocity.z = lerpf(n.velocity.z, 0.0, 1.0 - exp(-dt * 3.0))
+			n.velocity.y = 0.0 if n.is_on_floor() else n.velocity.y - 16.0 * dt
+			n.move_and_slide()
+			o["cool"] = maxf(float(o["cool"]), 0.3)
+			continue
 		if d > 11.0:
 			want = to.normalized() * 4.6
 			av.play("sprint", 1.0)

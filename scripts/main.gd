@@ -29,6 +29,7 @@ const OnFoot := preload("res://scripts/game/onfoot.gd")
 const Gunplay := preload("res://scripts/game/gunplay.gd")
 const Heist := preload("res://scripts/game/heist.gd")
 const Property := preload("res://scripts/game/property.gd")
+const Shops := preload("res://scripts/game/shops.gd")
 const Cards := preload("res://scripts/game/cards.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
@@ -158,6 +159,7 @@ var foot: OnFoot = null      # you, out of the car (null while you're driving)
 var gunplay: Gunplay         # guns, your health, the police on foot
 var heist: Heist             # the safes, the heists, dropped cash
 var property: Node3D        # the mansion and the garage you build up (property.gd)
+var shops: Node3D           # Lo-Fi Customs, the Armory, Lo-Fi Threads (shops.gd)
 var on_foot := false
 var stick := Vector2.ZERO    # the on-foot stick: x right, y forward
 var stick_idx := -1          # the finger on it
@@ -323,6 +325,10 @@ func _build_world() -> void:
 	property.name = "Property"
 	add_child(property)
 	property.build(self)
+	shops = Shops.new()
+	shops.name = "Shops"
+	add_child(shops)
+	shops.build(self)
 	crew = Crew.new()
 	crew.name = "Crew"
 	add_child(crew)
@@ -605,7 +611,19 @@ func resume() -> void:
 	ui.close_sheet()
 	ui.show_hud()
 
-func open_garage() -> void:
+## In at a shop's door: that shop's counters (ui.gd's garage screen). You come back out at its door.
+func open_shop(id: String) -> void:
+	if police.wanted():
+		ui.toast("Lose the police first", "eye", Color("ff5c7a"), Color.WHITE)
+		return
+	_shop_in = id
+	_shop_car = String(save.data["car"])
+	open_garage(id)
+
+var _shop_in := ""
+var _shop_car := ""
+
+func open_garage(mode := "own") -> void:
 	if police.wanted():
 		ui.toast("Lose the police first", "eye", Color("ff5c7a"), Color.WHITE)
 		if state == PAUSED and not ui.overlay.visible:
@@ -620,11 +638,21 @@ func open_garage() -> void:
 	police.hold(true)
 	crew.hold(true)
 	sound.mute_loops(true)
-	ui.show_garage(from)
+	ui.show_garage(from, mode)
 
 func close_garage(back_to: int) -> void:
 	ui.hide_garage()
 	sound.mute_loops(false)
+	if _shop_in != "":
+		# out of the shop: a car you've just bought (or picked) is waiting out front, and you're in it
+		if String(save.data["car"]) != _shop_car:
+			var xf: Transform3D = shops.out_spot(_shop_in)
+			car.place(Transform3D(xf.basis.rotated(Vector3.UP, PI * 0.5), xf.origin + xf.basis.z * 3.0 + Vector3(0, 0.6, 0)))
+			if on_foot:
+				_back_in()
+				on_foot = false
+				ui.set_foot(false)
+		_shop_in = ""
 	if back_to == DRIVE or back_to == PAUSED:
 		state = DRIVE
 		car.freeze = false
@@ -899,6 +927,7 @@ func _process(dt: float) -> void:
 			police.tick(dt)
 			heist.tick(dt)
 			property.tick(dt)
+			shops.tick(dt)
 			crew.tick(dt)
 			_crew_tests()
 		PAUSED, GARAGE:
@@ -1062,6 +1091,9 @@ func _crew_tests() -> void:
 		if on_foot and has_meta("bt") and not has_meta("bt2") and foot.down_t <= 0.0:
 			set_meta("bt2", true)
 			print("BAIL up at t=%.1f limp=%s anim=%s" % [time, foot.avatar.limp != null, foot.avatar.current()])
+	if args.has("shoptest") and time > 4.0 and not has_meta("sh_done") and state == DRIVE:
+		set_meta("sh_done", true)
+		open_shop(String(args["shoptest"]))
 	if args.has("lvltest") and time > 4.0 and not has_meta("lv_done"):
 		set_meta("lv_done", true)
 		ui.level_up(int(args["lvltest"]), Progress.cash_for(int(args["lvltest"])), Progress.unlocks_at(int(args["lvltest"])))
@@ -4152,7 +4184,7 @@ func _pressed(k: String) -> bool:
 	return on and not was
 
 func _touch_held() -> void:
-	for k in ["left", "right", "gas", "brake", "hand", "nos", "rewind", "cruise", "jump", "sprint", "door", "fire", "swap", "aim", "reload"]:
+	for k in ["left", "right", "gas", "brake", "hand", "nos", "rewind", "cruise", "jump", "sprint", "door", "fire", "swap", "aim", "reload", "crouch"]:
 		var on := false
 		for t in touches.values():
 			if t == k:

@@ -56,6 +56,12 @@ func _process(dt: float) -> bool:
 		av.play(String(args["clip"]))
 	else:
 		av.locomote(Vector2(float(mv[0]), float(mv[1])))
+	if args.has("wounds") and f == 30:
+		# (shot from behind the camera's first view: the chest, the arm, the head, a leg)
+		for pt in [Vector3(0.05, 1.3, 0.2), Vector3(-0.2, 1.4, 0.15), Vector3(0.0, 1.65, 0.1), Vector3(0.1, 0.7, 0.1), Vector3(-0.08, 1.15, 0.2)]:
+			av.wound(pt, Vector3(0, 0, -1))
+	if args.has("hitnow") and f == 38:
+		av.hit(Vector3(0, 1.65, 0.1), Vector3(0, 0, -1), 1.4)
 	var start := 40
 	var k := (f - start) / 6
 	if f >= start and (f - start) % 6 == 0 and k < shots.size():

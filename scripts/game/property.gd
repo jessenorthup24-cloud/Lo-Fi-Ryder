@@ -149,6 +149,10 @@ func hq_spot() -> Transform3D:
 	var p := c + f * (Vector2(pl["hs"]).y + float(pl["back"]) * 0.45)
 	return Transform3D(Basis(Vector3.UP, atan2(-f.x, -f.y)), Vector3(p.x, game.island.height_at(p.x, p.y) + 0.6, p.y))
 
+## The garage's bays are up: cars you buy are kept there.
+func garage_open() -> bool:
+	return props.has("garage") and int(props["garage"]["node"].get("built_count")) >= 9
+
 func invested(id: String) -> int:
 	return int(props[id]["node"].get("invested")) if props.has(id) else 0
 
@@ -189,11 +193,18 @@ func _show(id: String) -> void:
 	var built: int = int(n.get("built_count"))
 	var inv: int = int(n.get("invested"))
 	_title.text = String(d["name"]).to_upper()
-	if built >= tg.size():
-		_sub.text = "Finished" + ("  ·  your safehouse" if id == "mansion" else "  ·  your cars live here")
-		_bar.value = 1.0
-		_btn.visible = false
-		return
+	if built >= tg.size() or (id == "garage" and garage_open()):
+		if built >= tg.size():
+			_sub.text = "Finished" + ("  ·  your safehouse" if id == "mansion" else "  ·  your cars live here")
+			_bar.value = 1.0
+		# (the garage, once its bays are up: swap into any car you own)
+		_btn.visible = id == "garage" and not game.on_foot or (id == "garage" and built >= tg.size())
+		if id == "garage":
+			(_btn.get_meta("label") as Label).text = "YOUR CARS"
+			_btn.set_meta("id", "open")
+			_btn.modulate.a = 1.0
+		if built >= tg.size():
+			return
 	var next: int = int(tg[built]) if built < tg.size() else int(tg.back())
 	var cost := maxi(0, next - inv)
 	_sub.text = "Stage %d of %d  ·  next: %s" % [built, tg.size() - 1, String(d["stages"][mini(built, tg.size() - 1)])]
@@ -209,6 +220,9 @@ func _show(id: String) -> void:
 	_btn.modulate.a = 1.0 if cash >= cost else 0.55
 
 func _pay() -> void:
+	if String(_btn.get_meta("id", "")) == "open":
+		game.open_garage("own")
+		return
 	var id := String(_btn.get_meta("id", ""))
 	var cost := int(_btn.get_meta("cost", 0))
 	if id == "" or cost <= 0:

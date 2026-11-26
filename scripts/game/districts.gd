@@ -26,6 +26,13 @@ const PLOTS := {
 	# (not one to build: the police station's yard, where you're let go after you're busted)
 	"police_hq": {"c": Vector2(286, 83), "yaw": 3.22, "hs": Vector2(16.0, 12.0), "back": 18.0, "surf": "concrete"},
 }
+## The shops in town, each on a whole city block fronting Main Street (shops.gd builds them): the block's
+## paved over, the building's front on the pavement. c: where the model's origin goes; yaw: its front (+Z) out.
+const SHOP_PLOTS := {
+	"customs": {"block": Vector2i(4, 1), "c": Vector2(10, 36.0), "yaw": 0.0},
+	"armory": {"block": Vector2i(1, 2), "c": Vector2(-170, 82.0), "yaw": PI},
+	"threads": {"block": Vector2i(3, 2), "c": Vector2(-50, 80.5), "yaw": PI},
+}
 const CITY_X := [-260.0, -200.0, -140.0, -80.0, -20.0, 40.0, 100.0]
 const CITY_Z := [-60.0, 0.0, 60.0, 120.0, 180.0]
 const AVENUES := [["Harbor Avenue", -260.0], ["Oak Avenue", -200.0], ["Elm Avenue", -140.0], ["Market Street", -80.0],
@@ -70,6 +77,10 @@ static func plan(I) -> void:
 		var f := Vector2(sin(float(pl["yaw"])), cos(float(pl["yaw"])))
 		I.add_lot(c, hs + Vector2(1, 1), I.S_CONCRETE if pl.get("surf", "") == "concrete" else I.S_GRASS, float(pl["yaw"]))
 		I.add_road("Station Drive" if id == "police_hq" else String(id).capitalize() + " Drive", [c + f * (hs.y - 3.0), c + f * (hs.y + float(pl["back"]) * 0.5), c + f * (hs.y + float(pl["back"]) + 7.0)], "yard")
+	for id in SHOP_PLOTS:
+		var b: Vector2i = SHOP_PLOTS[id]["block"]
+		var rect := _block_rect(I, b.x, b.y)
+		I.add_lot(rect.get_center(), rect.size * 0.5, I.S_CONCRETE, 0.0)
 	I.flats.append([Vector2(300, 90), Vector2(95, 165), 55.0])       # farms
 	I.flats.append([Vector2(-60, 310), Vector2(230, 60), 40.0])      # beach front
 	I.flats.append([Vector2(-55, -132), Vector2(26, 22), 25.0])      # gas station
@@ -469,6 +480,12 @@ static func _town(I, rr: RandomNumberGenerator) -> void:
 		for zi in CITY_Z.size() - 1:
 			var kind: String = BLOCKS.get(Vector2i(xi, zi), "mixed")
 			var rect := _block_rect(I, xi, zi)
+			var is_shop := false
+			for sid in SHOP_PLOTS:
+				if SHOP_PLOTS[sid]["block"] == Vector2i(xi, zi):
+					is_shop = true
+			if is_shop:
+				continue             # (a shop's block: shops.gd puts it up)
 			match kind:
 				"square":
 					_square(I, rr, rect)

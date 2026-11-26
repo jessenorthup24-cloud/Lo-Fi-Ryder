@@ -58,19 +58,18 @@ func setup(mat: ShaderMaterial) -> void:
 	sparks = Pool.new()
 	sparks.setup(sb.commit(), 200, mat, false, false)
 	add_child(sparks)
-	# a blot: an uneven round splash, flat (it lies on the ground like a skid mark)
+	# a blot: a smooth, slightly lumpy pool (soft bulges, no points: blood runs, it doesn't spike), flat
 	var bm := MB.new()
-	var rr := RandomNumberGenerator.new()
-	rr.seed = 7
+	var segs := 28
 	var ring := PackedVector3Array()
-	for i in 14:
-		var a := TAU * i / 14.0
-		var r := rr.randf_range(0.65, 1.0) if i % 3 != 0 else rr.randf_range(1.0, 1.35)
+	for i in segs:
+		var a := TAU * i / float(segs)
+		var r := 1.0 + 0.09 * sin(a * 3.0 + 0.7) + 0.06 * sin(a * 5.0 + 2.1) + 0.04 * sin(a * 7.0)
 		ring.append(Vector3(cos(a) * r, 0, sin(a) * r) * 0.5)
-	for i in 14:
+	for i in segs:
 		# (both ways round: it shows whichever way it's wound)
-		bm.tri(Vector3.ZERO, ring[(i + 1) % 14], ring[i], Vector3.UP, Vector3.UP, Vector3.UP, MB.rgb("ffffff"))
-		bm.tri(Vector3.ZERO, ring[i], ring[(i + 1) % 14], Vector3.UP, Vector3.UP, Vector3.UP, MB.rgb("ffffff"))
+		bm.tri(Vector3.ZERO, ring[(i + 1) % segs], ring[i], Vector3.UP, Vector3.UP, Vector3.UP, MB.rgb("ffffff"))
+		bm.tri(Vector3.ZERO, ring[i], ring[(i + 1) % segs], Vector3.UP, Vector3.UP, Vector3.UP, MB.rgb("ffffff"))
 	splats = Pool.new()
 	splats.setup(bm.commit(), 160, marks, false, false)
 	add_child(splats)
@@ -148,29 +147,34 @@ func debris(p: Vector3, n: Vector3, cols: Array, count := 6, speed := 5.0, size 
 func glass(p: Vector3, n: Vector3, count := 14) -> void:
 	debris(p, n, ["cfeefa", "a9dcef", "f4fbff"], count, 4.0, 0.32)
 
-## Blood thrown out from p along dir: drops that fly, fall and leave a blot where each lands.
+## Blood from a wound at p, the bullet going on along dir: a tight, fast spray out the far side (fine
+## droplets in a cone), a little back toward the shooter, and a few heavier drops. Some leave a speck where
+## they land.
 func blood(p: Vector3, dir: Vector3, count := 14, speed := 5.0) -> void:
+	var d := dir.normalized() if dir.length() > 0.01 else Vector3.FORWARD
 	for i in count:
 		var s := bits.alloc()
 		if s < 0:
 			return
-		bits.multimesh.set_instance_color(s, BLOOD.lerp(Color(0.55, 0.02, 0.04), randf() * 0.6))
-		var v := dir * speed * randf_range(0.3, 1.1) + Vector3(randf_range(-1.6, 1.6), randf_range(0.8, 3.5), randf_range(-1.6, 1.6))
-		live_drops.append({"s": s, "p": p + Vector3(randf_range(-0.2, 0.2), randf_range(-0.1, 0.3), randf_range(-0.2, 0.2)), "v": v,
-			"t": 0.0, "sz": randf_range(0.5, 1.1)})
+		bits.multimesh.set_instance_color(s, BLOOD.lerp(Color(0.45, 0.01, 0.03), randf() * 0.7))
+		var back := i % 5 == 0
+		var cone := Vector3(randf_range(-1, 1), randf_range(-0.6, 1), randf_range(-1, 1)) * (0.35 if not back else 0.6)
+		var v := ((-d if back else d) + cone).normalized() * speed * randf_range(0.6, 1.6) * (0.5 if back else 1.0) + Vector3(0, randf_range(0.2, 1.2), 0)
+		live_drops.append({"s": s, "p": p + Vector3(randf_range(-0.04, 0.04), randf_range(-0.04, 0.04), randf_range(-0.04, 0.04)), "v": v,
+			"t": 0.0, "sz": randf_range(0.22, 0.55) if i % 4 != 0 else randf_range(0.55, 0.8)})
 
 ## A blot of blood on the ground at p (size: across, metres). It stays half a minute, then shrinks away.
-func splat(p: Vector3, size := 0.5) -> void:
+func splat(p: Vector3, size := 0.5, grow := 0.25) -> void:
 	var s := splats.alloc()
 	if s < 0:
 		var old = live_splats.pop_front()
 		splats.release(old["s"])
 		s = splats.alloc()
-	splats.multimesh.set_instance_color(s, BLOOD.lerp(Color(0.56, 0.02, 0.04), randf() * 0.5))
+	splats.multimesh.set_instance_color(s, Color(0.46, 0.02, 0.035).lerp(Color(0.34, 0.01, 0.02), randf() * 0.6))
 	var gy: float = ground.call(p.x, p.z) if ground.is_valid() else p.y
 	var b := Basis(Vector3.UP, randf() * TAU).scaled(Vector3(size * randf_range(0.8, 1.25), 1.0, size * randf_range(0.8, 1.25)))
 	var at := Vector3(p.x, gy + 0.05, p.z)
-	live_splats.append({"s": s, "b": b, "p": at, "t": 0.0})
+	live_splats.append({"s": s, "b": b, "p": at, "t": 0.0, "g": grow})
 	splats.put(s, Transform3D(b.scaled(Vector3(0.3, 1, 0.3)), at))
 
 ## Fire from a wrecked engine: a lick of flame rising from p.
@@ -318,8 +322,8 @@ func _crash_tick(dt: float) -> void:
 		if p.y <= gy + 0.05 or q["t"] > 2.5:
 			bits.release(q["s"])
 			done.append(q)
-			if p.y <= gy + 0.3:
-				splat(p, 0.18 + float(q["sz"]) * 0.22)
+			if p.y <= gy + 0.3 and (float(q["sz"]) > 0.5 or randf() < 0.3):
+				splat(p, 0.05 + float(q["sz"]) * 0.14, 0.15)       # (a speck, not a puddle)
 			continue
 		var v: Vector3 = q["v"]
 		var b := Basis.looking_at(v.normalized() if v.length() > 0.05 else Vector3.DOWN, Vector3.UP if absf(v.normalized().y) < 0.98 else Vector3.RIGHT)
@@ -334,9 +338,10 @@ func _crash_tick(dt: float) -> void:
 			splats.release(q["s"])
 			done.append(q)
 			continue
-		if t < 0.25 or t > 30.0:
-			# (it spreads out as it lands, and shrinks away at the end)
-			var k := smoothstep(0.0, 0.25, t) * (1.0 - smoothstep(30.0, 34.0, t))
+		var g: float = q.get("g", 0.25)
+		if t < g or t > 30.0:
+			# (it spreads out as it lands, a pool under a body slowly; it shrinks away at the end)
+			var k := smoothstep(0.0, g, t) * (1.0 - smoothstep(30.0, 34.0, t))
 			splats.put(q["s"], Transform3D((q["b"] as Basis).scaled(Vector3(0.3 + k * 0.7, 1, 0.3 + k * 0.7) * maxf(k, 0.01) if t > 30.0 else Vector3(0.3 + k * 0.7, 1, 0.3 + k * 0.7)), q["p"]))
 	for q in done:
 		live_splats.erase(q)

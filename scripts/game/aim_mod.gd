@@ -20,6 +20,9 @@ var fore_pt := Vector3.INF     # the fore-end grip, in the gun's own model space
 var hands_up := 0.0            # 0..1: both hands up by the head (busted)
 var flinch := 0.0              # 0..1, a hit knocking the upper body back
 var flinch_axis := Vector3.RIGHT
+var hit_bone := -1             # a part knocked by a bullet: turned away from the shot, easing back (hit_k)
+var hit_axis := Vector3.RIGHT
+var hit_k := 0.0
 
 var _b := {}                   # bone name -> index
 var _up_len := 0.0             # upper arm, forearm (to the middle of the fist)
@@ -61,6 +64,9 @@ func _process_modification() -> void:
 		_aim(sk, t)
 	if hands_up <= 0.001 and support > 0.001 and fore_pt != Vector3.INF:
 		_support(sk)
+	if hit_k > 0.001 and hit_bone >= 0:
+		var hax := (sk.global_transform.basis.inverse() * hit_axis).normalized()
+		_turn_global(sk, hit_bone, Quaternion(hax, 0.75 * hit_k), 1.0)
 	if flinch > 0.001:
 		var ax := (sk.global_transform.basis.inverse() * flinch_axis).normalized()
 		for n in [["Torso", 0.7], ["Head", 0.5]]:

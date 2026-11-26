@@ -657,6 +657,12 @@ func _build_hud() -> void:
 	heist_btn.visible = false
 	_tap(heist_btn, func(): game.heist.start())
 	hud.add_child(heist_btn)
+	shop_btn = K.button("ENTER", Color("5cc8ff"), Color("2f86b8"), 28, 380, 80, "home")
+	shop_btn.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	shop_btn.position = Vector2(-190, -230)
+	shop_btn.visible = false
+	_tap(shop_btn, func(): game.shops.enter())
+	hud.add_child(shop_btn)
 	heist_box = PanelContainer.new()
 	var hsb := StyleBoxFlat.new()
 	hsb.bg_color = Color(0.06, 0.055, 0.09, 0.72)
@@ -1146,6 +1152,19 @@ func _draw_radar() -> void:
 	radar.draw_string(f, Vector2(75 - tw * 0.5, 168), "SAFE · " + word, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color("8ff0a4"))
 
 ## By a safe: the START HEIST button ("" hides it).
+var shop_btn: Button          # at a shop's door: ENTER <the shop>
+func shop_prompt(text: String) -> void:
+	var on := text != "" and not overlay.visible
+	if shop_btn.visible != on:
+		shop_btn.visible = on
+	if on and String(shop_btn.get_meta("t", "")) != text:
+		shop_btn.set_meta("t", text)
+		var l = shop_btn.get_meta("label") if shop_btn.has_meta("label") else null
+		if l is Label:
+			(l as Label).text = text
+		else:
+			shop_btn.text = text
+
 func heist_prompt(text: String) -> void:
 	heist_btn.visible = text != "" and not overlay.visible
 
@@ -3508,6 +3527,7 @@ func _build_garage() -> void:
 	var gl := K.label("GARAGE", 38, K.INK, 400, HORIZONTAL_ALIGNMENT_LEFT)
 	gl.add_theme_font_override("font", K.font_spaced(400, 10))
 	tb.add_child(gl)
+	g_title = gl
 	g_coins = K.pill("coin", "0")
 	g_coins.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	g_coins.position = Vector2(-250, 22)
@@ -3525,14 +3545,24 @@ func _build_garage() -> void:
 	g_panel.add_theme_constant_override("separation", 12)
 	card.add_child(g_panel)
 
-func show_garage(from: int) -> void:
+## Which counters a shop has: Lo-Fi Customs (cars), the Armory (guns), Lo-Fi Threads (who you are); "own":
+## your own cars only (the title screen, your garage), to pick one to drive.
+const SHOP_TABS := {"customs": ["cars", "paint", "tune", "up"], "armory": ["guns"], "threads": ["driver"], "own": ["cars"]}
+const SHOP_NAMES := {"customs": "LO-FI CUSTOMS", "armory": "THE ARMORY", "threads": "LO-FI THREADS", "own": "YOUR CARS"}
+var g_mode := "own"
+var g_char_try := ""          # a character on the turntable you haven't bought (Lo-Fi Threads)
+var g_title: Label
+
+func show_garage(from: int, mode := "own") -> void:
 	g_from = from
+	g_mode = mode
+	g_char_try = ""
 	title.visible = false
 	hud.visible = false
 	close_sheet()
 	garage.visible = true
 	g_index = CARS.index_of(String(game.save.data["car"]))
-	g_tab = "cars"
+	g_tab = (SHOP_TABS.get(mode, ["cars"]) as Array)[0]
 	g_paint = -1
 	_garage_refresh()
 
@@ -3547,7 +3577,12 @@ func _garage_refresh() -> void:
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 8)
 	g_panel.add_child(tabs)
+	var allowed: Array = SHOP_TABS.get(g_mode, ["cars"])
+	if g_title:
+		g_title.text = String(SHOP_NAMES.get(g_mode, "GARAGE"))
 	for tdef in [["cars", "Cars", "car"], ["paint", "Paint", "star"], ["tune", "Tune", "tire"], ["up", "Upgrades", "gear"], ["driver", "Driver", "group"], ["guns", "Guns", "star"]]:
+		if not allowed.has(tdef[0]):
+			continue
 		var on: bool = g_tab == tdef[0]
 		var b := K.button(tdef[1], K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 18, 0, 62, tdef[2])
 		if not on:
@@ -3689,14 +3724,51 @@ func _driver_tab() -> void:
 	grid.add_theme_constant_override("h_separation", 8)
 	grid.add_theme_constant_override("v_separation", 8)
 	sc.add_child(grid)
-	for c in Avatar.CHARS:
+	# at Lo-Fi Threads: the first few free, the rest bought (and opened up by level). Tap one to try it on,
+	# tap again to buy (or wear) it
+	var lv: int = Progress.level(game.save)
+	var have: Array = s.get("chars_owned", [])
+	for i in Avatar.CHARS.size():
+		var c: Array = Avatar.CHARS[i]
 		var id: String = c[0]
 		var on := id == now
-		var b := K.button(String(c[1]), K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 17, 0, 50)
+		var trying := id == g_char_try and not on
+		var owned_c: bool = Progress.char_price(i) == 0 or have.has(id) or on
+		var need: int = Progress.char_level(i)
+		var txt := String(c[1])
+		var icon := ""
+		if not owned_c:
+			if lv < need:
+				txt = "Lv %d" % need
+				icon = "lock"
+			else:
+				txt = "%s  %s" % [String(c[1]), K.money(Progress.char_price(i))] if trying else K.money(Progress.char_price(i))
+		var bg: Color = K.CORAL if on else (K.SKY if trying else K.CREAM)
+		var b := K.button(txt, bg, K.CORAL_DK if on else (K.SKY_DK if trying else K.LINE_DK), 15 if trying else 17, 0, 50, icon)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var ii := i
 		_tap(b, func():
-			game.save.data["avatar"] = id
-			game.save.save()
+			if owned_c:
+				g_char_try = ""
+				game.save.data["avatar"] = id
+				game.save.save()
+			elif lv < need:
+				toast("%s opens up at level %d" % [String(Avatar.CHARS[ii][1]), need], "lock", K.PAPER, K.INK, 2.0)
+				g_char_try = id
+			elif g_char_try != id:
+				g_char_try = id           # (on the turntable: have a look first)
+			elif int(game.save.data["coins"]) >= Progress.char_price(ii):
+				game.save.data["coins"] = int(game.save.data["coins"]) - Progress.char_price(ii)
+				var ho: Array = game.save.data.get("chars_owned", [])
+				ho.append(id)
+				game.save.data["chars_owned"] = ho
+				game.save.data["avatar"] = id
+				g_char_try = ""
+				game.save.save()
+				game.sfx("purchase")
+				game.buzz(40, 0.7)
+			else:
+				toast("Not enough cash yet", "coin", Color("ff5c7a"), Color.WHITE)
 			_garage_refresh())
 		grid.add_child(b)
 	var acc_now := String(s.get("acc", ""))
@@ -3792,7 +3864,7 @@ func _show_driver(with_gun := false) -> void:
 	g_neon = null
 	var av := Avatar.new()
 	g_car.add_child(av)
-	av.setup(String(game.save.data.get("avatar", "male-a")), String(game.save.data.get("acc", "")), g_mat)
+	av.setup(g_char_try if g_char_try != "" and not with_gun else String(game.save.data.get("avatar", "male-a")), String(game.save.data.get("acc", "")), g_mat)
 	av.scale = Vector3.ONE * 1.55         # (bigger than life on the turntable, facing you)
 	av.play("idle")
 	if with_gun and av.skel:
@@ -3874,12 +3946,19 @@ func _cars_tab() -> void:
 	var owned: bool = game.save.owns(d["id"])
 	var selected: bool = String(s["car"]) == d["id"]
 	var price: int = d["price"]
+	var need: int = Progress.car_level(String(d["id"]))
 	var act: Button
 	if selected:
 		act = K.button("Driving this one", Color("c9c3bb"), Color("aba59d"), 30, 0, 84, "check")
 		act.disabled = true
 	elif owned:
 		act = K.button("Drive this one", K.TEAL, K.TEAL_DK, 32, 0, 84, "play")
+	elif g_mode != "customs":
+		act = K.button("Sold at Lo-Fi Customs", Color("c9c3bb"), Color("aba59d"), 26, 0, 84, "lock")
+		act.disabled = true
+	elif Progress.level(game.save) < need:
+		act = K.button("Level %d  ·  %s" % [need, K.money(price)], Color("c9c3bb"), Color("aba59d"), 28, 0, 84, "lock")
+		act.disabled = true
 	elif int(s["coins"]) >= price:
 		act = K.button("Buy · " + K.money(price), K.CORAL, K.CORAL_DK, 32, 0, 84, "coin")
 	else:
@@ -3890,6 +3969,12 @@ func _cars_tab() -> void:
 
 func _garage_step(dlt: int) -> void:
 	g_index = posmod(g_index + dlt, CARS.LIST.size())
+	if g_mode == "own":
+		# (your own cars only)
+		var tries := 0
+		while not game.save.owns(String(CARS.LIST[g_index]["id"])) and tries < CARS.LIST.size():
+			g_index = posmod(g_index + dlt, CARS.LIST.size())
+			tries += 1
 	g_paint = -1
 	_garage_refresh()
 	g_car.scale = Vector3(0.75, 0.75, 0.75)
@@ -3903,7 +3988,7 @@ func _garage_action() -> void:
 		game.save.save()
 		game.car_changed()
 		game.sfx("select")
-	elif int(s["coins"]) >= int(d["price"]):
+	elif g_mode == "customs" and int(s["coins"]) >= int(d["price"]) and Progress.level(game.save) >= Progress.car_level(String(d["id"])):
 		s["coins"] = int(s["coins"]) - int(d["price"])
 		s["owned"].append(d["id"])
 		s["car"] = d["id"]
@@ -3912,6 +3997,8 @@ func _garage_action() -> void:
 		game.sfx("purchase")
 		game.buzz(60, 0.9)
 		game.ach_check()
+		toast("Yours! Parked in your garage too" if game.property.garage_open() else "Yours! Call Dez any time to have it brought to you",
+			"car", Color("3fd26b"), Color.WHITE, 2.6)
 	_garage_refresh()
 
 ## Tuning for the car on show: camber, ride height, and neon underglow. They change how it handles.

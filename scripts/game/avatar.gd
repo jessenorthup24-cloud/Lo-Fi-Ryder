@@ -557,6 +557,90 @@ func carry_on_back(n: Node3D, back: float, up: float) -> BoneAttachment3D:
 	ba.add_child(n)
 	return ba
 
+## Where a bullet hit (world point p, going along d): the bone it struck, and a dark wound on the body there
+## (on that bone, so it moves with them; on the side the shot came from). A handful at most.
+## [bone, how far the skin is from it in front, behind] (metres: the spine runs near the back)
+const WOUND_BONES := [["Head", 0.12, 0.11], ["Neck", 0.08, 0.07], ["Spine2", 0.2, 0.11], ["Spine1", 0.19, 0.1], ["Spine", 0.17, 0.1],
+	["Hips", 0.16, 0.12], ["LeftArm", 0.07, 0.07], ["RightArm", 0.07, 0.07], ["LeftForeArm", 0.055, 0.055],
+	["RightForeArm", 0.055, 0.055], ["LeftUpLeg", 0.1, 0.1], ["RightUpLeg", 0.1, 0.1], ["LeftLeg", 0.075, 0.075], ["RightLeg", 0.075, 0.075]]
+static var _wound_mesh: Mesh
+var _wounds: Array = []
+func _hit_bone(p: Vector3, d: Vector3) -> Array:
+	# nearest bone segment to the bullet's line near p: [bone index, radius, point on the bone (world)]
+	var best := [-1, 0.1, p]
+	var bd := INF
+	var sg := skel.global_transform
+	for e in WOUND_BONES:
+		var bi := skel.find_bone(String(e[0]))
+		if bi < 0:
+			continue
+		var a: Vector3 = sg * skel.get_bone_global_pose(bi).origin
+		var ch := -1
+		for c in skel.get_bone_children(bi):
+			ch = c
+			break
+		var b: Vector3 = sg * skel.get_bone_global_pose(ch).origin if ch >= 0 else a + Vector3(0, 0.15, 0)
+		var q := Geometry3D.get_closest_point_to_segment(p, a, b)
+		var dd := (p - q)
+		dd -= d.normalized() * dd.dot(d.normalized())          # (distance off the bullet's line)
+		var m := dd.length()
+		if m < bd:
+			bd = m
+			var front: bool = (-d).dot(global_transform.basis.z) > 0.0      # (shot from in front of them)
+			best = [bi, float(e[1]) if front else float(e[2]), q]
+	return best
+
+func wound(p: Vector3, d: Vector3) -> void:
+	if skel == null or limp != null:
+		return
+	var hb := _hit_bone(p, d)
+	if int(hb[0]) < 0:
+		return
+	if _wound_mesh == null:
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.028
+		cm.bottom_radius = 0.028
+		cm.height = 0.01
+		cm.radial_segments = 10
+		cm.rings = 1
+		var mt := StandardMaterial3D.new()
+		mt.albedo_color = Color(0.32, 0.01, 0.02)
+		mt.roughness = 0.4
+		cm.material = mt
+		_wound_mesh = cm
+	var ba := BoneAttachment3D.new()
+	ba.bone_name = skel.get_bone_name(int(hb[0]))
+	skel.add_child(ba)
+	var mi := MeshInstance3D.new()
+	mi.mesh = _wound_mesh
+	ba.add_child(mi)
+	# on the surface, on the shooter's side: out from the bone toward where the shot came from
+	var out := -d.normalized()
+	var at: Vector3 = (hb[2] as Vector3) + out * float(hb[1])
+	var nrm := out
+	var up := Vector3.UP if absf(nrm.y) < 0.9 else Vector3.RIGHT
+	var wb := Basis.looking_at(nrm, up) * Basis(Vector3.RIGHT, PI * 0.5)       # (the disc's flat face toward the shooter)
+	# (in the bone's own frame: the attachment hasn't caught up with the bone yet this frame)
+	var bone_xf: Transform3D = skel.global_transform * skel.get_bone_global_pose(int(hb[0]))
+	mi.transform = bone_xf.affine_inverse() * Transform3D(wb.scaled(Vector3(randf_range(0.8, 1.2), 1.0, randf_range(0.9, 1.5))), at)
+	_wounds.append(ba)
+	if _wounds.size() > 8:
+		var old: Node = _wounds.pop_front()
+		if is_instance_valid(old):
+			old.queue_free()
+
+## Hit hard (p, along d): the part that's hit snaps away from the shot (the head back, the shoulder round,
+## the hip), the body jolts with it.
+func hit(p: Vector3, d: Vector3, k := 1.0) -> void:
+	if aim == null or skel == null or limp != null:
+		return
+	var hb := _hit_bone(p, d)
+	aim.hit_bone = int(hb[0])
+	aim.hit_axis = Vector3.UP.cross(Vector3(d.x, 0, d.z).normalized()).normalized() if Vector2(d.x, d.z).length() > 0.01 else Vector3.RIGHT
+	aim.hit_k = clampf(k, 0.3, 1.6)
+	flinch(d)
+	aim.flinch = minf(1.0, 0.7 + 0.3 * k)
+
 ## Knocked by a hit from direction d (world): the upper body jolts back.
 func flinch(d: Vector3) -> void:
 	if aim == null or skel == null:
@@ -631,6 +715,7 @@ func _process(dt: float) -> void:
 		aim.facing = global_transform.basis.z
 	if aim:
 		aim.flinch = move_toward(aim.flinch, 0.0, dt * 3.5)
+		aim.hit_k = move_toward(aim.hit_k, 0.0, dt * 4.5)
 	if gun == null or limp != null:
 		if aim:
 			aim.support = 0.0
