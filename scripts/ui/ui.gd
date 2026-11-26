@@ -2177,6 +2177,7 @@ func _minimap_tick(p: Vector3, yaw: float) -> void:
 # ------------------------------------------------------------------ sheets
 
 func _sheet(title_text: String, icon: String, col: Color, width := 640.0) -> VBoxContainer:
+	_map_ranges(false)
 	for c in overlay.get_children():
 		c.queue_free()
 	overlay.visible = true
@@ -2214,7 +2215,13 @@ func _sheet(title_text: String, icon: String, col: Color, width := 640.0) -> VBo
 	t.parallel().tween_property(card, "modulate:a", 1.0, 0.18)
 	return vb
 
+## The 3D map sees the whole town from up high: the buildings stay drawn however far off while it's open.
+func _map_ranges(open: bool) -> void:
+	for mi in island.chunk_mi.values():
+		(mi as GeometryInstance3D).visibility_range_end = 0.0 if open else 330.0
+
 func close_sheet() -> void:
+	_map_ranges(false)
 	overlay.visible = false
 	hud.modulate.a = 1.0
 	for c in overlay.get_children():
@@ -2525,33 +2532,137 @@ func open_map() -> void:
 	vp.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # (everything in it moves every frame)
 	vp.size = Vector2i(int(sz), int(sz))
 	svc.add_child(vp)
+	# the island itself, in 3D, seen from up high at a slant: drag to move about, pinch (or the wheel) to zoom,
+	# tap a spot to put a waypoint there (the GPS takes you to it)
 	var mc := Camera3D.new()
 	mc.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # moved every frame by hand
-	mc.projection = Camera3D.PROJECTION_ORTHOGONAL
-	mc.size = MAP_SPAN
-	mc.near = 1.0
-	mc.far = 900.0
-	mc.cull_mask = island.MAP_LAYER
-	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color("6fc3e8")
-	mc.environment = env
+	mc.fov = 48.0
+	mc.near = 2.0
+	mc.far = 2400.0
+	_map_ranges(true)
+	var wenv: Environment = (game.atmos.env as Environment).duplicate()
+	wenv.fog_enabled = false          # (from up here the haze would wash the whole town out)
+	mc.environment = wenv
+	mc.cull_mask = 0xFFFFF & ~island.MAP_LAYER
 	vp.add_child(mc)
-	mc.global_transform = Transform3D(Basis(Vector3.RIGHT, -PI * 0.5), Vector3(0, 700, 0))
-	# you are here
+	var yp: Vector3 = game.you().global_position
+	var mst := {"focus": Vector3(yp.x, 0, yp.z), "zoom": 0.3, "touches": {}, "moved": 0.0, "pinch": 0.0}
+	var place_cam := func():
+		var z: float = mst["zoom"]
+		var h := lerpf(120.0, 900.0, z)
+		var f: Vector3 = mst["focus"]
+		mc.global_transform = Transform3D(Basis(), f + Vector3(0, h, h * 0.62))
+		mc.look_at(f, Vector3.UP)
+	place_cam.call()
+	var ground_at := func(sp: Vector2) -> Vector3:
+		var o := mc.project_ray_origin(sp)
+		var dd := mc.project_ray_normal(sp)
+		var q := PhysicsRayQueryParameters3D.create(o, o + dd * 3000.0, 1)
+		var hit: Dictionary = game.get_world_3d().direct_space_state.intersect_ray(q)
+		if not hit.is_empty():
+			return hit["position"]
+		var t := -o.y / minf(dd.y, -0.01)       # (off the land: where it meets sea level)
+		return o + dd * t
+	# you are here, the waypoint, and a heist's target: drawn over the picture where they are
 	var me := Control.new()
 	me.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	me.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var cp: Vector3 = game.car.global_position
-	var cy: float = game.car.global_rotation.y
+	var cy: float = game.you().global_rotation.y if not game.on_foot else float(game.foot.facing)
 	me.draw.connect(func():
-		var c := Vector2((cp.x / MAP_SPAN + 0.5) * sz, (cp.z / MAP_SPAN + 0.5) * sz)
-		var f := Vector2(-sin(cy), -cos(cy))
-		var r := Vector2(-f.y, f.x)
-		var pts := PackedVector2Array([c + f * 14.0, c - f * 9.0 + r * 9.0, c - f * 4.0, c - f * 9.0 - r * 9.0])
-		me.draw_colored_polygon(pts, K.PAPER)
-		me.draw_polyline(pts + PackedVector2Array([pts[0]]), K.INK, 2.5))
+		var sc := holder.size / Vector2(vp.size)
+		var cp3: Vector3 = game.you().global_position
+		if not mc.is_position_behind(cp3):
+			var c := mc.unproject_position(cp3) * sc
+			var f := Vector2(-sin(cy), -cos(cy))
+			var r := Vector2(-f.y, f.x)
+			var pts := PackedVector2Array([c + f * 16.0, c - f * 10.0 + r * 10.0, c - f * 4.0, c - f * 10.0 - r * 10.0])
+			me.draw_colored_polygon(pts, K.PAPER)
+			me.draw_polyline(pts + PackedVector2Array([pts[0]]), K.INK, 3.0)
+		var marks: Array = []
+		if not game.route_pick.is_empty():
+			marks.append([game.route_pick["pos"], Color("4aa8ff")])
+		var ht: Dictionary = game.heist.route()
+		if not ht.is_empty():
+			marks.append([ht["pos"], Color("ffb347")])
+		for m in marks:
+			var wp3: Vector3 = m[0]
+			if mc.is_position_behind(wp3):
+				continue
+			var w := mc.unproject_position(wp3) * sc
+			me.draw_line(w, w - Vector2(0, 30), K.INK, 4.0)
+			me.draw_circle(w - Vector2(0, 34), 11.0, K.INK)
+			me.draw_circle(w - Vector2(0, 34), 8.0, m[1])
+			me.draw_circle(w, 4.0, K.INK))
+	holder.mouse_filter = Control.MOUSE_FILTER_STOP
+	holder.gui_input.connect(func(e: InputEvent):
+		var touches: Dictionary = mst["touches"]
+		var to_vp := Vector2(vp.size) / holder.size
+		if e is InputEventMouseButton and e.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN] and e.pressed:
+			mst["zoom"] = clampf(float(mst["zoom"]) + (-0.06 if e.button_index == MOUSE_BUTTON_WHEEL_UP else 0.06), 0.0, 1.0)
+			place_cam.call()
+			return
+		var idx := -1
+		var pressed := false
+		var is_press := false
+		if e is InputEventScreenTouch:
+			idx = e.index
+			pressed = e.pressed
+			is_press = true
+		elif e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT:
+			idx = 100
+			pressed = e.pressed
+			is_press = true
+		if is_press:
+			if pressed:
+				touches[idx] = e.position
+				if touches.size() == 1:
+					mst["moved"] = 0.0
+			else:
+				if touches.size() == 1 and float(mst["moved"]) < 14.0 and touches.has(idx):
+					# a tap: a waypoint there
+					var wp: Vector3 = ground_at.call(e.position * to_vp)
+					game.set_route_pick(wp, "Waypoint")
+					game.ui_tap()
+					me.queue_redraw()
+				touches.erase(idx)
+			return
+		var di := -1
+		if e is InputEventScreenDrag:
+			di = e.index
+		elif e is InputEventMouseMotion and touches.has(100):
+			di = 100
+		if di < 0 or not touches.has(di):
+			return
+		var old: Vector2 = touches[di]
+		if touches.size() >= 2:
+			# two fingers: pinch to zoom
+			var other := Vector2.ZERO
+			for k in touches:
+				if k != di:
+					other = touches[k]
+			var d0 := old.distance_to(other)
+			var d1 := (e.position as Vector2).distance_to(other)
+			if d0 > 10.0:
+				mst["zoom"] = clampf(float(mst["zoom"]) * d0 / maxf(d1, 1.0), 0.0, 1.0)
+		else:
+			# one: drag the map about (the ground follows your finger, near enough)
+			var dl: Vector2 = (e.position as Vector2) - old
+			mst["moved"] = float(mst["moved"]) + dl.length()
+			var k := lerpf(120.0, 900.0, float(mst["zoom"])) * 2.0 / holder.size.y
+			mst["focus"] = (mst["focus"] as Vector3) + Vector3(-dl.x, 0, -dl.y) * k
+			var fv: Vector3 = mst["focus"]
+			mst["focus"] = Vector3(clampf(fv.x, -MAP_SPAN * 0.5, MAP_SPAN * 0.5), 0, clampf(fv.z, -MAP_SPAN * 0.5, MAP_SPAN * 0.5))
+		touches[di] = e.position
+		place_cam.call()
+		me.queue_redraw())
+	var hint := K.label("Drag to move · pinch to zoom · tap for a waypoint", 14, Color.WHITE, 650)
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	hint.position.y = -30
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	K.outlined(hint, K.INK, 6)
 	holder.add_child(me)
+	holder.add_child(hint)
 	# the challenges, with your medals and a quick way there
 	var right := VBoxContainer.new()
 	right.add_theme_constant_override("separation", 6)

@@ -1077,6 +1077,22 @@ func _crew_tests() -> void:
 		cam_zoom = 0.6
 	if args.has("radartest") and state == DRIVE and time > 2.5 and not ui.radar_on:
 		ui.radar_on = true
+	if args.has("maptest") and state == DRIVE and time > 3.5 and not has_meta("mp_done"):
+		set_meta("mp_done", true)
+		pause(false)
+		ui.open_map()
+		get_tree().create_timer(0.8).timeout.connect(func():
+			for down in [true, false]:
+				var mb := InputEventMouseButton.new()
+				mb.button_index = MOUSE_BUTTON_LEFT
+				mb.pressed = down
+				mb.position = Vector2(600, 250)
+				mb.global_position = mb.position
+				Input.parse_input_event(mb))
+		get_tree().create_timer(1.5).timeout.connect(func():
+			print("MAP waypoint: ", route_pick)
+			get_viewport().get_texture().get_image().save_png("/tmp/audit/map3d.png")
+			get_tree().quit())
 	if args.has("phonetest") and state == DRIVE and time > 3.5 and not has_meta("ph_done"):
 		set_meta("ph_done", true)
 		ui.toggle_phone()
