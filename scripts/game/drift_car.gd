@@ -747,13 +747,17 @@ func _physics_process(dt: float) -> void:
 		# (only needed at a crawl: going fast, the bend itself holds the car on)
 		var hold := clampf((vs - 4.0) / 6.0, 0.0, 1.0) * clampf((22.0 - vs) / 8.0, 0.0, 1.0)
 		apply_central_force(-up * mass * 9.8 * clampf(1.0 - up.y, 0.0, 2.0) * 0.75 * hold)
-	# ---- on its roof (or side), the bodywork scrapes along the ground and soon stops
+	# ---- on its roof (or side), the bodywork scrapes along the ground. Going fast it barely holds it: the
+	# car keeps tumbling over and over, the roll carrying on; only once it's slowed right down does it grind
+	# to a halt
 	roof_t = maxf(0.0, roof_t - dt)
 	if roof_t > 0.0 and grounded == 0:
 		var vh := Vector3(v.x, 0.0, v.z)
-		if vh.length() > 0.3:
-			apply_central_force(-vh.normalized() * mass * 9.8 * 0.55 - vh * mass * 0.6)
-		apply_torque(-angular_velocity * (250.0 if roll_t > 0.0 else 900.0))
+		var hs := vh.length()
+		if hs > 0.3:
+			apply_central_force(-vh.normalized() * mass * 9.8 * 0.5 * clampf((9.0 - hs) / 7.0, 0.12, 1.0))
+		if hs < 4.0 and angular_velocity.length() < 3.0:
+			apply_torque(-angular_velocity * 500.0 * (1.0 - hs / 4.0))
 	_last_vdir = (v - up * v.dot(up)).normalized() if vs > 1.0 else Vector3.ZERO
 	# ---- nitrous: a hard shove along the nose while it lasts (the drag lets it run a good deal faster)
 	if nitro > 0.0 and grounded >= 2 and speed > -1.0:
@@ -780,7 +784,7 @@ func _physics_process(dt: float) -> void:
 		misfired.emit()
 	# tumbling, the body grips the ground (so it rolls rather than skating along on its side)
 	var pm := physics_material_override
-	var want_f := 0.5 if (roll_t > 0.0 or up.y < 0.5) else 0.08
+	var want_f := 0.65 if (roll_t > 0.0 or up.y < 0.5) else 0.08       # (the grip turns the slide into a roll)
 	if pm and absf(pm.friction - want_f) > 0.01:
 		pm.friction = want_f
 	_vh.push_front(linear_velocity)

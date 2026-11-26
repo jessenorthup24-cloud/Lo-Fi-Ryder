@@ -607,6 +607,8 @@ func resume() -> void:
 func open_garage() -> void:
 	if police.wanted():
 		ui.toast("Lose the police first", "eye", Color("ff5c7a"), Color.WHITE)
+		if state == PAUSED and not ui.overlay.visible:
+			resume()          # (never left paused behind a menu that's gone)
 		return
 	_save_now()
 	var from := state

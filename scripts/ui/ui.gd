@@ -2308,6 +2308,9 @@ func open_pause() -> void:
 		["Reset car", "home", K.SUN, K.SUN_DK, func(): game.reset_car()],
 		["Map", "map", K.TEAL, K.TEAL_DK, func(): open_map()],
 		["Garage", "car", K.SKY, K.SKY_DK, func():
+			if game.police.wanted():
+				toast("Lose the police first", "eye", Color("ff5c7a"), Color.WHITE)     # (the menu stays up)
+				return
 			close_sheet()
 			game.open_garage()],
 		["Trophies", "trophy", K.LILAC, K.LILAC_DK, func(): open_achievements(true)],

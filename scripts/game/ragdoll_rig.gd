@@ -29,7 +29,16 @@ var root_rel := Transform3D()  # the root bone, from the trunk (skeleton space)
 var holder: Node3D
 
 ## Go limp: bodies made in `world` (an unscaled node), all moving at `vel`, with `push` on the trunk.
+static var _mat_fast: PhysicsMaterial
+var _mat: PhysicsMaterial = null
 func start(sk: Skeleton3D, world: Node3D, vel: Vector3, push: Vector3) -> void:
+	var fast := Vector3(vel.x, 0, vel.z).length() > 6.0
+	if fast:
+		if _mat_fast == null:
+			_mat_fast = PhysicsMaterial.new()
+			_mat_fast.friction = 0.55        # (enough grip to roll it rather than skid it)
+			_mat_fast.bounce = 0.2
+		_mat = _mat_fast
 	holder = Node3D.new()
 	holder.name = "LimpBody"
 	world.add_child(holder)
@@ -59,8 +68,11 @@ func start(sk: Skeleton3D, world: Node3D, vel: Vector3, push: Vector3) -> void:
 		rb.collision_layer = LAYER
 		rb.collision_mask = 1 | 2
 		rb.mass = p[3]
-		rb.linear_damp = 0.15
-		rb.angular_damp = 1.2
+		# (thrown at speed, out of a moving car: hardly any drag, so the body keeps tumbling over and over
+		# along the ground; dropped where it stood, it settles as before)
+		rb.linear_damp = 0.03 if fast else 0.15
+		rb.angular_damp = 0.25 if fast else 1.2
+		rb.physics_material_override = _mat
 		var cs := CollisionShape3D.new()
 		var bx := BoxShape3D.new()
 		var th: float = ln * float(p[2])
@@ -90,6 +102,13 @@ func start(sk: Skeleton3D, world: Node3D, vel: Vector3, push: Vector3) -> void:
 	away = away.normalized()
 	torso.angular_velocity = Vector3.UP.cross(away).normalized() * -4.0 + Vector3(0, randf_range(-1.5, 1.5), 0)
 	torso.linear_velocity += away * 1.5
+	if fast:
+		# head over heels the way you were going, the whole body together
+		var hv := Vector3(vel.x, 0, vel.z)
+		var ax := hv.cross(Vector3.DOWN).normalized()
+		var spin := clampf(hv.length() * 0.9, 4.0, 15.0)
+		for x in list:
+			(x as RigidBody3D).angular_velocity = ax * spin * randf_range(0.85, 1.15) + Vector3(0, randf_range(-1.0, 1.0), 0)
 	for p in PARTS:
 		if String(p[0]).ends_with("Leg"):
 			var lb: RigidBody3D = bodies.get(sk.find_bone(String(p[0])))
