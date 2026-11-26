@@ -788,7 +788,7 @@ func _officer_out(u: Dictionary, k: int) -> void:
 	n.add_child(cs)
 	var av := Avatar.new()
 	n.add_child(av)
-	av.setup("male-c", "", game.toon)        # (the one in the police uniform)
+	av.setup("cop", "", game.toon)        # (the police uniform)
 	av.hold(Weapons.LIST[0], 0, game.toon)
 	add_child(n)
 	var p := uc.global_position + side

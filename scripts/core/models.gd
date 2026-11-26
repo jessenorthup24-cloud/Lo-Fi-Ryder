@@ -1636,23 +1636,28 @@ static func _k_mesh(name: String) -> ArrayMesh:
 		return src
 	return scaled(src, sc)
 
-# ---------------------------------------------------------------- toy people (Kenney mini characters)
-# Each has a body and two loose arms (pivots at the shoulders) for standing and for sitting.
+# ---------------------------------------------------------------- the people (the Quaternius character)
+# Each outfit (avatar.gd CHARS) has a body and two loose arms (pivots at the shoulders) for standing and for
+# sitting, baked still by tools/chars/bake_people.gd: assets/chars/qp_<outfit>_<pose>[_al|_ar].res.
 
-const CHARS := ["character-female-b", "character-female-c", "character-female-d", "character-female-e", "character-female-f",
-	"character-male-a", "character-male-b", "character-male-c", "character-male-d", "character-male-e", "character-male-f",
-	"character-male-g", "character-worker"]
+const CHARS := ["marcus", "dee", "jonah", "theo", "rico", "sam", "kenji", "maya", "rosa", "ivy", "nia", "lena", "jade",
+	"sarge", "bo", "raider", "bolt", "zib", "lance", "mort"]
+static var _qp := {}
+static var _qp_meta := {}
 
 ## pose "stand" / "sit"; part "" body, "al" / "ar" arms
 static func kperson(v: int, pose: String, part := "") -> ArrayMesh:
-	var nm := "k_chars_%s_%s" % [CHARS[v % CHARS.size()], pose]
-	return get_mesh(nm if part == "" else nm + "_" + part)
+	var key := "qp_%d_%s%s" % [v % CHARS.size(), pose, "" if part == "" else "_" + part]
+	if not _qp.has(key):
+		_qp[key] = load("res://assets/chars/%s.res" % key)
+	return _qp[key]
 
 ## Shoulder positions [left, right] for a character's pose.
 static func kshoulders(v: int, pose: String) -> Array:
-	var a: Array = kmeta()["k_chars_%s_%s_pivots" % [CHARS[v % CHARS.size()], pose]]
-	var sc: float = K_PACK_SCALE["chars"]
-	return [Vector3(a[0], a[1], a[2]) * sc, Vector3(a[3], a[4], a[5]) * sc]
+	if _qp_meta.is_empty():
+		_qp_meta = JSON.parse_string(FileAccess.get_file_as_string("res://assets/chars/qp_meta.json"))
+	var a: Array = _qp_meta["%d_%s" % [v % CHARS.size(), pose]]
+	return [Vector3(a[0], a[1], a[2]), Vector3(a[3], a[4], a[5])]
 
 # ---------------------------------------------------------------- stunt yard
 

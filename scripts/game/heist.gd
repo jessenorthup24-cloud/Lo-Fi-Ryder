@@ -664,17 +664,15 @@ func _carry_tick() -> void:
 	var sk: Skeleton3D = av.skel
 	if sk == null:
 		return
-	var ba := BoneAttachment3D.new()
-	ba.bone_name = "torso"
-	sk.add_child(ba)
 	var mi := MeshInstance3D.new()
 	mi.mesh = load(PROP + want + ".res")
 	mi.set_surface_override_material(0, game.toon)
-	if want == "drill":
-		mi.transform = Transform3D(Basis(Vector3.UP, PI).scaled(Vector3.ONE * 0.5), Vector3(0, -0.02, -0.17))
-	else:
-		mi.transform = Transform3D(Basis(Vector3.RIGHT, -0.25).scaled(Vector3.ONE * 0.62), Vector3(0, 0.09, -0.16))
-	ba.add_child(mi)
+	# (on the back: the drill upright, the bag slung)
+	mi.transform = Transform3D(Basis(Vector3.UP, PI).scaled(Vector3.ONE * 1.15), Vector3.ZERO) if want == "drill" \
+		else Transform3D(Basis(Vector3.RIGHT, -0.25).scaled(Vector3.ONE * 1.4), Vector3.ZERO)
+	var ba: BoneAttachment3D = av.carry_on_back(mi, 0.32 if want == "drill" else 0.3, 0.05)
+	if ba == null:
+		return
 	ba.set_meta("what", want)
 	_carry_on = ba
 
