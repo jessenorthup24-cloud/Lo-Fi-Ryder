@@ -1,4 +1,4 @@
-# Lo-Fi Dryfter
+# Lo-Fi Life
 
 An open-world drift game for Android, made in Godot 4.7. Drive a little car around an island town:
 a dense city grid with traffic and people out walking, suburbs, a castle on its hill, forest passes,
@@ -192,7 +192,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   race" ones count however many there are on the island).
 - The look is "lo-fi night": dark glass panels with a hairline edge, near-white type, one neon-pink
   accent (the main button on each screen glows with it). The title sits at dusk (the island's own clock
-  carries on from where it was once you drive): a thin, letter-spaced LO-FI DRYFTER, one DRIVE button,
+  carries on from where it was once you drive): a thin, letter-spaced LO-FI LIFE, one DRIVE button,
   and Garage, Map, Trophies and Settings as quiet text links, over a slow orbit of your car with a dark
   wash and letterbox bars. The garage is a night studio, a neon rim round the turntable. Toasts are
   dark pills, their colour on the icon. The in-car controls keep their illustrated sticker look.

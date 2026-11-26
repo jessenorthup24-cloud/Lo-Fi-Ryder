@@ -1,5 +1,5 @@
 extends Node3D
-## Lo-Fi Dryfter: an open-world drift game on a little island. This node runs the game: the camera, the
+## Lo-Fi Life: an open-world drift game on a little island. This node runs the game: the camera, the
 ## controls, drift scoring, the challenges (drift zones, trials, hidden coins), places to find, saving.
 
 const PAL := preload("res://scripts/core/palette.gd")
@@ -3749,6 +3749,36 @@ func _foot_cam(dt: float) -> void:
 		cam.look_at(look, Vector3.UP)
 	cam.fov = lerpf(cam.fov, lerpf(62.0, 46.0, ak), 1.0 - exp(-dt * 8.0))
 	cam_pos = cam.position
+	_aim_dof(ak)
+
+## Aiming: the background goes soft and what you're aiming at stays sharp (shaders/aim_dof.gdshader).
+var _dof: MeshInstance3D
+func _aim_dof(ak: float) -> void:
+	var on := on_foot and ak > 0.03 and not gunplay.dying and bool(save.data["settings"].get("dof", true))
+	if _dof == null:
+		if not on:
+			return
+		_dof = MeshInstance3D.new()
+		var q := QuadMesh.new()
+		q.size = Vector2.ONE
+		_dof.mesh = q
+		var m := ShaderMaterial.new()
+		m.shader = load("res://shaders/aim_dof.gdshader")
+		_dof.material_override = m
+		_dof.custom_aabb = AABB(Vector3(-1e5, -1e5, -1e5), Vector3(2e5, 2e5, 2e5))
+		_dof.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_dof.position = Vector3(0, 0, -1.0)
+		cam.add_child(_dof)
+	_dof.visible = on
+	if not on:
+		return
+	var f := 25.0
+	if gunplay.aim_point != Vector3.INF:
+		f = clampf(cam.global_position.distance_to(gunplay.aim_point), 3.0, 160.0)
+	var m2 := _dof.material_override as ShaderMaterial
+	var cur: float = m2.get_shader_parameter("focus") if m2.get_shader_parameter("focus") != null else f
+	m2.set_shader_parameter("focus", lerpf(cur, f, 0.2))
+	m2.set_shader_parameter("amount", smoothstep(0.05, 0.9, ak))
 
 func toggle_group_cam() -> void:
 	group_cam = not group_cam

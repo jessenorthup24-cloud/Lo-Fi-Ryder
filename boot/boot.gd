@@ -47,18 +47,22 @@ func _ready() -> void:
 	box.position = Vector2(-280, -90)
 	box.add_theme_constant_override("separation", 18)
 	add_child(box)
-	# the wordmark, as the game writes it (kit.gd wordmark): LO-FI in pink, DRYFTER in white, thin and spaced
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 24)
-	box.add_child(row)
-	for w in [["LO-FI", Color("ff4f8b")], ["DRYFTER", Color("f2f0f7")]]:
+	# the logo (assets/ui/logo.png), or the name in type if this build hasn't got it
+	if ResourceLoader.exists("res://assets/ui/logo.png"):
+		var lg := TextureRect.new()
+		lg.texture = load("res://assets/ui/logo.png")
+		lg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		lg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		lg.custom_minimum_size = Vector2(560, 212)
+		box.add_child(lg)
+	else:
 		var title := Label.new()
-		title.text = w[0]
+		title.text = "LO-FI LIFE"
+		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		title.add_theme_font_size_override("font_size", 56)
-		title.add_theme_color_override("font_color", w[1])
+		title.add_theme_color_override("font_color", Color("f2f0f7"))
 		if thin: title.add_theme_font_override("font", thin)
-		row.add_child(title)
+		box.add_child(title)
 	_label = Label.new()
 	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_label.add_theme_font_size_override("font_size", 26)
@@ -202,6 +206,6 @@ func _start(use_pack: bool) -> void:
 			ProjectSettings.load_resource_pack(PACK_PATH, true)
 	var v := _read_json("res://version.json")
 	_say("Starting · %s" % String(v.get("label", "dev")))
-	print("Lo-Fi Dryfter boot: content build ", int(v.get("build", 0)), " ", v.get("label", ""))
+	print("Lo-Fi Life boot: content build ", int(v.get("build", 0)), " ", v.get("label", ""))
 	await get_tree().process_frame
 	get_tree().change_scene_to_file(MAIN)

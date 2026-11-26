@@ -53,46 +53,22 @@ static func font_spaced(weight: int, spacing: int) -> Font:
 	_fonts[key] = fv
 	return fv
 
-## The game's name, the one way it's ever written: LO-FI in the accent and DRYFTER in white, the same thin,
-## letter-spaced face and size, a neon hairline under it. Stacked (two lines) on the title, one line elsewhere.
+## The game's name, the one way it's ever written: the Lo-Fi Life logo (assets/ui: the wordmark on one line;
+## stacked, the full logo with the car, the pines and the viaduct over it). size: about the letters' height.
 static func wordmark(size := 64, stacked := false, align := HORIZONTAL_ALIGNMENT_LEFT) -> Control:
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", int(-size * 0.12) if stacked else int(size * 0.18))
-	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var sp := int(size * 0.16)
-	var parts := []
-	for w in [["LO-FI", CORAL], ["DRYFTER", INK]]:
-		var l := label(String(w[0]), size, w[1], 300, align)
-		l.add_theme_font_override("font", font_spaced(300, sp))
-		parts.append(l)
-	if stacked:
-		vb.add_child(parts[0])
-		vb.add_child(parts[1])
-	else:
-		var hb := HBoxContainer.new()
-		hb.add_theme_constant_override("separation", int(size * 0.42))
-		hb.alignment = BoxContainer.ALIGNMENT_CENTER if align == HORIZONTAL_ALIGNMENT_CENTER else BoxContainer.ALIGNMENT_BEGIN
-		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		hb.add_child(parts[0])
-		hb.add_child(parts[1])
-		vb.add_child(hb)
-	# the neon hairline: a bright core and a soft glow either side
-	var line := Control.new()
-	# (as long as the name: the longer word stacked, both words on one line)
-	var f := font_spaced(300, sp)
-	var w := f.get_string_size("DRYFTER", HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
-	if not stacked:
-		w += f.get_string_size("LO-FI", HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + size * 0.42
-	line.custom_minimum_size = Vector2(w - sp, maxf(6.0, size * 0.1))
-	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	line.size_flags_horizontal = Control.SIZE_SHRINK_CENTER if align == HORIZONTAL_ALIGNMENT_CENTER else Control.SIZE_SHRINK_BEGIN
-	line.draw.connect(func():
-		var y := line.size.y * 0.5
-		for k in 4:
-			line.draw_line(Vector2(0, y), Vector2(line.size.x, y), Color(CORAL, 0.1), 2.0 + k * 2.5)
-		line.draw_line(Vector2(0, y), Vector2(line.size.x, y), Color(1.0, 0.75, 0.85), 1.5))
-	vb.add_child(line)
-	return vb
+	var path := "res://assets/ui/logo.png" if stacked else "res://assets/ui/wordmark.png"
+	var tr := TextureRect.new()
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	if ResourceLoader.exists(path):
+		tr.texture = load(path)
+	if tr.texture == null:
+		return label("LO-FI LIFE", size, INK, 800, align)
+	var h := size * (3.2 if stacked else 1.25)
+	tr.custom_minimum_size = Vector2(h * tr.texture.get_width() / tr.texture.get_height(), h)
+	tr.size_flags_horizontal = Control.SIZE_SHRINK_CENTER if align == HORIZONTAL_ALIGNMENT_CENTER else Control.SIZE_SHRINK_BEGIN
+	return tr
 
 ## A quiet text link (icon and word, no box): soft grey, white when pressed.
 static func link(text: String, icon := "", size := 26) -> Button:

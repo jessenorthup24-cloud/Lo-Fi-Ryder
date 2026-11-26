@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="Lo-Fi Dryfter"
+config/name="Lo-Fi Life"
 config/description="An open-world drift game on a cozy little island."
 config/version="1.0"
 run/main_scene="res://boot/boot.tscn"

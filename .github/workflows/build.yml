@@ -184,7 +184,7 @@ jobs:
           cd build/ota
           git init -q -b ota
           git add manifest.json content-${BUILD}.pck
-          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "Lo-Fi Dryfter content b${BUILD}"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "Lo-Fi Life content b${BUILD}"
           git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ota
           echo "published b${BUILD}"
 
@@ -193,7 +193,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "b${BUILD}" build/lofi-ryder.apk \
-            --title "Lo-Fi Dryfter b${BUILD}" \
+            --title "Lo-Fi Life b${BUILD}" \
             --notes "Debug APK for Android. Install it once; later builds arrive as in-app updates on launch. Commit: ${GITHUB_SHA::7}" \
             --latest
 

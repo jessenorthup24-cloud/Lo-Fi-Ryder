@@ -303,6 +303,8 @@ func _fire(you: CharacterBody3D) -> void:
 	var kick: float = clampf(punch / 2400.0, 0.004, 0.02) if auto else clampf(punch / 900.0, 0.012, 0.11)
 	game.aim_kick = minf(game.aim_kick + kick, 0.09 if auto else 0.2)
 	game.shake = maxf(game.shake, 0.015 if auto else 0.04 + kick * 0.5)
+	# a buzz in the hands with every shot: a tap for the SMG, a thump for the shotgun and the sniper
+	game.buzz(int(clampf(8.0 + punch * 0.4, 10.0, 55.0)), clampf(0.25 + punch / 140.0, 0.3, 1.0))
 	var hit_any := false
 	var killed := false
 	for k in int(weapon["pellets"]):
@@ -501,6 +503,7 @@ func hurt(dmg: float, from: Vector3) -> void:
 		return
 	hp -= dmg
 	hurt_t = 0.0
+	game.buzz(45, 0.85)
 	var you: CharacterBody3D = game.foot
 	var chest := you.global_position + Vector3(0, 1.1, 0)
 	var d := (chest - from)

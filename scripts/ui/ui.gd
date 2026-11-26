@@ -2371,6 +2371,7 @@ func open_settings(from_pause := false) -> void:
 	g.add_child(_setting_toggle("vibe", "Vibration", st["haptics"], func(v): game.set_setting("haptics", v)))
 	g.add_child(_setting_toggle("shadow", "Shadows", st["shadows"], func(v): game.set_setting("shadows", v)))
 	g.add_child(_setting_toggle("sun", "Bloom", st.get("bloom", true), func(v): game.set_setting("bloom", v)))
+	g.add_child(_setting_toggle("eye", "Aim blur", st.get("dof", true), func(v): game.set_setting("dof", v)))
 	g.add_child(_setting_toggle("wind", "Speed blur", st.get("speedfx", true), func(v): game.set_setting("speedfx", v)))
 	g.add_child(_setting_toggle("leaf", "Ambient particles", st.get("motes", true), func(v): game.set_setting("motes", v)))
 	g.add_child(_setting_toggle("rain", "Weather", st.get("weather", true), func(v): game.set_setting("weather", v)))
@@ -2560,12 +2561,11 @@ func _card_text(o: Control, c: Array, face: bool, sz: Vector2, count: int, info:
 	var thin := K.font(500)
 	if not face and not info:
 		# the back: the game's name in the ring
-		var t1 := "LO-FI"
-		var t2 := "DRYFTER"
-		var s1 := int(30 * k)
-		var s2 := int(26 * k)
-		o.draw_string(bold, Vector2((sz.x - bold.get_string_size(t1, 0, -1, s1).x) * 0.5, sz.y * 0.48), t1, HORIZONTAL_ALIGNMENT_LEFT, -1, s1, Color("ff4f8b"))
-		o.draw_string(bold, Vector2((sz.x - bold.get_string_size(t2, 0, -1, s2).x) * 0.5, sz.y * 0.48 + 30 * k), t2, HORIZONTAL_ALIGNMENT_LEFT, -1, s2, Color.WHITE)
+		var lt: Texture2D = load("res://assets/ui/wordmark.png") if ResourceLoader.exists("res://assets/ui/wordmark.png") else null
+		if lt:
+			var lw := sz.x * 0.74
+			var lh := lw * lt.get_height() / lt.get_width()
+			o.draw_texture_rect(lt, Rect2((sz.x - lw) * 0.5, sz.y * 0.47 - lh * 0.5, lw, lh), false)
 		var t3 := "CAR CARDS"
 		o.draw_string(mid, Vector2((sz.x - mid.get_string_size(t3, 0, -1, int(13 * k)).x) * 0.5, sz.y * 0.88), t3, HORIZONTAL_ALIGNMENT_LEFT, -1, int(13 * k), Color(1, 1, 1, 0.55))
 		return
@@ -2641,7 +2641,7 @@ func _pack(sz: Vector2) -> Control:
 		var k := sz.x / 260.0
 		var bold := K.font(800)
 		var mid := K.font(650)
-		var lines := [["LO-FI DRYFTER", mid, int(15 * k), Color(1, 1, 1, 0.85), sz.y * 0.2], ["CAR", bold, int(54 * k), Color.WHITE, sz.y * 0.47],
+		var lines := [["LO-FI LIFE", mid, int(15 * k), Color(1, 1, 1, 0.85), sz.y * 0.2], ["CAR", bold, int(54 * k), Color.WHITE, sz.y * 0.47],
 			["CARDS", bold, int(46 * k), Color("ffd34d"), sz.y * 0.59], ["3 CARDS  ·  SERIES 1", mid, int(14 * k), Color(1, 1, 1, 0.85), sz.y * 0.82]]
 		for l in lines:
 			var f: Font = l[1]
