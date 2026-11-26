@@ -1,12 +1,12 @@
 extends SceneTree
-## Bakes a car made as a glTF (one with its wheels as their own nodes, like the Hoon-again) into the same
+## Bakes a car made as a glTF (one with its wheels as their own nodes, like the Haywire) into the same
 ## shape as the Tiny Car Pack cars (tools/cars/export_cars.gd): <key>_body.res, <key>_wl.res, <key>_wr.res
 ## and an entry in cars_meta.json, at toy size, facing -Z, tyres on y = 0.
 ## Flat materials become vertex colours; textured ones (livery, lettering) keep their UVs, moved into one
 ## atlas (assets/cars/<key>_detail.png) that the toon shader reads through the car_detail global, and are
 ## tagged with vertex alpha 0.9. Lamps ("light" front, "red" back) are tagged to glow.
 ##   GLB=/path/car.glb KEY=hoon LEN=4.25 ONE_SIDED=1 KEEP=0.35 COARSE=1 godot --headless --path . -s tools/cars/bake_glb_car.gd
-##   (the Trunoh 86: KEY=ae86 LEN=4.2 NOTEX=1, the rest the same: only one car can use the texture atlas)
+##   (the Mountain Ghost: KEY=ae86 LEN=4.2 NOTEX=1, the rest the same: only one car can use the texture atlas)
 ## Expects the glTF's front along -X, its left along +Z, wheel nodes named Wheel_Front_L and so on.
 
 const OUT := "res://assets/cars/"
