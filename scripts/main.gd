@@ -28,7 +28,6 @@ const OnFoot := preload("res://scripts/game/onfoot.gd")
 const Gunplay := preload("res://scripts/game/gunplay.gd")
 const Heist := preload("res://scripts/game/heist.gd")
 const Property := preload("res://scripts/game/property.gd")
-const CarDoor := preload("res://scripts/game/car_door.gd")
 const Cards := preload("res://scripts/game/cards.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
@@ -674,8 +673,6 @@ func car_changed() -> void:
 
 ## Straight back in the car, wherever you are (the title, a reset, a challenge starting).
 func _back_in() -> void:
-	CarDoor.close(_door)
-	_exit_seq = {}
 	if gunplay:
 		gunplay.clear_officers()
 	if foot != null:
@@ -1070,7 +1067,7 @@ func _crew_tests() -> void:
 			var av = foot.avatar
 			var sk: Skeleton3D = av.skel
 			print("DIE limp=", av.limp != null, " bodies=", av.limp.bodies.size() if av.limp else -1, " torso=", av.limp.torso_pos() if av.limp else Vector3.INF,
-				" hips=", (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Hips"))).origin, " you=", foot.global_position, " vis=", av.is_visible_in_tree(), " anim=", av.current(), " playing=", av.anim.is_playing(), " ts=", Engine.time_scale, " t=", time)
+				" hips=", (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Hips"))).origin, " you=", foot.global_position, " vis=", av.is_visible_in_tree(), " anim=", av.current(), " playing=", av.anim.active, " ts=", Engine.time_scale, " t=", time)
 		if args.has("entertest") and time > 6.0 and not has_meta("et"):
 			set_meta("et", true)
 			toggle_foot()
@@ -1078,6 +1075,14 @@ func _crew_tests() -> void:
 		if args.has("entertest") and time > 10.5 and not has_meta("et2"):
 			set_meta("et2", true)
 			print("ENTER after on_foot=", on_foot, " state=", state)
+		if on_foot and args.has("slidetest") and foot:
+			# (run, then crouch at full tilt: the slide, then crouched)
+			stick = Vector2(0, 1.0) if time < float(args.get("slide_at", "6.0")) + 0.3 else Vector2.ZERO
+			held["sprint"] = time < float(args.get("slide_at", "6.0"))
+			if time > float(args.get("slide_at", "6.0")) and not has_meta("sl_done"):
+				set_meta("sl_done", true)
+				foot.toggle_crouch()
+				print("SLIDE t=%.1f slide_t=%.2f crouch=%s" % [time, foot.slide_t, foot.crouch])
 		if on_foot and args.has("gunidle"):
 			# (stood still, gun out, not aiming: the camera round to the side to see it in the hand)
 			look_yaw_t = float(args.get("gunyaw", "2.0"))
@@ -3417,7 +3422,7 @@ func _cam(dt: float, snap := false) -> void:
 		# round the loop: hold the heading you came in on (it comes out the same way)
 		dirv = Vector3(-sin(cam_yaw), 0, -cos(cam_yaw))
 	var dist: float = [7.6, 11.0, 5.0][cam_mode] + clampf(v.length() * 0.05, 0.0, 2.0) * (0.5 if cam_mode == 2 else 1.0)
-	var height: float = [2.7, 4.4, 1.3][cam_mode]
+	var height: float = [2.0, 3.3, 1.3][cam_mode]
 	var target := xf.origin + Vector3(0, 0.95 if cam_mode == 2 else 1.3, 0)
 	# looking round: after a moment without a finger on it, the view swings back behind the car
 	look_t += dt
@@ -3443,7 +3448,8 @@ func _cam(dt: float, snap := false) -> void:
 		desired = (hit["position"] as Vector3) + (target - (hit["position"] as Vector3)).normalized() * 0.6
 	cam_pos = desired if snap else cam_pos.lerp(desired, 1.0 - exp(-dt * (14.0 if looking else 9.0)))
 	cam.position = cam_pos
-	var look := target + dirv * (5.0 if cam_mode == 2 else 3.0) + Vector3(0, -0.2, 0)
+	# (looking well ahead and up a little: the road and the skyline in the picture, not the ground)
+	var look := target + dirv * float([6.5, 9.0, 5.0][cam_mode]) + Vector3(0, 0.3 if cam_mode < 2 else -0.2, 0)
 	if looking:
 		# swung round: keep the car in the middle of the picture
 		look = look.lerp(target, clampf(maxf(absf(look_yaw) * 1.5, absf(look_pitch) * 2.0), 0.0, 1.0))
@@ -3611,139 +3617,24 @@ func _exit_car() -> void:
 			gunplay.hurt(dmg, foot.global_position - thrown.normalized())
 		buzz(60, 1.0)
 		shake = maxf(shake, 0.3)
-	else:
-		# out of the seat: the clip from the start, eased from the seat to the door
-		var seat: Vector3 = car.global_transform * Vector3(-car.info["width"] * 0.18, 0.0, -0.2)
-		_exit_seq = {"from": Vector3(seat.x, foot.global_position.y, seat.z), "to": foot.global_position, "time": 0.0}
-		_door_open(car)
-		foot.scripted = true
-		foot.global_position = _exit_seq["from"]
-		foot.avatar.play_once("exit_car", 0.5, 2.4, 1.45)
 
 ## In again: the car you got out of, a parked one, or one off the road (you take it: its driver runs).
-## Not straight in: you walk round to the driver's door, turn to it, open it and climb in (the clip, while
-## you're eased into the seat), and then you're driving. Push the stick to call it off.
-var _enter := {}               # {t (the target), car (its body), phase: walk/door, time}
+## Straight in, no walk round and no door: you're just in the seat.
+var _enter := {}               # (kept empty: there's no walk to the door any more)
 func _enter_car() -> void:
-	if foot == null or not _enter.is_empty() or foot.down_t > 0.0 or foot.scripted or busted_t > 0.0:
+	if foot == null or foot.down_t > 0.0 or foot.scripted or busted_t > 0.0:
 		return
 	var t := _enter_target()
 	if t.is_empty():
 		ui.toast("Walk up to a car to get in", "car")
 		return
-	var body: Node3D = car
-	if String(t["kind"]) == "parked":
-		body = t["pk"]["node"]
-	elif String(t["kind"]) == "traffic":
-		body = t["c"]["body"]
-		t["c"]["v"] = 0.0           # (it waits for you)
-		t["c"]["wait"] = 99.0
-	_enter = {"t": t, "car": body, "phase": "walk", "time": 0.0}
-
-func _enter_door(body: Node3D, w: float) -> Array:
-	var xf := body.global_transform
-	var left := -xf.basis.x
-	left.y = 0.0
-	left = left.normalized()
-	var fwd := -xf.basis.z
-	fwd.y = 0.0
-	fwd = fwd.normalized()
-	var door := xf.origin + left * (w * 0.5 + 0.55) + fwd * 0.35
-	var seat := xf.origin + left * (w * 0.18) + fwd * 0.2
-	door.y = island.height_at(door.x, door.z)
-	return [door, seat, atan2(left.x, left.z)]       # (facing: toward the car, from its left)
-
-func _enter_tick(dt: float) -> void:
-	if _enter.is_empty() or foot == null:
-		return
-	var body: Node3D = _enter["car"]
-	if not is_instance_valid(body):
-		_enter_cancel()
-		return
-	_enter["time"] = float(_enter["time"]) + dt
-	var w: float = car.info["width"] if body == car else 1.9
-	var dd: Array = _enter_door(body, w)
-	var door: Vector3 = dd[0]
-	if String(_enter["phase"]) == "walk":
-		if stick.length() > 0.5 and float(_enter["time"]) > 0.2:
-			_enter_cancel()
-			return
-		var to := door - foot.global_position
-		to.y = 0.0
-		if to.length() < 0.35 or float(_enter["time"]) > 4.0:
-			# at the door: turn to the car and open up
-			_enter["phase"] = "door"
-			_enter["time"] = 0.0
-			_enter["from"] = foot.global_position
-			_door_open(body)
-			foot.scripted = true
-			foot.facing = float(dd[2])           # (looking at the car: onfoot faces its avatar to facing + PI)
-			foot.avatar.play_once("enter_car", 0.2, 2.2, 1.35)
-			var tt: Dictionary = _enter["t"]
-			if String(tt["kind"]) == "traffic" and not tt["c"].get("driver_out", false):
-				_driver_out(tt["c"])
-			return
-		# walk there (the stick's own frame: forward is where the camera looks)
-		var fwd := Vector3(-sin(foot.cam_yaw), 0, -cos(foot.cam_yaw))
-		var rgt := Vector3(cos(foot.cam_yaw), 0, -sin(foot.cam_yaw))
-		var dn := to.normalized() * clampf(to.length() * 1.5, 0.35, 0.75)
-		foot.move = Vector2(dn.dot(rgt), dn.dot(fwd))
-		return
-	# the door: the clip plays (the door swung open as the hand reaches it); over its second half you're
-	# eased in onto the seat
-	foot.move = Vector2.ZERO
-	CarDoor.swing(_door, (float(_enter["time"]) - 0.25) / 0.5)
-	var k := clampf((float(_enter["time"]) - 1.0) / 1.1, 0.0, 1.0)
-	var seat: Vector3 = dd[1]
-	foot.global_position = (_enter["from"] as Vector3).lerp(Vector3(seat.x, door.y + 0.35 * k, seat.z), k * k)
-	if float(_enter["time"]) >= 2.2:
-		var t: Dictionary = _enter["t"]
-		_enter = {}
-		CarDoor.close(_door)
-		if foot:
-			foot.scripted = false
-		_enter_car_now(t)
-
-var _exit_seq := {}
-func _exit_tick(dt: float) -> void:
-	if _exit_seq.is_empty() or foot == null:
-		return
-	_exit_seq["time"] = float(_exit_seq["time"]) + dt
-	var et := float(_exit_seq["time"])
-	CarDoor.swing(_door, minf(et / 0.4, (2.3 - et) / 0.5))       # (open, then shut behind you)
-	var k := clampf(et / 1.6, 0.0, 1.0)
-	foot.global_position = (_exit_seq["from"] as Vector3).lerp(_exit_seq["to"], 1.0 - (1.0 - k) * (1.0 - k))
-	if float(_exit_seq["time"]) >= 2.4 or (stick.length() > 0.5 and k >= 1.0):
-		_exit_seq = {}
-		CarDoor.close(_door)
-		foot.scripted = false
-		foot.avatar.lock_t = 0.0
-
-## The car door that's open (car_door.gd), and opening one on a car (its body: the biggest mesh on it).
-var _door := {}
-func _door_open(body: Node3D) -> void:
-	CarDoor.close(_door)
-	var mi: MeshInstance3D = car.body_node if body == car else null
-	if mi == null:
-		var best := 0.0
-		for m in body.find_children("*", "MeshInstance3D", true, false):
-			var sz: float = (m as MeshInstance3D).get_aabb().size.length() if (m as MeshInstance3D).mesh else 0.0
-			if sz > best:
-				best = sz
-				mi = m
-	if mi:
-		_door = CarDoor.open(mi, mi.material_override)
+	if String(t["kind"]) == "traffic" and not t["c"].get("driver_out", false):
+		_driver_out(t["c"])
+	sfx("door", -6.0) if sound._stream("door") else sfx("bump", -10.0, 1.4)
+	_enter_car_now(t)
 
 func _enter_cancel() -> void:
-	CarDoor.close(_door)
-	if not _enter.is_empty():
-		var t: Dictionary = _enter["t"]
-		if String(t["kind"]) == "traffic":
-			t["c"]["wait"] = 0.5
 	_enter = {}
-	if foot:
-		foot.scripted = false
-		foot.avatar.lock_t = 0.0
 
 func _enter_car_now(t: Dictionary) -> void:
 	if foot == null or t.is_empty():
@@ -3833,7 +3724,7 @@ func _driver_out(c: Dictionary) -> void:
 	if not pr.is_empty():
 		pr["d"] = 0.0
 		pr["wdir"] = 1.0
-		pr["exit_t"] = 1.6
+		pr["exit_t"] = 0.0
 		pr["flee"] = 6.0
 		pr["face"] = atan2(-side.x, -side.z)      # (looking away from the car: "face" is the -Z way)
 		island.people.make_live(pr)
@@ -3922,8 +3813,6 @@ func _foot_tick(dt: float) -> void:
 	if foot.down_t > 0.0 or foot.scripted:
 		mv = Vector2.ZERO
 	foot.move = mv
-	_enter_tick(dt)          # (walking round to a car's door and climbing in)
-	_exit_tick(dt)           # (climbing out)
 	if not on_foot or foot == null:
 		return
 	foot.cam_yaw = foot_yaw + look_yaw
@@ -3931,6 +3820,12 @@ func _foot_tick(dt: float) -> void:
 	if _pressed("jump") or (keys.get("jump", false) and not foot.get_meta("jk", false)):
 		foot.jump_req = true
 	foot.set_meta("jk", keys.get("jump", false))
+	if _pressed("crouch") and not gunplay.dying:
+		foot.toggle_crouch()
+	var cp: Control = ui.ctl.get("crouch")
+	if cp and bool(cp.get_meta("lit", false)) != foot.crouch:
+		cp.set_meta("lit", foot.crouch)
+		cp.queue_redraw()
 	if _pressed("door") and not gunplay.dying:
 		ui_tap()
 		toggle_foot()
@@ -3960,6 +3855,7 @@ func _foot_tick(dt: float) -> void:
 ## The on-foot camera: over your shoulder, a few metres back; drag to swing it round, it drifts in behind
 ## you as you walk. Aiming, it comes in close over your right shoulder, narrows, and looks straight down the
 ## reticle; locked on to someone, it drifts round onto them.
+var _crouch_k := 0.0          # (the camera down with you when you crouch)
 func _foot_cam(dt: float) -> void:
 	if busted_t > 0.0 and foot:
 		# busted: slowly round you, low down, the officers in shot
@@ -4002,7 +3898,8 @@ func _foot_cam(dt: float) -> void:
 	var pitch := clampf(foot_pitch + look_pitch * lerpf(0.6, 1.0, ak) - aim_kick, lerpf(-0.45, -1.05, ak), lerpf(1.1, 1.2, ak))
 	# (aiming: close over the right shoulder, at eye height, for the full-size characters)
 	var dist := lerpf(4.6 * cam_zoom, 2.4, ak)
-	var head := foot.get_global_transform_interpolated().origin + Vector3(0, lerpf(1.55, 1.72, ak), 0)
+	_crouch_k = move_toward(_crouch_k, 1.0 if foot.crouch else 0.0, dt * 3.0)
+	var head := foot.get_global_transform_interpolated().origin + Vector3(0, lerpf(1.55, 1.72, ak) - smoothstep(0.0, 1.0, _crouch_k) * 0.55, 0)
 	if body != Vector3.INF:
 		head = body + Vector3(0, 0.6, 0)      # (down: the camera up and back, on your body as it falls)
 	var back := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
@@ -4108,6 +4005,8 @@ func _unhandled_input(e: InputEvent) -> void:
 			KEY_SHIFT:
 				held["hand"] = on
 				keys["sprint"] = on
+			KEY_C:
+				held["crouch"] = on
 			KEY_F, KEY_ENTER:
 				if on and state == DRIVE:
 					toggle_foot()

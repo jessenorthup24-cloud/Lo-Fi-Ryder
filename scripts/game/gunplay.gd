@@ -225,7 +225,7 @@ func _pose(you: CharacterBody3D, dt: float) -> void:
 	elif aiming and aim_point != Vector3.INF:
 		var to := aim_point - you.global_position
 		# a long gun's shouldered: the body side-on (left shoulder toward them), the stock at the right shoulder
-		var blade := -0.6 if float(weapon.get("fore", 0.0)) > 0.0 else 0.0
+		var blade := 0.0            # (the long gun clips stand side-on themselves)
 		you.facing = lerp_angle(you.facing, atan2(-to.x, -to.z) + blade, 1.0 - exp(-dt * 20.0))
 		you.aiming = 0.3
 		at = aim_point
@@ -244,7 +244,7 @@ func _find_aim(you: CharacterBody3D) -> void:
 	var cam: Camera3D = game.cam
 	var from := cam.global_position
 	var fwd := -cam.global_transform.basis.z
-	var head := you.global_position + Vector3(0, 1.3, 0)
+	var head := you.global_position + Vector3(0, 0.85 if you.get("crouch") else 1.3, 0)
 	var rng: float = weapon.get("range", 60.0)
 	lock = null
 	lock_pos = Vector3.INF
@@ -286,7 +286,7 @@ func _clear(a: Vector3, b: Vector3) -> bool:
 func _fire(you: CharacterBody3D) -> void:
 	cool = 1.0 / float(weapon["rate"])
 	ammo[weapon["id"]] = int(ammo[weapon["id"]]) - 1
-	var muzzle: Vector3 = you.global_position + Vector3(0, 1.3, 0)
+	var muzzle: Vector3 = you.global_position + Vector3(0, 0.85 if you.get("crouch") else 1.3, 0)
 	if gun_node and is_instance_valid(gun_node):
 		var ab := gun_node.mesh.get_aabb()
 		muzzle = gun_node.global_transform * Vector3(0, ab.get_center().y + ab.size.y * 0.2, ab.position.z)
@@ -804,10 +804,8 @@ func _officer_out(u: Dictionary, k: int) -> void:
 	add_child(n)
 	var p := uc.global_position + side
 	n.global_position = Vector3(p.x, game.island.height_at(p.x, p.z) + 0.1, p.z)
-	# out of the car first (facing away from it), then into it
 	av.rotation.y = atan2(side.x, side.z)
-	av.play_once("exit_car", 1.8, 1.7, 1.4)
-	officers.append({"node": n, "av": av, "hp": OFFICER_HP, "cool": randf_range(0.8, 1.6) + 1.7, "unit": u, "dead": false})
+	officers.append({"node": n, "av": av, "hp": OFFICER_HP, "cool": randf_range(0.8, 1.6) + 0.4, "unit": u, "dead": false})
 
 ## Officers gone (you're back in a car, or it's over); the cars they came in pick up the chase again.
 func clear_officers() -> void:

@@ -49,7 +49,7 @@ var heist_box: PanelContainer   # a heist on: what to do, the clock, a bar
 var _heist_title: Label
 var _heist_sub: Label
 var _heist_bar: ProgressBar
-const FOOT_PADS := ["stick", "jump", "sprint", "fire", "swap", "reload"]     # (no AIM: holding FIRE aims)
+const FOOT_PADS := ["stick", "jump", "sprint", "fire", "swap", "reload", "crouch"]     # (no AIM: holding FIRE aims)
 var reticle: Control        # on foot, aiming: the crosshair in the middle (red when it's locked on)
 var _hit_t := 0.0            # a hit marker showing (s left)
 var _hit_kill := false
@@ -598,6 +598,7 @@ func _build_hud() -> void:
 	ctl["stick"] = _pad("stick", Vector2(60, -300), Vector2(240, 240), true, K.PAPER)
 	ctl["jump"] = _pad("jump", Vector2(-214, -256), Vector2(132, 132), false, K.PAPER)
 	ctl["sprint"] = _pad("sprint", Vector2(-372, -204), Vector2(120, 120), false, K.PAPER)
+	ctl["crouch"] = _pad("crouch", Vector2(-198, -384), Vector2(100, 100), false, K.PAPER)     # (above jump)
 	ctl["fire"] = _pad("fire", Vector2(-424, -392), Vector2(160, 160), false, K.PAPER)
 	ctl["swap"] = _pad("swap", Vector2(-566, -372), Vector2(112, 112), false, K.PAPER)       # (the weapon wheel)
 	ctl["reload"] = _pad("reload", Vector2(-540, -226), Vector2(92, 92), false, K.PAPER)
@@ -775,6 +776,17 @@ func _draw_foot_pad(c: Control, name: String) -> void:
 			c.draw_polyline(PackedVector2Array([cc + Vector2(-16, 8), cc + Vector2(0, -10), cc + Vector2(16, 8)]), w, 4.0, true)
 			c.draw_polyline(PackedVector2Array([cc + Vector2(-16, 20), cc + Vector2(0, 2), cc + Vector2(16, 20)]), Color(1, 1, 1, 0.45), 3.0, true)
 			_pad_text(c, "JUMP", cc + Vector2(0, 44), 13, Color(1, 1, 1, 0.7))
+		"crouch":
+			# a figure ducking under a bar; lit while you're crouched
+			var lit: bool = c.get_meta("lit", false)
+			var cc := _draw_glass_disc(c, c.size.x * 0.46, on or lit)
+			if lit:
+				c.draw_arc(cc, c.size.x * 0.46 - 2.0, 0, TAU, 48, Color(1.0, 0.31, 0.55, 0.9), 3.0, true)
+			c.draw_line(cc + Vector2(-20, -16), cc + Vector2(20, -16), Color(1, 1, 1, 0.45), 3.0)
+			c.draw_circle(cc + Vector2(6, -5), 5.0, w)
+			c.draw_polyline(PackedVector2Array([cc + Vector2(2, 0), cc + Vector2(-8, 6), cc + Vector2(-2, 14), cc + Vector2(-10, 18)]), w, 3.5, true)
+			c.draw_polyline(PackedVector2Array([cc + Vector2(-8, 6), cc + Vector2(6, 12), cc + Vector2(4, 18)]), w, 3.5, true)
+			_pad_text(c, "CROUCH", cc + Vector2(0, 36), 12, Color(1, 1, 1, 0.7))
 		"sprint":
 			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
 			for k in 2:
@@ -1360,7 +1372,7 @@ func control_at(pos: Vector2) -> String:
 			return "wheel"
 	if not foot_mode and speedo.visible and speedo.get_global_rect().grow(12).has_point(pos):
 		return "cruise"         # (tap the speedo: cruise control)
-	for k in (["door", "fire", "reload", "swap", "jump", "sprint", "stick"] if foot_mode else ["rewind", "door", "nos", "cruise", "hand", "gas", "brake", "left", "right"]):
+	for k in (["door", "fire", "reload", "swap", "jump", "sprint", "crouch", "stick"] if foot_mode else ["rewind", "door", "nos", "cruise", "hand", "gas", "brake", "left", "right"]):
 		var c: Control = ctl[k]
 		if not c.visible:
 			continue

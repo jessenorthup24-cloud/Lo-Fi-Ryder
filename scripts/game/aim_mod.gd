@@ -12,6 +12,7 @@ var target_local := Vector3.INF  # or a point in the skeleton's own space (follo
 var weight := 0.0              # eased in and out by the avatar
 var fore := 0.0                # how far along the gun the left hand goes (skeleton units; 0: both on the grip)
 var shoulder := false
+var facing := Vector3.INF      # where the character faces (world; the avatar sets it)
 var hands_up := 0.0            # 0..1: both hands up by the head (busted)
 var flinch := 0.0              # 0..1, a hit knocking the upper body back
 var flinch_axis := Vector3.RIGHT
@@ -69,12 +70,15 @@ func _aim(sk: Skeleton3D, t: Vector3) -> void:
 		var tg := sk.get_bone_global_pose(ti)
 		var to := t - tg.origin
 		to -= up * to.dot(up)
-		# (forward: square to the line through the shoulders)
+		# (forward: square to the line through the shoulders; a long gun's clips are side-on already, the gun
+		# ahead of where the character faces: so for those, where it faces)
 		var rgt := sk.get_bone_global_pose(int(_b["UpperArm.R"])).origin - sk.get_bone_global_pose(int(_b["UpperArm.L"])).origin
 		var fwd := up.cross(rgt)
+		if shoulder and facing != Vector3.INF:
+			fwd = sk.global_transform.basis.inverse() * facing
 		fwd -= up * fwd.dot(up)
 		if to.length() > 0.0001 and fwd.length() > 0.0001:
-			var ang := clampf(fwd.signed_angle_to(to, up), -1.0, 1.0) * (0.2 if shoulder else 0.75)
+			var ang := clampf(fwd.signed_angle_to(to, up), -1.0, 1.0) * (0.9 if shoulder else 0.75)
 			_turn_global(sk, ti, Quaternion(up, ang), weight)
 	var rs := sk.get_bone_global_pose(int(_b["UpperArm.R"])).origin
 	var ls := sk.get_bone_global_pose(int(_b["UpperArm.L"])).origin
@@ -90,6 +94,14 @@ func _aim(sk: Skeleton3D, t: Vector3) -> void:
 		var half := rs.distance_to(ls) * 0.5
 		grip = mid + dir * sqrt(maxf(reach * reach - half * half, reach * reach * 0.2))
 	var side := dir.cross(up).normalized()          # (to the right, along the aim)
+	if shoulder and int(_b["Head"]) >= 0:
+		# (the clips stand side-on, the right shoulder behind the head: the line from it to the target would go
+		# through the face. Out to the right cheek instead, the stock in the shoulder's pocket, the head beside it)
+		var hd := sk.get_bone_global_pose(int(_b["Head"])).origin
+		var lat := (rs - hd).dot(side)
+		var want := _up_len * 0.36
+		if lat < want:
+			grip += side * (want - lat)
 	_reach(sk, "R", grip, -up + side * 0.6)
 	_reach(sk, "L", grip + dir * maxf(fore, 0.0), -up - side * 0.6)
 

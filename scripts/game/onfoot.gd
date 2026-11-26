@@ -8,6 +8,7 @@ const LAYER := 128             # what you are, for collisions
 const WALK := 2.6              # m/s at a light push of the stick
 const RUN := 4.6               # full stick
 const SPRINT := 7.2            # holding sprint
+const CROUCH := 1.9            # crouched, full stick
 const JUMP_V := 5.2
 const GRAV := 16.0
 const RADIUS := 0.34
@@ -40,6 +41,9 @@ func setup(isl: Node, id: String, acc: String, mat: Material) -> void:
 	add_child(avatar)
 	avatar.setup(id, acc, mat)
 
+var crouch := false            # crouched down (the button); pressed running, you slide into it
+var slide_t := 0.0             # sliding: carried on by the run, slowing, no steering
+var _slide_dir := Vector3.ZERO
 var scripted := false          # the game's moving you (climbing into a car): no walking, no physics
 var down_t := 0.0              # knocked flat (bailed out of a moving car): ragdolling, then up again
 
@@ -56,15 +60,25 @@ func _physics_process(dt: float) -> void:
 	var rgt := Vector3(cos(cam_yaw), 0, -sin(cam_yaw))
 	var dir := fwd * m.y + rgt * m.x
 	var spd := 0.0
+	if sprint and crouch and slide_t <= 0.0:
+		crouch = false           # (sprinting stands you up)
 	if m.length() > 0.08:
-		spd = SPRINT if sprint else lerpf(WALK, RUN, clampf((m.length() - 0.5) / 0.5, 0.0, 1.0))
+		if crouch:
+			spd = lerpf(0.9, CROUCH, clampf((m.length() - 0.3) / 0.7, 0.0, 1.0))
+		else:
+			spd = SPRINT if sprint else lerpf(WALK, RUN, clampf((m.length() - 0.5) / 0.5, 0.0, 1.0))
 	var want := dir.normalized() * spd if spd > 0.0 else Vector3.ZERO
+	if slide_t > 0.0:
+		slide_t -= dt
+		want = _slide_dir
 	var grounded := is_on_floor()
 	# a bit of weight: it takes a moment to get going and to stop (stopping's a little quicker)
 	var cur := Vector3(velocity.x, 0, velocity.z)
 	var acc := (9.0 if want.length() > cur.length() else 13.0) if grounded else 4.0
 	if want.length() > 0.1 and cur.length() > 0.5 and want.normalized().dot(cur.normalized()) < 0.3:
 		acc = 16.0       # (a hard change of direction digs in)
+	if slide_t > 0.0:
+		acc = 6.5        # (the slide: the run bleeds off along the ground)
 	var hv := cur.move_toward(want, acc * dt)
 	velocity.x = hv.x
 	velocity.z = hv.z
@@ -75,7 +89,10 @@ func _physics_process(dt: float) -> void:
 		elif _air > 0.25 and float(avatar.gun_def.get("fore", 0.0)) > 0.0:
 			avatar.play_once("land", 0.3, 0.35)
 		_air = 0.0
-		if jump_req:
+		if jump_req and crouch:
+			crouch = false       # (jump from a crouch: you stand up first)
+			jump_req = false
+		if jump_req and slide_t <= 0.0:
 			velocity.y = JUMP_V
 			# up: the jump from its push-off (the clip for what's in your hands), held through the rise
 			var kind := "" if avatar.gun_def.is_empty() else ("rifle" if float(avatar.gun_def.get("fore", 0.0)) > 0.0 else "pistol")
@@ -93,7 +110,7 @@ func _physics_process(dt: float) -> void:
 	move_and_slide()
 	# face where you're going (quickly, but not snapping)
 	aiming = maxf(0.0, aiming - dt)
-	if hv.length() > 0.4 and aiming <= 0.0:
+	if hv.length() > 0.4 and aiming <= 0.0 and slide_t <= 0.0:
 		facing = lerp_angle(facing, atan2(-hv.x, -hv.z), 1.0 - exp(-dt * 7.5))
 	avatar.rotation.y = facing + PI          # (the Kenney characters face +Z)
 	# below the sea or fallen off the world: back up on land
@@ -101,34 +118,38 @@ func _physics_process(dt: float) -> void:
 		var p: Vector3 = global_position
 		global_position = Vector3(p.x, island.height_at(p.x, p.z) + 1.0, p.z)
 		velocity = Vector3.ZERO
-	_animate(hv.length(), grounded)
+	_animate(hv, grounded)
 
-var _gait := 0      # 0 stood, 1 walking, 2 running
+## Crouch (or stand back up). Running, you slide into it: down on one hip, carried on by the run.
+func toggle_crouch() -> void:
+	if scripted or down_t > 0.0 or slide_t > 0.0:
+		return
+	var hv := Vector3(velocity.x, 0, velocity.z)
+	if not crouch and hv.length() > 3.6 and is_on_floor():
+		slide_t = 0.85
+		_slide_dir = hv.normalized() * 2.0
+		facing = atan2(-hv.x, -hv.z)
+		sprint = false
+		avatar.play_once("slide", 0.05, 0.85, 1.0, true, 0.1)
+	crouch = not crouch
 
-func _animate(v: float, grounded: bool) -> void:
+func _animate(hv: Vector3, grounded: bool) -> void:
+	avatar.crouch = crouch
 	if avatar.lock_t > 0.0:
-		# a one-off move playing (out of the car, a landing): pushing the stick cuts it short (not a jump)
+		# a one-off move playing (a landing): pushing the stick cuts it short (not a jump, not a slide)
 		if move.length() > 0.35 and avatar.lock_t < 10.0 and not avatar.lock_hard:
 			avatar.lock_t = 0.0
 		else:
 			return
-	# the gait, with a little give either side of each change so it doesn't flicker between two
-	if v < 0.25:
-		_gait = 0
-	elif v > 3.9:
-		_gait = 2
-	elif _gait == 0 and v > 0.5:
-		_gait = 1
-	elif _gait == 2 and v < 3.0:
-		_gait = 1
 	if not grounded and _air > 0.12:
 		avatar.play("fall", 1.0, 0.2)      # (in the air: held; the jump's own clip played at the push-off)
-	elif _gait == 0:
-		avatar.play("idle", 1.0, 0.3)
-	elif _gait == 1:
-		avatar.play("walk", clampf(v / 1.5, 0.7, 1.6), 0.3)
-	else:
-		avatar.play("sprint", clampf(v / 4.4, 0.85, 1.6), 0.3)
+		return
+	# walking about: how fast and which way, in the character's own frame (strafing and backing up while you
+	# face what you're shooting at)
+	var fwd := Vector3(-sin(facing), 0, -cos(facing))
+	var left := Vector3(-cos(facing), 0, sin(facing))
+	var v := Vector2(hv.dot(left), hv.dot(fwd))
+	avatar.locomote(v if v.length() > 0.15 else Vector2.ZERO)
 
 ## Put down here, facing this way, stood still.
 func place(p: Vector3, yaw: float) -> void:
