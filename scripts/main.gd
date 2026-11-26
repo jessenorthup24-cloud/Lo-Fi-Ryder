@@ -1041,9 +1041,24 @@ func _crew_tests() -> void:
 			# (shot dead: the ragdoll, WASTED)
 			set_meta("gd_done", true)
 			gunplay.hurt(150.0, foot.global_position + Vector3(4, 1, 1))
+		if args.has("gundie") and time > float(args.get("probe_t", "4.9")) and has_meta("gd_done") and not has_meta("gd_probe") and foot:
+			set_meta("gd_probe", true)
+			var av = foot.avatar
+			var sk: Skeleton3D = av.skel
+			print("DIE limp=", av.limp != null, " bodies=", av.limp.bodies.size() if av.limp else -1, " torso=", av.limp.torso_pos() if av.limp else Vector3.INF,
+				" hips=", (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Hips"))).origin, " you=", foot.global_position, " vis=", av.is_visible_in_tree(), " anim=", av.current(), " playing=", av.anim.is_playing(), " ts=", Engine.time_scale, " t=", time)
+		if args.has("entertest") and time > 4.5 and not has_meta("et"):
+			set_meta("et", true)
+			toggle_foot()
+			print("ENTER started on_foot=", on_foot)
+		if args.has("entertest") and time > 5.5 and not has_meta("et2"):
+			set_meta("et2", true)
+			print("ENTER after on_foot=", on_foot, " state=", state)
 		if on_foot and args.has("gunidle"):
 			# (stood still, gun out, not aiming: the camera round to the side to see it in the hand)
 			look_yaw_t = float(args.get("gunyaw", "2.0"))
+			if args.has("runtest"):
+				stick = Vector2(0.3, 1.0)       # (running along, to see the feet)
 		elif on_foot and args.has("gunhold"):
 			# (aim and hold still: to look at the pose and the reticle)
 			aim_toggle = true
@@ -3503,14 +3518,44 @@ func _exit_car() -> void:
 	aim_toggle = false
 	ui.set_foot(true)
 	sfx("door", -6.0) if sound._stream("door") else sfx("bump", -10.0, 1.4)
+	foot.avatar.play_once("exit_car", 2.4, 1.6, 1.2)      # (up out of the seat and a step away)
 
 ## In again: the car you got out of, a parked one, or one off the road (you take it: its driver runs).
+## First a moment at the door (turned to it, the door opening), then you're in.
+var _enter_wait := 0.0
+var _enter_t := {}
 func _enter_car() -> void:
-	if foot == null:
+	if foot == null or _enter_wait > 0.0:
 		return
 	var t := _enter_target()
 	if t.is_empty():
 		ui.toast("Walk up to a car to get in", "car")
+		return
+	var at: Vector3 = car.global_position
+	if String(t["kind"]) == "parked":
+		at = (t["pk"]["node"] as Node3D).global_position
+	elif String(t["kind"]) == "traffic":
+		at = (t["c"]["body"] as Node3D).global_position
+	var to := at - foot.global_position
+	if Vector2(to.x, to.z).length() > 0.3:
+		foot.facing = atan2(-to.x, -to.z)
+		foot.avatar.rotation.y = foot.facing + PI
+	foot.avatar.play_once("enter_car", 0.6, 0.75, 1.4)
+	foot.velocity = Vector3.ZERO
+	_enter_t = t
+	_enter_wait = 0.55
+
+func _enter_tick(dt: float) -> bool:
+	if _enter_wait <= 0.0:
+		return false
+	_enter_wait -= dt
+	foot.move = Vector2.ZERO
+	if _enter_wait <= 0.0:
+		_enter_car_now(_enter_t)
+	return true
+
+func _enter_car_now(t: Dictionary) -> void:
+	if foot == null or t.is_empty():
 		return
 	match String(t["kind"]):
 		"parked":
@@ -3674,6 +3719,9 @@ func _foot_tick(dt: float) -> void:
 	if gunplay.dying:
 		mv = Vector2.ZERO          # (you're down)
 	foot.move = mv
+	_enter_tick(dt)          # (at a car's door: stood still a moment, then in)
+	if not on_foot or foot == null:
+		return
 	foot.cam_yaw = foot_yaw + look_yaw
 	foot.sprint = held.get("sprint", false) or keys.get("sprint", false)
 	if _pressed("jump") or (keys.get("jump", false) and not foot.get_meta("jk", false)):
@@ -3780,12 +3828,21 @@ func _aim_dof(ak: float) -> void:
 	_dof.visible = on
 	if not on:
 		return
-	var f := 25.0
-	if gunplay.aim_point != Vector3.INF:
-		f = clampf(cam.global_position.distance_to(gunplay.aim_point), 3.0, 160.0)
+	# the two sharp spots: what you're aiming at (the reticle, or whoever it's locked on), and you
+	var vs := get_viewport().get_visible_rect().size
 	var m2 := _dof.material_override as ShaderMaterial
-	var cur: float = m2.get_shader_parameter("focus") if m2.get_shader_parameter("focus") != null else f
-	m2.set_shader_parameter("focus", lerpf(cur, f, 0.2))
+	var a := Vector2(0.5, 0.5)
+	var ra := 0.14
+	if gunplay.lock_pos != Vector3.INF and not cam.is_position_behind(gunplay.lock_pos):
+		a = cam.unproject_position(gunplay.lock_pos) / vs
+		ra = clampf(3.0 / maxf(cam.global_position.distance_to(gunplay.lock_pos), 1.0), 0.08, 0.3)
+	var me: Vector3 = foot.global_position + Vector3(0, 1.0, 0)
+	var b := cam.unproject_position(me) / vs if not cam.is_position_behind(me) else Vector2(0.4, 0.8)
+	var rb := clampf(2.2 / maxf(cam.global_position.distance_to(me), 0.5), 0.15, 0.45)
+	m2.set_shader_parameter("focus_a", a)
+	m2.set_shader_parameter("focus_b", b)
+	m2.set_shader_parameter("r_a", ra)
+	m2.set_shader_parameter("r_b", rb)
 	m2.set_shader_parameter("amount", smoothstep(0.05, 0.9, ak))
 
 func toggle_group_cam() -> void:

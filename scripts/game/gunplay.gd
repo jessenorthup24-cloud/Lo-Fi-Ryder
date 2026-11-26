@@ -682,7 +682,13 @@ func explode(n: Node3D) -> void:
 			_damage_car(uc, 100.0)
 			(uc as RigidBody3D).apply_central_impulse(((uc.global_position - p).normalized() + Vector3.UP) * 5000.0)
 	if game.car != n and game.car.global_position.distance_to(p) < BLAST_R:
-		game.car.apply_central_impulse(((game.car.global_position - p).normalized() + Vector3.UP) * 5000.0)
+		# your car: knocked about and dented, more the nearer it is (not thrown across town)
+		var near_k: float = 1.0 - game.car.global_position.distance_to(p) / BLAST_R
+		var away: Vector3 = (game.car.global_position - p)
+		away.y = 0.0
+		game.car.apply_central_impulse((away.normalized() * 0.8 + Vector3.UP * 0.35) * game.car.mass * 3.5 * near_k)
+		game.car.damage = minf(100.0, game.car.damage + 28.0 * near_k)
+		game.car.dent(p, (game.car.global_position - p).normalized(), 0.6 * near_k)
 		game.car.damage = minf(100.0, game.car.damage + 35.0)
 
 ## What's left after a car blows: blackened, thrown up and over.

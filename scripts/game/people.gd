@@ -34,6 +34,8 @@ func setup(w: Node, material: ShaderMaterial) -> void:
 			shoulders[key] = M.kshoulders(v, pose)
 
 func clear() -> void:
+	for pr in _live.duplicate():
+		_unlive(pr)
 	for p in pools.values():
 		p.clear_all()
 	list.clear()
@@ -104,6 +106,9 @@ func _place(pr: Dictionary, t: float) -> void:
 	var key: String = pr["key"]
 	var sh: Array = shoulders[key]
 	var base: Vector3 = pr["pos"] + Vector3(0, pr["y"], 0)
+	if pr.has("live"):
+		_place_live(pr, base, t)
+		return
 	if pr["pose"] == "lie":
 		var lb := Basis(Vector3.UP, pr["yaw"]) * Basis(Vector3.RIGHT, PI * 0.5)
 		var lo := base + Vector3(0, 0.16, 0) + lb * Vector3(0, -0.5, 0)
@@ -140,9 +145,85 @@ func _place(pr: Dictionary, t: float) -> void:
 			ab = bb * Basis(Vector3.RIGHT, swing * (1.0 if i == 0 else -1.0))
 		pools[key + ("_al" if i == 0 else "_ar")].put(pr["al"] if i == 0 else pr["ar"], Transform3D(ab, base + bob + bb * (sh[i] as Vector3)))
 
+# ---------------------------------------------------------------- the few nearest, fully animated
+# The people nearest you (a handful) swap their still pieces for the real character, doing something: on the
+# phone, texting, talking, leaning, waving, dancing by the sea; walking, running from trouble, sitting.
+# Further off they're the still pieces again (cheap: dozens of them).
+const Avatar := preload("res://scripts/game/avatar.gd")
+const LIVE_N := 5
+const LIVE_R := 24.0
+const ACTS := ["talk", "text", "phone", "lean", "idle", "wave", "talk"]
+var _live_t := 0.0
+var _live: Array = []
+
+func _live_tick(dt: float, you: Vector3) -> void:
+	_live_t -= dt
+	if _live_t > 0.0:
+		return
+	_live_t = 0.4
+	# let go of any that have gone off (too far, knocked down, gone)
+	for pr in _live.duplicate():
+		var far: bool = Vector2(pr["pos"].x - you.x, pr["pos"].z - you.z).length() > LIVE_R * 1.3
+		if far or pr["gone"] or pr.get("down", false) or pr.has("ride"):
+			_unlive(pr)
+	if _live.size() >= LIVE_N:
+		return
+	var best: Array = []
+	for pr in list:
+		if pr["gone"] or pr.get("down", false) or pr.has("ride") or pr.has("live") or pr["pose"] == "lie":
+			continue
+		var d := Vector2(pr["pos"].x - you.x, pr["pos"].z - you.z).length()
+		if d < LIVE_R:
+			best.append([d, pr])
+	best.sort_custom(func(a, b): return a[0] < b[0])
+	for e in best:
+		if _live.size() >= LIVE_N:
+			break
+		_make_live(e[1])
+
+func _make_live(pr: Dictionary) -> void:
+	var av := Avatar.new()
+	add_child(av)
+	av.setup(String(M.CHARS[int(pr["v"]) % M.CHARS.size()]), "", mat)
+	pr["live"] = av
+	var p: Vector3 = pr["pos"]
+	pr["act"] = "sit" if pr["pose"] == "sit" else ("dance" if p.z > 300.0 and randf() < 0.35 else ACTS[randi() % ACTS.size()])
+	_live.append(pr)
+	# the still pieces out of sight
+	var hide := Transform3D(Basis().scaled(Vector3.ONE * 0.001), p + Vector3(0, -60, 0))
+	pools[pr["key"]].put(pr["slot"], hide)
+	pools[pr["key"] + "_al"].put(pr["al"], hide)
+	pools[pr["key"] + "_ar"].put(pr["ar"], hide)
+
+func _unlive(pr: Dictionary) -> void:
+	var av: Node = pr.get("live")
+	pr.erase("live")
+	_live.erase(pr)
+	if av and is_instance_valid(av):
+		av.queue_free()
+
+func _place_live(pr: Dictionary, base: Vector3, _t: float) -> void:
+	var av: Avatar = pr["live"]
+	if not is_instance_valid(av):
+		pr.erase("live")
+		return
+	av.global_position = base - Vector3(0, SIT_LIFT if pr["pose"] == "sit" else 0.0, 0)
+	av.rotation.y = float(pr["face"])
+	if float(pr.get("flinch", 0.0)) > 0.9 and pr.has("flinch_ax"):
+		av.flinch(Vector3(pr["flinch_ax"]).cross(Vector3.UP))
+	if float(pr.get("flee", 0.0)) > 0.0:
+		av.play("sprint" if pr.has("path") else "terrified")
+	elif pr.has("path"):
+		av.play("walk", 0.9)
+	elif float(pr["wave"]) > 0.4 or (cheer_t > 0.0 and pr.get("cheering", false)):
+		av.play("wave")
+	else:
+		av.play(String(pr.get("act", "idle")))
+
 ## Returns true when someone near the road starts waving (the car can honk back).
 func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 	cheer_t = maxf(0.0, cheer_t - dt)
+	_live_tick(dt, car_pos)
 	var honk := false
 	for pr in list:
 		if pr["gone"]:
@@ -240,6 +321,8 @@ func hits(xf: Transform3D, half: Vector3, zc: float, vel: Vector3) -> Array:
 func knock_down(pr: Dictionary) -> Dictionary:
 	if pr["gone"] or pr.get("down", false):
 		return {}
+	if pr.has("live"):
+		_unlive(pr)
 	var key: String = pr["key"]
 	# the body as it stands now (seated: they come off the seat as they'd stand; lying: as they lie)
 	var xf := Transform3D(Basis(Vector3.UP, pr["face"]), pr["pos"] + Vector3(0, float(pr["y"]), 0))
@@ -308,6 +391,8 @@ func panic(at: Vector3, r: float) -> void:
 func vanish(pr: Dictionary, fx: Node) -> void:
 	if pr.is_empty() or pr["gone"]:
 		return
+	if pr.has("live"):
+		_unlive(pr)
 	pr["gone"] = true
 	if fx:
 		fx.puff(pr["pos"] + Vector3(0, 0.5, 0), Color(1, 1, 1), 0.6, Vector3(0, 1, 0), 0.6, 1.0)

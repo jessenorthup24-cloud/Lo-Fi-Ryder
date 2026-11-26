@@ -82,7 +82,19 @@ func start(sk: Skeleton3D, world: Node3D, vel: Vector3, push: Vector3) -> void:
 	if torso == null:
 		return
 	torso.apply_central_impulse(push * torso.mass)
-	torso.apply_torque_impulse(Vector3(randf_range(-1, 1), randf_range(-0.5, 0.5), randf_range(-1, 1)) * 6.0)
+	# knocked over, not left standing (a stack of boxes balances): the trunk tips the way the hit went, the
+	# legs go out from under it the other way
+	var away := Vector3(push.x, 0, push.z)
+	if away.length() < 0.1:
+		away = Vector3(randf_range(-1, 1), 0, randf_range(-1, 1))
+	away = away.normalized()
+	torso.angular_velocity = Vector3.UP.cross(away).normalized() * -4.0 + Vector3(0, randf_range(-1.5, 1.5), 0)
+	torso.linear_velocity += away * 1.5
+	for p in PARTS:
+		if String(p[0]).begins_with("LowerLeg") or String(p[0]).begins_with("UpperLeg"):
+			var lb: RigidBody3D = bodies.get(sk.find_bone(String(p[0])))
+			if lb:
+				lb.linear_velocity += -away * (2.2 if String(p[0]).begins_with("Lower") else 1.2)
 	# the joints: each part onto the one above it, at its own bone
 	for p in PARTS:
 		if String(p[5]) == "" or not by_name.has(p[0]) or not by_name.has(p[5]):

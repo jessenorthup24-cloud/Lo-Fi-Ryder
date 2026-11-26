@@ -59,6 +59,9 @@ func _physics_process(dt: float) -> void:
 	velocity.x = hv.x
 	velocity.z = hv.z
 	if grounded:
+		# down hard after a long drop: a heavy landing (move to shrug it off)
+		if _air > 0.75:
+			avatar.play_once("land", 0.35, 0.9)
 		_air = 0.0
 		if jump_req:
 			velocity.y = JUMP_V
@@ -79,15 +82,32 @@ func _physics_process(dt: float) -> void:
 		velocity = Vector3.ZERO
 	_animate(hv.length(), grounded)
 
+var _gait := 0      # 0 stood, 1 walking, 2 running
+
 func _animate(v: float, grounded: bool) -> void:
-	if not grounded and _air > 0.12:
-		avatar.play("jump" if velocity.y > 0.5 else "fall")
-	elif v < 0.35:
-		avatar.play("idle")
-	elif v < 3.4:
-		avatar.play("walk", clampf(v / 2.2, 0.6, 1.5))
+	if avatar.lock_t > 0.0:
+		# a one-off move playing (out of the car, a landing): pushing the stick cuts it short
+		if move.length() > 0.35 and avatar.lock_t < 10.0:
+			avatar.lock_t = 0.0
+		else:
+			return
+	# the gait, with a little give either side of each change so it doesn't flicker between two
+	if v < 0.25:
+		_gait = 0
+	elif v > 3.9:
+		_gait = 2
+	elif _gait == 0 and v > 0.5:
+		_gait = 1
+	elif _gait == 2 and v < 3.0:
+		_gait = 1
+	if not grounded and _air > 0.18:
+		avatar.play("jump" if velocity.y > 0.5 else "fall", 1.0, 0.2)
+	elif _gait == 0:
+		avatar.play("idle", 1.0, 0.3)
+	elif _gait == 1:
+		avatar.play("walk", clampf(v / 1.5, 0.7, 1.6), 0.3)
 	else:
-		avatar.play("sprint", clampf(v / 6.4, 0.7, 1.4))
+		avatar.play("sprint", clampf(v / 5.5, 0.8, 1.35), 0.3)
 
 ## Put down here, facing this way, stood still.
 func place(p: Vector3, yaw: float) -> void:

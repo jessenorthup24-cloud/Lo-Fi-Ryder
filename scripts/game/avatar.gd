@@ -129,8 +129,6 @@ func _paint(mi: MeshInstance3D, of: Array) -> Mesh:
 	for si in src.get_surface_count():
 		var a := src.surface_get_arrays(si)
 		var vn: int = (a[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
-		var cc := PackedColorArray()
-		cc.resize(vn)
 		var bones = a[Mesh.ARRAY_BONES]
 		var wts = a[Mesh.ARRAY_WEIGHTS]
 		var per := 4
@@ -141,20 +139,52 @@ func _paint(mi: MeshInstance3D, of: Array) -> Mesh:
 		if mat is BaseMaterial3D:
 			surf_col = (mat as BaseMaterial3D).albedo_color
 		var is_face := surf_col.get_luminance() > 0.6      # (the eyes and the mouth: as they are)
+		# each corner's part: the bone it hangs from most
+		var part := PackedStringArray()
+		part.resize(vn)
 		for v in vn:
-			var c := surf_col
-			if not is_face and bones != null:
-				var best := 0
-				var bw := -1.0
+			var best := 0
+			var bw := -1.0
+			if bones != null:
 				for k in per:
 					var w: float = (wts as PackedFloat32Array)[v * per + k]
 					if w > bw:
 						bw = w
 						best = (bones as PackedInt32Array)[v * per + k]
-				c = cols.get(region.get(best, "top"), surf_col)
-			cc[v] = Color(c.r, c.g, c.b, 0.7)
-		a[Mesh.ARRAY_COLOR] = cc
-		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a, [], {}, Mesh.ARRAY_FLAG_USE_8_BONE_WEIGHTS if per == 8 else 0)
+			part[v] = String(region.get(best, "top"))
+		# each triangle one colour (the part most of its corners are on), its corners its own: no colours
+		# smudging into each other along the seams
+		var idx := PackedInt32Array()
+		if a[Mesh.ARRAY_INDEX] != null and (a[Mesh.ARRAY_INDEX] as PackedInt32Array).size() > 0:
+			idx = a[Mesh.ARRAY_INDEX]
+		else:
+			for v in vn:
+				idx.append(v)
+		var out_a := []
+		out_a.resize(Mesh.ARRAY_MAX)
+		for at in [Mesh.ARRAY_VERTEX, Mesh.ARRAY_NORMAL, Mesh.ARRAY_TEX_UV, Mesh.ARRAY_BONES, Mesh.ARRAY_WEIGHTS]:
+			if a[at] == null:
+				continue
+			var srcv = a[at]
+			var w := per if at in [Mesh.ARRAY_BONES, Mesh.ARRAY_WEIGHTS] else 1
+			var dst = srcv.duplicate()
+			dst.resize(idx.size() * w)
+			for q in idx.size():
+				for c in w:
+					dst[q * w + c] = srcv[idx[q] * w + c]
+			out_a[at] = dst
+		var cc := PackedColorArray()
+		cc.resize(idx.size())
+		for q in range(0, idx.size(), 3):
+			var p0 := part[idx[q]]
+			var p1 := part[idx[q + 1]]
+			var p2 := part[idx[q + 2]]
+			var pt := p0 if (p0 == p1 or p0 == p2) else p1
+			var c: Color = surf_col if is_face else cols.get(pt, surf_col)
+			for e in 3:
+				cc[q + e] = Color(c.r, c.g, c.b, 0.7)
+		out_a[Mesh.ARRAY_COLOR] = cc
+		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out_a, [], {}, Mesh.ARRAY_FLAG_USE_8_BONE_WEIGHTS if per == 8 else 0)
 	_painted[key] = out
 	return out
 
@@ -178,16 +208,29 @@ func _clip(n: String) -> String:
 			"phone": "x_talking_phone_pacing", "lean": "x_leaning", "dance": "x_samba_dancing", "dance2": "x_gangnam_style",
 			"hurt_idle": "hurt_injured_idle", "hurt_walk": "hurt_injured_walk", "hurt_run": "hurt_injured_run"},
 		"pistol": {"idle": "x_pistol_idle", "walk": "pistol_walk", "sprint": "pistol_run", "jump": "pistol_jump",
-			"holding-both": "x_pistol_aim_idle_1"},
+			"holding-both": "x_pistol_idle"},
 		"rifle": {"idle": "rifle_idle", "walk": "rifle_walk_forward", "sprint": "rifle_run_forward", "jump": "rifle_jump_loop",
-			"fall": "rifle_jump_loop", "holding-both": "rifle_idle_aiming", "die": "rifle_death_from_the_front"},
+			"fall": "rifle_jump_loop", "holding-both": "rifle_idle", "die": "rifle_death_from_the_front"},
 	}
 	var t: Dictionary = table[kind]
 	return String(t.get(n, table[""].get(n, n)))
 
+## A move played once (getting in or out of a car, landing hard), from `from` seconds in, for `dur` seconds
+## (to its end if dur < 0): the ordinary moves wait till it's done (or till `lock_t` is cleared).
+var lock_t := 0.0
+func play_once(n: String, from := 0.0, dur := -1.0, speed := 1.0) -> void:
+	var c := _clip(n)
+	if anim == null or limp != null or not anim.has_animation(c):
+		return
+	anim.play(c, 0.12)
+	anim.seek(from, true)
+	anim.speed_scale = speed
+	_now = c
+	lock_t = dur if dur > 0.0 else (anim.get_animation(c).length - from) / speed
+
 ## Play a move (eased in from the last one), at a speed.
-func play(n: String, speed := 1.0, blend := 0.15) -> void:
-	if anim == null or (limp != null and n != "idle"):
+func play(n: String, speed := 1.0, blend := 0.28) -> void:
+	if anim == null or (limp != null and n != "idle") or lock_t > 0.0:
 		return
 	var c := _clip(n)
 	if not anim.has_animation(c):
@@ -268,6 +311,7 @@ func go_limp(world: Node3D, vel: Vector3, push: Vector3) -> void:
 	if limp or skel == null:
 		return
 	# (an animation keeps playing underneath: the skeleton only runs its modifiers while something moves it)
+	lock_t = 0.0
 	play("idle", 1.0, 0.0)
 	if aim:
 		aim.weight = 0.0
@@ -283,6 +327,7 @@ func go_limp(world: Node3D, vel: Vector3, push: Vector3) -> void:
 		gun.visible = false
 
 func _process(dt: float) -> void:
+	lock_t = maxf(0.0, lock_t - dt)
 	if aim:
 		aim.flinch = move_toward(aim.flinch, 0.0, dt * 3.5)
 	if gun == null or limp != null:
@@ -304,4 +349,6 @@ func _process(dt: float) -> void:
 	gb = gb * gun_extra
 	var lb := ba.global_transform.basis.orthonormalized().inverse() * gb
 	gun.transform = Weapons.hand_xf(gun_def, gun.mesh, sk_scale, hand, lb.orthonormalized())
-	gun.position += gun_nudge
+	# the kick: gun_nudge.x metres straight back along the barrel (in the bone's own, scaled, space)
+	if gun_nudge.x != 0.0:
+		gun.position += ba.global_transform.basis.inverse() * (gb.orthonormalized() * Vector3(0, 0, gun_nudge.x))

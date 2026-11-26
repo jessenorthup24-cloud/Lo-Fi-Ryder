@@ -45,9 +45,16 @@ func _init() -> void:
 				r2.free()
 				continue
 			var a2: Animation = p2.get_animation("mixamo_com").duplicate()
-			# in place: the armature's own tracks (the root motion, and its turn) off
+			# in place: the armature's own travel off, but its height kept (the retarget lowers the whole rig to
+			# keep the feet on the ground: without it they'd float and the knees look bent); its turn off
 			for t in range(a2.get_track_count() - 1, -1, -1):
-				if String(a2.track_get_path(t)) == "CharacterArmature":
+				if String(a2.track_get_path(t)) != "CharacterArmature":
+					continue
+				if a2.track_get_type(t) == Animation.TYPE_POSITION_3D:
+					for k in a2.track_get_key_count(t):
+						var v: Vector3 = a2.track_get_key_value(t, k)
+						a2.track_set_key_value(t, k, Vector3(0, v.y, 0))
+				else:
 					a2.remove_track(t)
 			var base_nm := _clean(f.get_basename())
 			var nm2 := base_nm if base_nm.begins_with(pre + "_") else pre + "_" + base_nm
