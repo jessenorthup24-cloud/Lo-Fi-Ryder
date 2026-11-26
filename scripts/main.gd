@@ -864,7 +864,8 @@ func _process(dt: float) -> void:
 		TITLE:
 			_controls_off()
 			car.handbrake = 1.0
-			_title_cam(dt)
+			if ui.map_layer == null:
+				_title_cam(dt)       # (the map has the camera while it's open)
 		DRIVE:
 			if on_foot:
 				_foot_tick(dt)

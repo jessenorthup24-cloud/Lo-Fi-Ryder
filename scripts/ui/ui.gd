@@ -2283,6 +2283,7 @@ func _map_ranges(open: bool) -> void:
 		(mi as GeometryInstance3D).visibility_range_end = 0.0 if open else 330.0
 
 func close_sheet() -> void:
+	_map_restore()
 	_map_ranges(false)
 	overlay.visible = false
 	hud.modulate.a = 1.0
@@ -2977,47 +2978,43 @@ func show_help(from_pause := false, page := 0) -> void:
 
 const MAP_SPAN := 1200.0     # metres across the big map (the island and the circuits off its coasts)
 
+## The island map, full screen: the game's own camera goes up over the island at a slant (no second view of
+## the world to draw: phones choke on that), the game held while it's open. Drag to move about, pinch (or the
+## wheel) to zoom, tap a spot for a waypoint (the GPS takes you to it). Your challenges down the right.
+var map_layer: Control
+var _map_saved := {}
 func open_map() -> void:
-	var vb: VBoxContainer = await _sheet("Island map", "map", K.TEAL, 1120.0)
-	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 18)
-	vb.add_child(hb)
-	var sz := minf(470.0, _vs().y - 220.0)
-	var holder := Panel.new()
-	holder.custom_minimum_size = Vector2(sz, sz)
-	holder.add_theme_stylebox_override("panel", K.box(Color("6fc3e8"), 24, 0, Color.TRANSPARENT, 0))
-	holder.clip_children = CanvasItem.CLIP_CHILDREN_AND_DRAW
-	hb.add_child(holder)
-	var svc := SubViewportContainer.new()
-	svc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	svc.stretch = true
-	holder.add_child(svc)
-	var vp := SubViewport.new()
-	vp.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # (everything in it moves every frame)
-	vp.size = Vector2i(int(sz), int(sz))
-	svc.add_child(vp)
-	# the island itself, in 3D, seen from up high at a slant: drag to move about, pinch (or the wheel) to zoom,
-	# tap a spot to put a waypoint there (the GPS takes you to it)
-	var mc := Camera3D.new()
-	mc.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # moved every frame by hand
-	mc.fov = 48.0
-	mc.near = 2.0
-	mc.far = 2400.0
+	if map_layer != null:
+		return
+	var from_pause: bool = game.state == game.PAUSED and overlay.visible
+	close_sheet()
+	title.visible = false
+	if game.state == game.DRIVE:
+		game.pause(false)
+	hud.modulate.a = 0.0
+	var mc: Camera3D = game.cam
+	_map_saved = {"xf": mc.global_transform, "fov": mc.fov, "far": mc.far, "env": mc.environment, "from_pause": from_pause}
 	_map_ranges(true)
 	var wenv: Environment = (game.atmos.env as Environment).duplicate()
 	wenv.fog_enabled = false          # (from up here the haze would wash the whole town out)
 	mc.environment = wenv
-	mc.cull_mask = 0xFFFFF & ~island.MAP_LAYER
-	vp.add_child(mc)
+	mc.fov = 48.0
+	mc.far = 2400.0
+	map_layer = Control.new()
+	map_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	map_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(map_layer)
 	var yp: Vector3 = game.you().global_position
-	var mst := {"focus": Vector3(yp.x, 0, yp.z), "zoom": 0.3, "touches": {}, "moved": 0.0, "pinch": 0.0}
+	var mst := {"focus": Vector3(yp.x, 0, yp.z), "zoom": 0.3, "touches": {}, "moved": 0.0}
 	var place_cam := func():
 		var z: float = mst["zoom"]
 		var h := lerpf(120.0, 900.0, z)
 		var f: Vector3 = mst["focus"]
-		mc.global_transform = Transform3D(Basis(), f + Vector3(0, h, h * 0.62))
-		mc.look_at(f, Vector3.UP)
+		# (shifted left: the list covers the right of the screen)
+		mc.global_transform = Transform3D(Basis(), f + Vector3(110.0 * (h / 500.0), h, h * 0.62))
+		mc.look_at(f + Vector3(110.0 * (h / 500.0), 0, 0), Vector3.UP)
 	place_cam.call()
+	map_layer.set_meta("place", place_cam)
 	var ground_at := func(sp: Vector2) -> Vector3:
 		var o := mc.project_ray_origin(sp)
 		var dd := mc.project_ray_normal(sp)
@@ -3033,15 +3030,14 @@ func open_map() -> void:
 	me.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var cy: float = game.you().global_rotation.y if not game.on_foot else float(game.foot.facing)
 	me.draw.connect(func():
-		var sc := holder.size / Vector2(vp.size)
 		var cp3: Vector3 = game.you().global_position
 		if not mc.is_position_behind(cp3):
-			var c := mc.unproject_position(cp3) * sc
+			var c := mc.unproject_position(cp3)
 			var f := Vector2(-sin(cy), -cos(cy))
 			var r := Vector2(-f.y, f.x)
-			var pts := PackedVector2Array([c + f * 16.0, c - f * 10.0 + r * 10.0, c - f * 4.0, c - f * 10.0 - r * 10.0])
-			me.draw_colored_polygon(pts, K.PAPER)
-			me.draw_polyline(pts + PackedVector2Array([pts[0]]), K.INK, 3.0)
+			var pts := PackedVector2Array([c + f * 18.0, c - f * 11.0 + r * 11.0, c - f * 4.0, c - f * 11.0 - r * 11.0])
+			me.draw_colored_polygon(pts, Color.WHITE)
+			me.draw_polyline(pts + PackedVector2Array([pts[0]]), K.SHADE, 3.0)
 		var marks: Array = []
 		if not game.route_pick.is_empty():
 			marks.append([game.route_pick["pos"], Color("4aa8ff")])
@@ -3052,18 +3048,18 @@ func open_map() -> void:
 			var wp3: Vector3 = m[0]
 			if mc.is_position_behind(wp3):
 				continue
-			var w := mc.unproject_position(wp3) * sc
-			me.draw_line(w, w - Vector2(0, 30), K.INK, 4.0)
-			me.draw_circle(w - Vector2(0, 34), 11.0, K.INK)
+			var w := mc.unproject_position(wp3)
+			me.draw_line(w, w - Vector2(0, 30), K.SHADE, 4.0)
+			me.draw_circle(w - Vector2(0, 34), 11.0, K.SHADE)
 			me.draw_circle(w - Vector2(0, 34), 8.0, m[1])
-			me.draw_circle(w, 4.0, K.INK))
-	holder.mouse_filter = Control.MOUSE_FILTER_STOP
-	holder.gui_input.connect(func(e: InputEvent):
+			me.draw_circle(w, 4.0, K.SHADE))
+	map_layer.add_child(me)
+	map_layer.gui_input.connect(func(e: InputEvent):
 		var touches: Dictionary = mst["touches"]
-		var to_vp := Vector2(vp.size) / holder.size
 		if e is InputEventMouseButton and e.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN] and e.pressed:
 			mst["zoom"] = clampf(float(mst["zoom"]) + (-0.06 if e.button_index == MOUSE_BUTTON_WHEEL_UP else 0.06), 0.0, 1.0)
 			place_cam.call()
+			me.queue_redraw()
 			return
 		var idx := -1
 		var pressed := false
@@ -3072,7 +3068,7 @@ func open_map() -> void:
 			idx = e.index
 			pressed = e.pressed
 			is_press = true
-		elif e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT:
+		elif e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and not DisplayServer.is_touchscreen_available():
 			idx = 100
 			pressed = e.pressed
 			is_press = true
@@ -3083,8 +3079,7 @@ func open_map() -> void:
 					mst["moved"] = 0.0
 			else:
 				if touches.size() == 1 and float(mst["moved"]) < 14.0 and touches.has(idx):
-					# a tap: a waypoint there
-					var wp: Vector3 = ground_at.call(e.position * to_vp)
+					var wp: Vector3 = ground_at.call(e.position)
 					game.set_route_pick(wp, "Waypoint")
 					game.ui_tap()
 					me.queue_redraw()
@@ -3099,7 +3094,6 @@ func open_map() -> void:
 			return
 		var old: Vector2 = touches[di]
 		if touches.size() >= 2:
-			# two fingers: pinch to zoom
 			var other := Vector2.ZERO
 			for k in touches:
 				if k != di:
@@ -3109,33 +3103,43 @@ func open_map() -> void:
 			if d0 > 10.0:
 				mst["zoom"] = clampf(float(mst["zoom"]) * d0 / maxf(d1, 1.0), 0.0, 1.0)
 		else:
-			# one: drag the map about (the ground follows your finger, near enough)
 			var dl: Vector2 = (e.position as Vector2) - old
 			mst["moved"] = float(mst["moved"]) + dl.length()
-			var k := lerpf(120.0, 900.0, float(mst["zoom"])) * 2.0 / holder.size.y
+			var k := lerpf(120.0, 900.0, float(mst["zoom"])) * 2.0 / _vs().y
 			mst["focus"] = (mst["focus"] as Vector3) + Vector3(-dl.x, 0, -dl.y) * k
 			var fv: Vector3 = mst["focus"]
 			mst["focus"] = Vector3(clampf(fv.x, -MAP_SPAN * 0.5, MAP_SPAN * 0.5), 0, clampf(fv.z, -MAP_SPAN * 0.5, MAP_SPAN * 0.5))
 		touches[di] = e.position
 		place_cam.call()
 		me.queue_redraw())
-	var hint := K.label("Drag to move · pinch to zoom · tap for a waypoint", 14, Color.WHITE, 650)
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	hint.position.y = -30
-	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	K.outlined(hint, K.INK, 6)
-	holder.add_child(me)
-	holder.add_child(hint)
-	# the challenges, with your medals and a quick way there
+	# the top: back, the title, the hint
+	var back := K.round_button("back", K.PAPER, K.LINE, 64)
+	back.position = Vector2(28, 22)
+	_tap(back, func(): _map_close())
+	map_layer.add_child(back)
+	var title := K.outlined(K.label("Island map", 34, Color.WHITE, 800), K.SHADE, 8)
+	title.position = Vector2(110, 30)
+	map_layer.add_child(title)
+	var hint := K.outlined(K.label("Drag to move · pinch to zoom · tap for a waypoint", 16, Color.WHITE, 650), K.SHADE, 6)
+	hint.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	hint.position = Vector2(30, -50)
+	map_layer.add_child(hint)
+	# the list, down the right
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", K.box(Color(0.06, 0.055, 0.09, 0.82), 24, 0, Color.TRANSPARENT, 16))
+	panel.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
+	panel.offset_left = -500
+	panel.offset_right = -20
+	panel.offset_top = 20
+	panel.offset_bottom = -20
+	map_layer.add_child(panel)
 	var right := VBoxContainer.new()
-	right.add_theme_constant_override("separation", 6)
-	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hb.add_child(right)
+	right.add_theme_constant_override("separation", 8)
+	panel.add_child(right)
 	var found: int = game.save.data["places"].size()
-	right.add_child(K.label("Places found %d/%d · Hidden cash %d/%d" % [found, island.places.size(), game.save.data["coins_taken"].size(), island.coin_spots.size()], 22, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
+	right.add_child(K.label("Places found %d/%d · Hidden cash %d/%d" % [found, island.places.size(), game.save.data["coins_taken"].size(), island.coin_spots.size()], 18, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
 	var sc := ScrollContainer.new()
-	sc.custom_minimum_size = Vector2(560, sz - 40.0)
+	sc.custom_minimum_size = Vector2(440, _vs().y - 210.0)
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	right.add_child(sc)
 	_drag_scroll(sc)
@@ -3147,6 +3151,7 @@ func open_map() -> void:
 		var clr := K.button("Clear route to %s" % game.route_pick["name"], K.PAPER, K.LINE, 20, 0, 50)
 		_tap(clr, func():
 			game.set_route_pick(Vector3.ZERO, "")
+			_map_close()
 			open_map())
 		list.add_child(clr)
 	for z in island.zones:
@@ -3176,13 +3181,33 @@ func open_map() -> void:
 		var d := int(round(sp.distance_to(game.car.global_position) / 10.0) * 10.0)
 		list.add_child(_chal_row("%s gas station" % st["name"], "Fuel and repairs · %d m away" % d, -1, Color("4fb3a5"),
 			game._road_spot(sp, 0.0), sp))
-	var back := K.button("Back", K.PAPER, K.LINE, 28, 0, 68)
-	_tap(back, func():
-		if game.state == game.PAUSED:
-			open_pause()
-		else:
-			close_sheet())
-	vb.add_child(back)
+
+## The camera back where it was, the map gone (a Route or Go from its list closes it this way too).
+func _map_restore() -> void:
+	if map_layer == null:
+		return
+	map_layer.queue_free()
+	map_layer = null
+	_map_ranges(false)
+	var mc: Camera3D = game.cam
+	mc.global_transform = _map_saved["xf"]
+	mc.fov = _map_saved["fov"]
+	mc.far = _map_saved["far"]
+	mc.environment = _map_saved["env"]
+	hud.modulate.a = 1.0
+
+## Out of the map: the camera back where it was, the game going again (or the pause menu, if that's where it was).
+func _map_close() -> void:
+	if map_layer == null:
+		return
+	_map_restore()
+	if bool(_map_saved.get("from_pause", false)):
+		open_pause()
+	elif game.state == game.TITLE:
+		show_title()
+	else:
+		hud.modulate.a = 1.0
+		game.resume()
 
 func _chal_row(name: String, info: String, medal: int, col: Color, xf: Transform3D, where := Vector3.INF, start := Callable()) -> Control:
 	var p := PanelContainer.new()
