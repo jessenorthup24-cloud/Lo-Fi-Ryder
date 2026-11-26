@@ -25,6 +25,7 @@ const DIFF := [
 		"skill": [1.07, 1.05, 1.04, 1.03, 1.06, 1.02, 1.07, 1.04], "band": [0.995, 1.07], "cars": 0.7, "up": 5},
 ]
 var diff := 0
+var rewinds := 0           # how many you've used this race (main allows three)
 var A_LAT := 8.0            # m/s² round a corner (what these cars hold, gripping)
 var A_BRAKE := 7.0
 var A_ACC := 4.5

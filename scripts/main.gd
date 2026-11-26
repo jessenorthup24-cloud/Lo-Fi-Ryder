@@ -176,6 +176,8 @@ var rewinding := false
 var rw_pos := 0.0           # (where in the buffer the rewind is: fractional, so it plays back smoothly)
 var rw_ghost := 0.0         # just after a rewind: the traffic can't hit you for a moment
 const RW_SECS := 10.0
+const RW_RACE_MAX := 3          # rewinds you get in a race...
+const RW_RACE_COST := 150       # ...and what each one costs
 const RW_HZ := 20.0
 var nos_on := false
 var nos_toggle := false     # NOS is a switch: tap it on, it runs till you tap it off or the bottle's empty
@@ -2616,7 +2618,7 @@ func rewind_ok() -> bool:
 	return intro.is_empty() and (race == null or race.state == 1) and state == DRIVE and not police.wanted()
 
 func _rw_snap() -> Dictionary:
-	var sn := {"xf": car.global_transform, "v": car.linear_velocity, "w": car.angular_velocity, "fuel": fuel, "nos": nos_left, "dmg": car.damage, "eng": car.engine_dmg,
+	var sn := {"xf": car.global_transform, "v": car.linear_velocity, "w": car.angular_velocity, "fuel": fuel, "nos": nos_left, "dmg": car.damage, "eng": car.engine_dmg, "bent": car.bent,
 		"drift": [drift_on, drift_pts, combo, combo_t, drift_len], "zone": [zone_t, zone_pts], "trial": [trial_t, trial_gate, trial_pts]}
 	if race != null:
 		sn["race"] = race.snapshot()
@@ -2634,6 +2636,18 @@ func _rewind_tick(dt: float) -> void:
 			print("rw t=%.2f on=%s pos=(%.1f,%.1f,%.1f) v=%.0f buf=%d at=%.1f%s" % [time, rewinding, cp0.x, cp0.y, cp0.z, car.speed * 3.6, rw_buf.size(), rw_pos,
 				(" race s=%.0f t=%.1f" % [race.racers[0]["s"], race.t]) if race != null else ""])
 	var want: bool = held.get("rewind", false) and rewind_ok() and rw_buf.size() > 3
+	if want and not rewinding and race != null and race.state == 1:
+		# in a race: three rewinds, and each one costs you
+		if race.rewinds >= RW_RACE_MAX:
+			want = false
+			if not has_meta("rw_no") or float(get_meta("rw_no")) < time - 2.0:
+				set_meta("rw_no", time)
+				ui.toast("No rewinds left this race", "rewind", Color("ff4f6b"), Color.WHITE, 1.6)
+		else:
+			race.rewinds += 1
+			var cost := mini(RW_RACE_COST, int(save.data["coins"]))
+			save.data["coins"] = int(save.data["coins"]) - cost
+			ui.toast("Rewind %d/%d  ·  -%s" % [race.rewinds, RW_RACE_MAX, K.money(cost)], "rewind", Color(0.12, 0.13, 0.16, 0.85), Color.WHITE, 1.6)
 	if want and not rewinding:
 		rewinding = true
 		rw_pos = float(rw_buf.size() - 1)
@@ -2687,8 +2701,15 @@ func _rewind_end() -> void:
 	car.angular_velocity = sn["w"]
 	fuel = float(sn["fuel"])
 	nos_left = float(sn["nos"])
-	car.damage = float(sn["dmg"])
+	# the knocks since then are undone too: the dents (put back as they were, near enough) and a bent wheel
+	var dmg_then := float(sn["dmg"])
+	if dmg_then < car.damage - 0.5:
+		car.repair()
+		car.damage = dmg_then
+		car.batter(hash(String(drive_def.get("id", ""))))
+	car.damage = dmg_then
 	car.engine_dmg = float(sn.get("eng", car.engine_dmg))
+	car.bent = float(sn.get("bent", car.bent))
 	var dr: Array = sn["drift"]
 	drift_on = dr[0]
 	drift_pts = dr[1]
