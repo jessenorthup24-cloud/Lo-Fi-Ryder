@@ -402,7 +402,9 @@ func _chase(dt: float, cp: Vector3) -> void:
 		game.police_heat_up(heat)
 	game.save.max_stat("max_heat", heat)
 	# boxed in and stopped
-	var boxed: bool = game.you_speed() < 2.0 and nearest < 7.0 and seen and not pinned
+	# (on foot and shooting it out with them: they shoot back, they don't walk up and cuff you)
+	var fighting: bool = game.on_foot and game.gunplay != null and (game.gunplay.shot_t > 0.0 or game.gunplay.aiming)
+	var boxed: bool = game.you_speed() < 2.0 and nearest < 7.0 and seen and not pinned and not fighting
 	bust = clampf(bust + (dt / BUST_T if boxed else -dt / BUST_T * 0.7), 0.0, 1.0)
 	if bust >= 1.0:
 		_busted()
@@ -470,9 +472,9 @@ func _somewhere_away(from: Vector3) -> Vector3:
 func hold(on: bool) -> void:
 	held = on
 	for u in units:
-		var c: RigidBody3D = u["car"]
-		if not is_instance_valid(c):
+		if not is_instance_valid(u["car"]):
 			continue
+		var c: RigidBody3D = u["car"]
 		(u["siren"] as AudioStreamPlayer3D).stream_paused = on
 		if on and not c.freeze:
 			u["held"] = [c.linear_velocity, c.angular_velocity]
@@ -850,10 +852,10 @@ func _light_bar(c: Car) -> void:
 
 ## Drive one police car.
 func _drive(u: Dictionary, dt: float) -> void:
-	var c: Car = u["car"]
-	if not is_instance_valid(c):
+	if not is_instance_valid(u["car"]):
 		units.erase(u)
 		return
+	var c: Car = u["car"]
 	if c.freeze:
 		return
 	if u.get("foot_out", false):
@@ -1203,10 +1205,10 @@ func _close_in(u: Dictionary, c: Car, tgt: Node3D, v: float) -> Vector2:
 func _tidy_up(cp: Vector3) -> void:
 	var cam: Camera3D = game.cam
 	for u in units.duplicate():
-		var c: Car = u["car"]
-		if not is_instance_valid(c):
+		if not is_instance_valid(u["car"]):
 			units.erase(u)
 			continue
+		var c: Car = u["car"]
 		var p := c.global_position
 		var d := p.distance_to(cp)
 		var in_view := cam.is_position_in_frustum(p) and d < 200.0

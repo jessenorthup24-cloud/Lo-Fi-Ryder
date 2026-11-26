@@ -227,10 +227,10 @@ func _unlive(pr: Dictionary) -> void:
 		av.queue_free()
 
 func _place_live(pr: Dictionary, base: Vector3, _t: float) -> void:
-	var av: Avatar = pr["live"]
-	if not is_instance_valid(av):
+	if not is_instance_valid(pr["live"]):
 		pr.erase("live")
 		return
+	var av: Avatar = pr["live"]
 	var sitting: bool = pr["pose"] == "sit"
 	# (a sitter's origin is the seat; the character's is its feet)
 	av.global_position = base - Vector3(0, (SIT_LIFT + _seat()) if sitting else 0.0, 0)

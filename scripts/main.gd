@@ -496,6 +496,11 @@ func _build_world() -> void:
 		get_tree().create_timer(1.5).timeout.connect(func(): ui.toast("Welcome to the island! Your old upgrades were refunded as cash.", "coin", K.SUN))
 	sound.start_music()
 	get_tree().create_timer(2.0).timeout.connect(ach_check)
+	if args.has("play"):
+		# testing: a scripted player (tools/test/playthrough.gd)
+		var bot: Node = load("res://tools/test/playthrough.gd").new()
+		bot.set("game", self)
+		add_child(bot)
 
 ## Testing: start at a named place or "x,z".
 func _at_spot(s: String) -> Transform3D:
@@ -552,6 +557,8 @@ func start_drive() -> void:
 		get_tree().create_timer(0.3, false).timeout.connect(func():
 			if not on_foot:
 				toggle_foot()
+			gunplay.holstered = true        # (just arrived: hands in pockets, not a gun out)
+			gunplay.equip()
 			story.intro())
 		return
 	story.begin()
@@ -1153,6 +1160,14 @@ func _crew_tests() -> void:
 	if args.has("shoptest") and time > 4.0 and not has_meta("sh_done") and state == DRIVE:
 		set_meta("sh_done", true)
 		open_shop(String(args["shoptest"]))
+		if args.has("shopgun"):
+			# (the Armory on a gun, a slot's list open)
+			if not save.data.has("guns"):
+				save.data["guns"] = ["pistol"]
+			(save.data["guns"] as Array).append(String(args["shopgun"]))
+			ui.g_gun = String(args["shopgun"])
+			ui.g_slot = String(args.get("shopslot", ""))
+			ui._garage_refresh()
 	if args.has("lvltest") and time > 4.0 and not has_meta("lv_done"):
 		set_meta("lv_done", true)
 		ui.level_up(int(args["lvltest"]), Progress.cash_for(int(args["lvltest"])), Progress.unlocks_at(int(args["lvltest"])))

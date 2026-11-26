@@ -42,6 +42,7 @@ func setup(isl: Node, id: String, acc: String, mat: Material) -> void:
 	avatar.setup(id, acc, mat)
 
 var crouch := false            # crouched down (the button); pressed running, you slide into it
+var _sprint_was := false
 var slide_t := 0.0             # sliding: carried on by the run, slowing, no steering
 var _slide_dir := Vector3.ZERO
 var scripted := false          # the game's moving you (climbing into a car): no walking, no physics
@@ -60,8 +61,9 @@ func _physics_process(dt: float) -> void:
 	var rgt := Vector3(cos(cam_yaw), 0, -sin(cam_yaw))
 	var dir := fwd * m.y + rgt * m.x
 	var spd := 0.0
-	if sprint and crouch and slide_t <= 0.0:
-		crouch = false           # (sprinting stands you up)
+	if sprint and not _sprint_was and crouch and slide_t <= 0.0:
+		crouch = false           # (pressing sprint stands you up; still holding it from before a slide doesn't)
+	_sprint_was = sprint
 	if m.length() > 0.08:
 		if crouch:
 			spd = lerpf(0.9, CROUCH, clampf((m.length() - 0.3) / 0.7, 0.0, 1.0))

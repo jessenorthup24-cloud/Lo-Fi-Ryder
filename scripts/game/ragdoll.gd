@@ -197,7 +197,7 @@ func tick(dt: float, car_pos: Vector3) -> void:
 		_clear(d)
 
 func _clear(d: Dictionary) -> void:
-	var r: Node = d["root"]
+	var r = d["root"]
 	if is_instance_valid(r):
 		r.queue_free()
 	dolls.erase(d)

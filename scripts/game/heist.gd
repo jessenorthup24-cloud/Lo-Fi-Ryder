@@ -606,7 +606,7 @@ func _mount() -> void:
 
 func _crack() -> void:
 	state = CRACKED
-	game.police.pinned = false
+	# (still a shootout while you get the bags out: they don't come and cuff you mid-heist)
 	if _drill_snd:
 		_drill_snd.stop()
 	game.sfx("safe_open", 0.0)
@@ -642,6 +642,7 @@ func _grab_duffle() -> void:
 			if is_instance_valid(dn):
 				dn.queue_free())
 		drill = null
+	game.police.pinned = false
 	state = ESCAPE
 
 ## A bag in the car: back to the safe for the next.

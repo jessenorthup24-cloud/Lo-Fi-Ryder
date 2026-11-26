@@ -222,8 +222,10 @@ func _drag_scroll(sc: ScrollContainer) -> void:
 			sc.scroll_vertical -= int(round(rel.y)))
 	_pass_touches.call_deferred(sc)
 
-func _pass_touches(n: Node) -> void:
-	for c in n.get_children():
+func _pass_touches(n) -> void:
+	if n == null or not is_instance_valid(n):
+		return            # (gone by the time this ran: the list was rebuilt)
+	for c in (n as Node).get_children():
 		if c is ScrollBar:
 			continue
 		if c is Control:
@@ -1923,7 +1925,7 @@ func level_up(lv: int, cash: int, unlocks: Array) -> void:
 		shown += 1
 	card.reset_size()
 	var vs := _vs()
-	card.position = Vector2((vs.x - card.size.x) * 0.5, vs.y * 0.18)
+	card.position = Vector2((vs.x - card.size.x) * 0.5, vs.y * 0.3)       # (below where friends' texts come in)
 	card.pivot_offset = card.size * 0.5
 	card.scale = Vector2.ONE * 0.6
 	card.modulate.a = 0.0
@@ -1996,6 +1998,10 @@ func _next_msg() -> void:
 		_msg_busy = false
 		return
 	_msg_busy = true
+	if game.state != game.DRIVE or overlay.visible or not hud.visible:
+		# (in a shop, the map, the pause menu: the text waits till you're back out)
+		get_tree().create_timer(1.0, false).timeout.connect(_next_msg)
+		return
 	var m: Array = _msgs.pop_front()
 	var card := PanelContainer.new()
 	card.add_theme_stylebox_override("panel", K.box(Color(0.07, 0.065, 0.1, 0.92), 22, 0, Color.TRANSPARENT, 14))
@@ -4105,7 +4111,7 @@ func _gun_slots(list: VBoxContainer, w: Dictionary, b: Dictionary) -> void:
 		var hb := HBoxContainer.new()
 		hb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		hb.offset_left = 12
-		hb.offset_right = -12
+		hb.offset_right = -26
 		hb.add_theme_constant_override("separation", 10)
 		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(hb)
@@ -4160,7 +4166,7 @@ func _gun_picker(list: VBoxContainer, w: Dictionary, mine: Dictionary, sk: Strin
 		var hb := HBoxContainer.new()
 		hb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		hb.offset_left = 10
-		hb.offset_right = -12
+		hb.offset_right = -26
 		hb.add_theme_constant_override("separation", 10)
 		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(hb)
@@ -4174,7 +4180,7 @@ func _gun_picker(list: VBoxContainer, w: Dictionary, mine: Dictionary, sk: Strin
 		var t1 := K.label(Weapons.nice(pn) if pn != "" else "None", 17, K.INK, 650, HORIZONTAL_ALIGNMENT_LEFT)
 		t1.clip_text = true
 		vb.add_child(t1)
-		vb.add_child(K.label(Weapons.describe(pn) if pn != "" else "Leave it bare", 13, K.INK_SOFT, 500, HORIZONTAL_ALIGNMENT_LEFT))
+		vb.add_child(K.label(Weapons.describe(pn) if pn != "" else "Leave it bare", 13, Color(1, 1, 1, 0.85) if on else K.INK_SOFT, 500, HORIZONTAL_ALIGNMENT_LEFT))
 		var right := ""
 		if on:
 			right = "On"

@@ -1262,9 +1262,9 @@ func _sees(a: Vector3, b: Vector3) -> bool:
 func hold(on: bool) -> void:
 	held = on
 	for d in drivers:
-		var c: RigidBody3D = d["car"]
-		if not is_instance_valid(c):
+		if not is_instance_valid(d["car"]):
 			continue
+		var c: RigidBody3D = d["car"]
 		(d["eng"] as AudioStreamPlayer3D).stream_paused = on
 		if on and not c.freeze:
 			d["held"] = [c.linear_velocity, c.angular_velocity]

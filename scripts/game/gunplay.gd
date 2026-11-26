@@ -32,6 +32,7 @@ var officers: Array = []        # {node: CharacterBody3D, av: Avatar, hp, cool, 
 var flash: OmniLight3D
 var aiming := false             # in aim (the shoulder camera, the reticle)
 var aim_k := 0.0                # eased 0..1 for the camera
+var shot_t := 0.0               # a few seconds after you last fired (the police shoot it out rather than cuff you)
 var lock: Variant = null        # what's locked on: an officer dict, a person dict, or null
 var lock_pos := Vector3.INF     # where on them
 var aim_point := Vector3.INF    # where a shot would land
@@ -146,6 +147,7 @@ func tick(dt: float, fire_tap: bool, fire_held: bool, aim_on: bool, reload: bool
 		lock_pos = Vector3.INF
 		return
 	manual_t = maxf(0.0, manual_t - dt)
+	shot_t = maxf(0.0, shot_t - dt)
 	if holstered:
 		# put away: hands free, walking about like anyone. FIRE or AIM draws it (a moment before it'll fire)
 		aiming = false
@@ -284,6 +286,7 @@ func _clear(a: Vector3, b: Vector3) -> bool:
 # ------------------------------------------------------------------ firing
 
 func _fire(you: CharacterBody3D) -> void:
+	shot_t = 6.0
 	cool = 1.0 / float(weapon["rate"])
 	ammo[weapon["id"]] = int(ammo[weapon["id"]]) - 1
 	var muzzle: Vector3 = you.global_position + Vector3(0, 0.85 if you.get("crouch") else 1.3, 0)
@@ -497,9 +500,9 @@ func _hit_officer(o: Dictionary, dmg: float, d: Vector3, at: Vector3) -> int:
 ## away after a while.
 func _officer_down(o: Dictionary, push: Vector3) -> void:
 	o["dead"] = true
-	var n: CharacterBody3D = o["node"]
-	if not is_instance_valid(n):
+	if not is_instance_valid(o["node"]):
 		return
+	var n: CharacterBody3D = o["node"]
 	_blood(n.global_position + Vector3(0, 1.0, 0), push.normalized())
 	n.collision_layer = 0
 	n.collision_mask = 0
@@ -602,10 +605,10 @@ func _damage_car(n: Node3D, dmg: float) -> void:
 
 func _burn_tick(dt: float) -> void:
 	for b in burning.duplicate():
-		var n: Node3D = b["node"]
-		if not is_instance_valid(n):
+		if not is_instance_valid(b["node"]):
 			burning.erase(b)
 			continue
+		var n: Node3D = b["node"]
 		b["t"] = float(b["t"]) + dt
 		var p := _car_body(n).global_position + Vector3(0, 1.0, 0)
 		if randf() < dt * 14.0:
@@ -691,7 +694,7 @@ func explode(n: Node3D) -> void:
 			if int(c["mode"]) < game.traffic.KNOCKED:
 				game.traffic.knock(cb, Vector3.ZERO, ((cb.global_position - p).normalized() + Vector3.UP) * 6000.0 * (1.0 - dc / BLAST_R), p)
 	for u in game.police.units:
-		var uc: Node3D = u["car"]
+		var uc = u["car"]
 		if is_instance_valid(uc) and uc != n and uc.global_position.distance_to(p) < BLAST_R:
 			_damage_car(uc, 100.0)
 			(uc as RigidBody3D).apply_central_impulse(((uc.global_position - p).normalized() + Vector3.UP) * 5000.0)

@@ -30,15 +30,18 @@ func alive() -> Array:
 	return out
 
 func tick(dt: float) -> void:
-	var want: bool = game.on_foot and game.foot != null and (game.police.wanted() or game.heist.active()) and not game.gunplay.dying
-	if not want:
-		if not list.is_empty() and not game.on_foot:
+	if not game.on_foot or game.foot == null:
+		if not list.is_empty():
 			_all_back()
+		return
+	var want: bool = (game.police.wanted() or game.heist.active()) and not game.gunplay.dying
+	if not want and list.is_empty():
 		return
 	var you: Node3D = game.foot
 	var yp: Vector3 = you.global_position
-	# out of the car: each of your crew parked up near you gets out
-	for d in game.crew.drivers:
+	# out of the car: each of your crew parked up near you gets out (once they're out, they stay with you
+	# till you drive off, fight or no fight)
+	for d in (game.crew.drivers if want else []):
 		if String(d["mode"]) != "crew" or not is_instance_valid(d["car"]):
 			continue
 		var c: Node3D = d["car"]
@@ -47,10 +50,10 @@ func tick(dt: float) -> void:
 	var officers: Array = game.gunplay.officers
 	var i := 0
 	for a in list.duplicate():
-		var n: CharacterBody3D = a["node"]
-		if not is_instance_valid(n):
+		if not is_instance_valid(a["node"]):
 			list.erase(a)
 			continue
+		var n: CharacterBody3D = a["node"]
 		var av: Avatar = a["av"]
 		if a["down"]:
 			continue
