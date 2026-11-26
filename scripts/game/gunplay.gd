@@ -170,7 +170,7 @@ func tick(dt: float, fire_tap: bool, fire_held: bool, aim_on: bool, reload: bool
 	if hurt_t > 5.0:
 		hp = minf(MAX_HP, hp + REGEN * dt)
 	aiming = aim_on or fire_held or cool > -0.5
-	aim_k = move_toward(aim_k, 1.0 if aiming else 0.0, dt * 6.0)
+	aim_k = move_toward(aim_k, (0.35 if reload_t > 0.0 else 1.0) if aiming else 0.0, dt * 6.0)      # (reloading: back a bit, the gun out of your face)
 	_find_aim(you)
 	# reloading: the gun comes down, the magazine out (half way) and back in, the gun back up
 	if reload_t > 0.0:
