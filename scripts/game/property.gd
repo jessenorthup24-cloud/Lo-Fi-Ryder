@@ -16,7 +16,7 @@ const LIST := [
 		"stages": ["Dirt lot", "Site work", "Foundation", "Steel frame", "Marble floor", "Walls", "Roof and skylights", "Roll-up door",
 			"West bays", "East bays", "Landscaping", "Luxury details"]},
 	{"id": "mansion", "name": "Nightline Mansion", "glb": "res://assets/property/mansion.glb", "ctl": "res://scripts/game/property/mansion_construction.gd",
-		"targets": [0, 5000, 9000, 14000, 20000, 35000, 45000, 55000, 70000, 85000, 110000, 135000, 160000, 180000, 200000],
+		"targets": [0, 6000, 11000, 18000, 26000, 42000, 56000, 70000, 88000, 106000, 136000, 166000, 196000, 224000, 250000],
 		"stages": ["Dirt lot", "Foundation", "Scaffolding", "Ground framing", "Ground structure", "Ground facade", "Upper framing",
 			"Upper structure", "Upper facade", "Roof", "Ground interiors", "Upper interiors", "Pool and terrace", "Landscaping", "Luxury details"]},
 ]

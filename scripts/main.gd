@@ -31,11 +31,13 @@ const Heist := preload("res://scripts/game/heist.gd")
 const Property := preload("res://scripts/game/property.gd")
 const Shops := preload("res://scripts/game/shops.gd")
 const Allies := preload("res://scripts/game/allies.gd")
+const Story := preload("res://scripts/game/story.gd")
 const Cards := preload("res://scripts/game/cards.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
 
-const MEDAL_PAY := [0, 150, 350, 700]
+const MEDAL_PAY := [0, 300, 700, 1400]      # the first time you earn each medal (on top of RUN_PAY)
+const RUN_PAY := [80, 180, 300, 500]         # every run, by the medal you got this time (a race: by your place)
 const DIFF_PAY := [1.0, 1.6, 2.4]          # a race's medal pay, by difficulty (easy, medium, hard)
 const FUEL_PRICE := 1.0        # coins per percent of a tank
 const REPAIR_PRICE := 2.0      # coins per percent of damage
@@ -162,6 +164,7 @@ var heist: Heist             # the safes, the heists, dropped cash
 var property: Node3D        # the mansion and the garage you build up (property.gd)
 var shops: Node3D           # Lo-Fi Customs, the Armory, Lo-Fi Threads (shops.gd)
 var allies: Node3D          # your crew on foot, fighting beside you (allies.gd)
+var story: Node             # Jay's texts and your goal on the HUD (story.gd)
 var on_foot := false
 var stick := Vector2.ZERO    # the on-foot stick: x right, y forward
 var stick_idx := -1          # the finger on it
@@ -335,6 +338,10 @@ func _build_world() -> void:
 	allies.name = "Allies"
 	add_child(allies)
 	allies.setup(self)
+	story = Story.new()
+	story.name = "Story"
+	add_child(story)
+	story.setup(self)
 	crew = Crew.new()
 	crew.name = "Crew"
 	add_child(crew)
@@ -539,6 +546,15 @@ func start_drive() -> void:
 	state = DRIVE
 	ui.show_hud()
 	car.freeze = false
+	if story.step == 0 and not args.has("drive") and not autopilot:
+		# the very start: you're stood by Jay's old car, and the story begins
+		save.data["seen_help"] = true
+		get_tree().create_timer(0.3, false).timeout.connect(func():
+			if not on_foot:
+				toggle_foot()
+			story.intro())
+		return
+	story.begin()
 	if not bool(save.data.get("seen_help", false)) and not autopilot and not args.has("drive"):
 		save.data["seen_help"] = true
 		ui.show_help()
@@ -653,6 +669,7 @@ func open_shop(id: String) -> void:
 		return
 	_shop_in = id
 	_shop_car = String(save.data["car"])
+	story.shop_visited()
 	open_garage(id)
 
 var _shop_in := ""
@@ -964,6 +981,7 @@ func _process(dt: float) -> void:
 			property.tick(dt)
 			shops.tick(dt)
 			allies.tick(dt)
+			story.tick(dt)
 			crew.tick(dt)
 			_crew_tests()
 		PAUSED, GARAGE:
@@ -1127,6 +1145,11 @@ func _crew_tests() -> void:
 		if on_foot and has_meta("bt") and not has_meta("bt2") and foot.down_t <= 0.0:
 			set_meta("bt2", true)
 			print("BAIL up at t=%.1f limp=%s anim=%s" % [time, foot.avatar.limp != null, foot.avatar.current()])
+	if args.has("storytest") and time > 2.5 and not has_meta("sy_done"):
+		set_meta("sy_done", true)
+		if not on_foot:
+			toggle_foot()
+		story.intro()
 	if args.has("shoptest") and time > 4.0 and not has_meta("sh_done") and state == DRIVE:
 		set_meta("sh_done", true)
 		open_shop(String(args["shoptest"]))
@@ -2490,10 +2513,11 @@ func _finish_zone() -> void:
 	var pay := 0
 	if score > best:
 		save.data["zones"][z["id"]] = score
+	pay = RUN_PAY[medal]
 	if medal > old_medal:
-		pay = MEDAL_PAY[medal] - MEDAL_PAY[old_medal]
+		pay += MEDAL_PAY[medal] - MEDAL_PAY[old_medal]
 		save.data["medals"][z["id"]] = medal
-		save.data["coins"] = int(save.data["coins"]) + pay
+	save.data["coins"] = int(save.data["coins"]) + pay
 	_medal_stats()
 	ui.challenge_result(z["name"], "%s pts" % K.fmt(score), medal, pay, score > best and best > 0, restart_challenge)
 	_save_now()
@@ -2602,10 +2626,11 @@ func _finish_trial() -> void:
 		save.data["trials"][t["id"]] = snappedf(score, 0.01)
 	var old_medal := int(save.data["medals"].get(t["id"], 0))
 	var pay := 0
+	pay = RUN_PAY[medal]
 	if medal > old_medal:
-		pay = MEDAL_PAY[medal] - MEDAL_PAY[old_medal]
+		pay += MEDAL_PAY[medal] - MEDAL_PAY[old_medal]
 		save.data["medals"][t["id"]] = medal
-		save.data["coins"] = int(save.data["coins"]) + pay
+	save.data["coins"] = int(save.data["coins"]) + pay
 	_medal_stats()
 	var txt := ("%.2f s" % score) if timed else ("%s pts" % K.fmt(int(score)))
 	ui.challenge_result(t["name"], txt, medal, pay, better and best > 0.0, restart_challenge)
@@ -3173,10 +3198,11 @@ func race_done(place: int, t: float) -> void:
 		save.data["races"][id] = snappedf(t, 0.01)
 	var old_medal := int(save.data["medals"].get(mkey, 0))
 	var pay := 0
+	pay = int(round(float(RUN_PAY[medal]) * float(DIFF_PAY[race.diff]) * (1.0 + 0.15 * maxi(int(d.get("laps", 1)) - 1, 0))))
 	if medal > old_medal:
-		pay = int(round((MEDAL_PAY[medal] - MEDAL_PAY[old_medal]) * DIFF_PAY[race.diff]))
+		pay += int(round((MEDAL_PAY[medal] - MEDAL_PAY[old_medal]) * DIFF_PAY[race.diff]))
 		save.data["medals"][mkey] = medal
-		save.data["coins"] = int(save.data["coins"]) + pay
+	save.data["coins"] = int(save.data["coins"]) + pay
 	if place == 1:
 		save.add_stat("race_wins", 1)
 		if race.diff == 2:

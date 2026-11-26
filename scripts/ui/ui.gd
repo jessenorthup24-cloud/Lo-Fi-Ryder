@@ -1966,6 +1966,115 @@ func _reward_chip(icon: String, text: String, col: Color) -> Control:
 	hb.add_child(K.label(text, 20, Color.WHITE, 700))
 	return p
 
+# ------------------------------------------------------------------ the story
+
+var goal_lbl: Label
+var _msgs: Array = []          # texts waiting their turn
+var _msg_busy := false
+
+## What you're meant to be doing: a line under where you are, top left.
+func story_goal(text: String) -> void:
+	if goal_lbl == null:
+		goal_lbl = K.outlined(K.label("", 18, Color("ffd34d"), 700, HORIZONTAL_ALIGNMENT_LEFT), K.SHADE, 6)
+		goal_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		goal_lbl.custom_minimum_size = Vector2(380, 0)
+		place_lbl.get_parent().add_child(goal_lbl)
+	goal_lbl.text = ("▸ " + text) if text != "" else ""
+	goal_lbl.visible = text != ""
+	if text != "":
+		goal_lbl.modulate.a = 0.0
+		goal_lbl.create_tween().tween_property(goal_lbl, "modulate:a", 1.0, 0.5)
+
+## A text from a friend: a bubble that slides down from the top (one at a time), a buzz.
+func text_msg(from: String, text: String) -> void:
+	_msgs.append([from, text])
+	if not _msg_busy:
+		_next_msg()
+
+func _next_msg() -> void:
+	if _msgs.is_empty():
+		_msg_busy = false
+		return
+	_msg_busy = true
+	var m: Array = _msgs.pop_front()
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", K.box(Color(0.07, 0.065, 0.1, 0.92), 22, 0, Color.TRANSPARENT, 14))
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 12)
+	card.add_child(hb)
+	var face := PanelContainer.new()
+	face.custom_minimum_size = Vector2(46, 46)
+	face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	face.add_theme_stylebox_override("panel", K.box(Color("5cc8ff"), 23, 0, Color.TRANSPARENT, 0))
+	face.add_child(K.label(String(m[0]).substr(0, 1), 26, Color.WHITE, 800))
+	hb.add_child(face)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 0)
+	hb.add_child(vb)
+	vb.add_child(K.label(String(m[0]), 17, Color("5cc8ff"), 800, HORIZONTAL_ALIGNMENT_LEFT))
+	var tl := K.label(String(m[1]), 20, Color.WHITE, 600, HORIZONTAL_ALIGNMENT_LEFT)
+	tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tl.custom_minimum_size = Vector2(520, 0)
+	vb.add_child(tl)
+	add_child(card)
+	card.reset_size()
+	var vs := _vs()
+	card.position = Vector2((vs.x - card.size.x) * 0.5, -card.size.y - 10.0)
+	game.sfx("radio_chirp", -10.0, 1.4)
+	game.buzz(25, 0.4)
+	var tw := card.create_tween()
+	tw.tween_property(card, "position:y", 104.0, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(clampf(1.6 + String(m[1]).length() * 0.045, 2.6, 5.5))
+	tw.tween_property(card, "position:y", -card.size.y - 10.0, 0.3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_callback(func():
+		card.queue_free()
+		_next_msg())
+
+## The opening: letterbox bars, the title and a line, over the town.
+func intro_card(title_txt: String, sub: String) -> void:
+	var root := Control.new()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(root)
+	var vs := _vs()
+	var top := ColorRect.new()
+	top.color = Color.BLACK
+	top.size = Vector2(vs.x, 0)
+	root.add_child(top)
+	var bot := ColorRect.new()
+	bot.color = Color.BLACK
+	bot.position = Vector2(0, vs.y)
+	bot.size = Vector2(vs.x, 0)
+	root.add_child(bot)
+	var t1 := K.outlined(K.label(title_txt, 86, Color.WHITE, 800), K.SHADE, 14)
+	t1.add_theme_font_override("font", K.font_spaced(800, 12))
+	t1.size = Vector2(vs.x, 110)
+	t1.position = Vector2(0, vs.y * 0.36)
+	t1.modulate.a = 0.0
+	root.add_child(t1)
+	var t2 := K.outlined(K.label(sub, 30, Color("ffd34d"), 650), K.SHADE, 8)
+	t2.size = Vector2(vs.x, 44)
+	t2.position = Vector2(0, vs.y * 0.36 + 110)
+	t2.modulate.a = 0.0
+	root.add_child(t2)
+	var bar := vs.y * 0.12
+	var tw := root.create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(top, "size:y", bar, 0.6)
+	tw.tween_property(bot, "size:y", bar, 0.6)
+	tw.tween_property(bot, "position:y", vs.y - bar, 0.6)
+	tw.tween_property(t1, "modulate:a", 1.0, 0.8).set_delay(0.4)
+	tw.tween_property(t2, "modulate:a", 1.0, 0.8).set_delay(1.1)
+	tw.chain().tween_interval(1.8)
+	tw.chain().set_parallel(true)
+	tw.tween_property(t1, "modulate:a", 0.0, 0.5)
+	tw.tween_property(t2, "modulate:a", 0.0, 0.5)
+	tw.tween_property(top, "size:y", 0.0, 0.6)
+	tw.tween_property(bot, "size:y", 0.0, 0.6)
+	tw.tween_property(bot, "position:y", vs.y, 0.6)
+	tw.chain().tween_callback(root.queue_free)
+
 func toast(text: String, icon := "", col := K.PAPER, icol := K.INK, hold := 2.2) -> void:
 	# (always a dark glass pill: the toast's own colour goes to its icon and a faint edge)
 	var tinted := col.a > 0.95 and col.get_luminance() > 0.08 and col != K.PAPER
