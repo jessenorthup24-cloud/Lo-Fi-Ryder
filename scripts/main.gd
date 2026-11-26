@@ -2283,13 +2283,13 @@ func challenge_on() -> bool:
 func restart_challenge() -> void:
 	if cur_challenge.is_empty():
 		return
-	if police.wanted():
-		ui.toast("Lose the police first", "eye", Color("ff5c7a"), Color.WHITE)
-		return
 	if state == PAUSED:
 		resume()
 	if state != DRIVE:
 		return
+	# (the police on you: a restart's a clean start, they're called off)
+	if police.wanted():
+		police.clear()
 	rw_buf.clear()
 	begin_challenge(String(cur_challenge[0]), String(cur_challenge[1]))
 
@@ -2791,9 +2791,11 @@ func police_escaped(bounty: int, heat: int) -> void:
 	_save_now()
 	ach_check()
 
-## Rewinding's not on during a countdown, after you've finished a race (or with the police after you).
+## Rewinding's not on during a countdown, after you've finished a race, or with the police after you in free
+## roam (no rewinding out of a chase). In a race it's on, police or not.
 func rewind_ok() -> bool:
-	return intro.is_empty() and (race == null or race.state == 1) and state == DRIVE and not police.wanted()
+	var racing := race != null and race.state == 1
+	return intro.is_empty() and (race == null or racing) and state == DRIVE and (racing or not police.wanted())
 
 func _rw_snap() -> Dictionary:
 	var sn := {"xf": car.global_transform, "v": car.linear_velocity, "w": car.angular_velocity, "fuel": fuel, "nos": nos_left, "dmg": car.damage, "eng": car.engine_dmg, "bent": car.bent,
