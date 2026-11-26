@@ -27,6 +27,7 @@ const Weather := preload("res://scripts/game/weather.gd")
 const OnFoot := preload("res://scripts/game/onfoot.gd")
 const Gunplay := preload("res://scripts/game/gunplay.gd")
 const Heist := preload("res://scripts/game/heist.gd")
+const Cards := preload("res://scripts/game/cards.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
 
@@ -774,6 +775,15 @@ func buzz(ms: int, amp: float) -> void:
 		Input.vibrate_handheld(ms, clampf(amp, 0.0, 1.0))
 
 func ach_check() -> void:
+	# levelling up (car cards): each new level's a pack
+	var lv: int = Cards.level_of(Cards.xp(save))[0]
+	var seen := int(save.data.get("level_seen", 0))
+	if seen == 0:
+		save.data["level_seen"] = lv           # (an old save: no fanfare for the levels it already had)
+	elif lv > seen:
+		save.data["level_seen"] = lv
+		ui.toast("Level %d!  A new pack of car cards" % lv, "star", Color("ffb020"), Color.WHITE, 3.0)
+		sfx("mission", -2.0, 1.15)
 	var got := Ach.check(save.data)
 	for a in got:
 		ui.toast("Trophy: %s  +%d" % [a["name"], int(a["reward"])], a["icon"], K.SUN)
@@ -1092,6 +1102,18 @@ func _crew_tests() -> void:
 		get_tree().create_timer(1.5).timeout.connect(func():
 			print("MAP waypoint: ", route_pick)
 			get_viewport().get_texture().get_image().save_png("/tmp/audit/map3d.png")
+			get_tree().quit())
+	if args.has("cardtest") and state == DRIVE and time > 3.5 and not has_meta("cd_done"):
+		set_meta("cd_done", true)
+		save.add_stat("drift_points", 400000)
+		pause(false)
+		if String(args["cardtest"]) == "pack":
+			ui._open_pack(false)
+		else:
+			ui.open_cards()
+		get_tree().create_timer(2.6).timeout.connect(func():
+			print("CARDS xp=%d level=%s packs=%d owned=%d" % [Cards.xp(save), str(Cards.level_of(Cards.xp(save))), Cards.packs(save), Cards.owned(save)])
+			get_viewport().get_texture().get_image().save_png("/tmp/audit/cards_%s.png" % String(args["cardtest"]))
 			get_tree().quit())
 	if args.has("phonetest") and state == DRIVE and time > 3.5 and not has_meta("ph_done"):
 		set_meta("ph_done", true)

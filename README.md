@@ -204,6 +204,11 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   runs, and it's yours to drive (a truck's slow and heavy, a sports car quick). The car you were in stays
   parked where you left it, and you can go back to it. Take a police car, or take one with a patrol car
   looking on, and you're wanted.
+- Car cards: fifty real cars, each with a true fact, Common to Legendary. You level up by playing (drifting,
+  distance, races, escapes, heists, trophies, places found, hidden cash) and every level is a pack of three
+  (the third at least Uncommon); a duplicate pays cash instead. From the title screen or the pause menu.
+- The map is the island in 3D from above (drag, pinch); tap anywhere to drop a waypoint for the GPS. The
+  phone pulls up over the screen; its Safe radar app pulses toward the nearest safe.
 - Cash is the money (the green bill on the HUD: $). It buys everything in the garage. People and officers you
   take down drop a bundle or two (walk or drive over it); bundles of hidden cash are tucked about the island.
 - Heists: 25 safes stand by the roads (grey dots on the map). Walk up to one and tap START HEIST (or H). An
@@ -396,6 +401,9 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `scripts/game/onfoot.gd` | You on foot: walking, running, jumping, the animation (main.gd drives it and the camera) |
 | `scripts/game/avatar.gd` | A playable character: the baked Kenney mini character, its animations, an accessory on its head |
 | `tools/chars/bake_chars.gd` | Bakes the Kenney Mini Characters 2.0 (CC0) to `assets/chars/`: rig, animations, colours in the vertices |
+| `scripts/game/cards.gd` | The fifty car cards (facts, rarities), XP and levels, packs |
+| `shaders/sky.gdshader` | The sky: sun, moon, stars, drifting clouds |
+| `scripts/game/ragdoll_rig.gd` | (see below) |
 | `scripts/game/heist.gd` | The safes, the heist (drill hunt, drilling, the crack, the getaway, the safehouse), dropped cash |
 | `tools/props/bake_props.gd` | Bakes the heist props (safe, core drill, duffle, cash) from glTF; `tools/audio/make_heist.py` their sounds |
 | `scripts/game/gunplay.gd` | Guns on foot: aim and lock-on, firing, hits and effects, reloads, cars burning and blowing up, your health, officers on foot, WASTED |

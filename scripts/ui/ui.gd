@@ -10,6 +10,7 @@ const M := preload("res://scripts/core/models.gd")
 const PAL := preload("res://scripts/core/palette.gd")
 const MB := preload("res://scripts/core/mesh_builder.gd")
 const Ach := preload("res://scripts/game/achievements.gd")
+const Cards := preload("res://scripts/game/cards.gd")
 const SaveData := preload("res://scripts/game/save.gd")
 const CarScript := preload("res://scripts/game/drift_car.gd")
 const Phone := preload("res://scripts/ui/phone.gd")
@@ -335,7 +336,7 @@ func _build_title() -> void:
 	row2.add_theme_constant_override("separation", 34)
 	left.add_child(row2)
 	for b in [["car", "Garage", func(): game.open_garage()], ["map", "Map", func(): open_map()],
-			["trophy", "Trophies", func(): open_achievements()], ["gear", "Settings", func(): open_settings()]]:
+			["star", "Cards", func(): open_cards()], ["trophy", "Trophies", func(): open_achievements()], ["gear", "Settings", func(): open_settings()]]:
 		var lk := K.link(b[1], b[0], 24)
 		_tap(lk, b[2])
 		row2.add_child(lk)
@@ -2249,6 +2250,7 @@ func open_pause() -> void:
 			close_sheet()
 			game.open_garage()],
 		["Trophies", "trophy", K.LILAC, K.LILAC_DK, func(): open_achievements(true)],
+		["Car cards", "star", Color("ffb020"), Color("c98500"), func(): open_cards(true)],
 		["Settings", "gear", K.PAPER, K.LINE, func(): open_settings(true)],
 		["How to drive", "help", K.PAPER, K.LINE, func(): show_help(true)],
 		["Call the crew", "phone", K.PAPER, K.LINE, func():
@@ -2378,6 +2380,165 @@ func _setting_toggle(icon: String, text: String, value: bool, cb: Callable) -> C
 		cb.call(state[0]))
 	hb.add_child(b)
 	return hb
+
+# ------------------------------------------------------------------ car cards
+
+## The card collection: your level (and how far to the next: each level's a pack), packs to open, and the
+## fifty cards (the ones you've not got yet face down).
+func open_cards(from_pause := false) -> void:
+	var sv = game.save
+	var x: int = Cards.xp(sv)
+	var lv: Array = Cards.level_of(x)
+	var vb: VBoxContainer = await _sheet("Car cards  %d/%d" % [Cards.owned(sv), Cards.LIST.size()], "star", Color("ffb020"), 1180.0)
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 18)
+	vb.add_child(top)
+	var lvb := VBoxContainer.new()
+	lvb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(lvb)
+	lvb.add_child(K.label("Level %d" % int(lv[0]), 30, K.INK, 750, HORIZONTAL_ALIGNMENT_LEFT))
+	var bar := K.bar(520, 12, Color("ffb020"), Color(1, 1, 1, 0.15))
+	bar.value = float(lv[1]) / float(lv[2])
+	lvb.add_child(bar)
+	lvb.add_child(K.label("%s / %s XP to the next level (a new pack): drift, race, explore, pull heists" % [K.fmt(int(lv[1])), K.fmt(int(lv[2]))], 16, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
+	var n: int = Cards.packs(sv)
+	var ob := K.button(("Open pack  (%d)" % n) if n > 0 else "No packs: level up", Color("ffb020") if n > 0 else K.PAPER, Color("c98500") if n > 0 else K.LINE, 26, 300, 76, "star")
+	ob.disabled = n <= 0
+	_tap(ob, func():
+		if Cards.packs(game.save) > 0:
+			_open_pack(from_pause))
+	top.add_child(ob)
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(1140, minf(400.0, _vs().y - 330.0))
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vb.add_child(sc)
+	_drag_scroll(sc)
+	var grid := GridContainer.new()
+	grid.columns = 6
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	sc.add_child(grid)
+	var got: Dictionary = sv.data.get("cards", {})
+	for c in Cards.LIST:
+		var have := int(got.get(c[0], 0))
+		var cardc := _card(c, have > 0, Vector2(176, 236), have)
+		if have > 0:
+			_tap_card(cardc, c, from_pause)
+		grid.add_child(cardc)
+	var ok := K.button("Done", K.PAPER, K.LINE, 28, 0, 68)
+	_tap(ok, func(): _back_from(from_pause))
+	vb.add_child(ok)
+
+func _tap_card(cardc: Control, c: Array, from_pause: bool) -> void:
+	cardc.mouse_filter = Control.MOUSE_FILTER_PASS
+	cardc.gui_input.connect(func(e):
+		if ((e is InputEventScreenTouch or e is InputEventMouseButton) and not e.pressed) and _drag_dist < 18.0:
+			game.ui_tap()
+			_card_detail(c, from_pause))
+
+## One card, drawn: its rarity's colour round the edge, the car's name and year, a car on it; face down if
+## you've not got it yet.
+func _card(c: Array, face: bool, sz: Vector2, count := 1) -> Control:
+	var r: Dictionary = Cards.RARITY[int(c[4])]
+	var col: Color = r["col"]
+	var cc := Control.new()
+	cc.custom_minimum_size = sz
+	cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cc.draw.connect(func():
+		var rect := Rect2(Vector2.ZERO, sz)
+		_rrect(cc, rect, 16, Color(0.07, 0.065, 0.1) if face else Color(0.1, 0.1, 0.13), col if face else Color(1, 1, 1, 0.12), 4)
+		if not face:
+			var f0 := K.font(800)
+			var qw := f0.get_string_size("?", HORIZONTAL_ALIGNMENT_LEFT, -1, int(sz.y * 0.3)).x
+			cc.draw_string(f0, Vector2((sz.x - qw) * 0.5, sz.y * 0.6), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, int(sz.y * 0.3), Color(1, 1, 1, 0.15))
+			return
+		# a band of the rarity's colour, a car on it
+		var band := Rect2(Vector2(10, 10), Vector2(sz.x - 20, sz.y * 0.42))
+		_rrect(cc, band, 10, col.darkened(0.45))
+		_rrect(cc, band.grow(-6), 8, col.darkened(0.2))
+		var k := sz.x / 176.0
+		var bc := band.get_center() + Vector2(0, 8 * k)
+		var body := Color(0.96, 0.97, 1.0)
+		_rrect(cc, Rect2(bc + Vector2(-58, -10) * k, Vector2(116, 26) * k), 10 * k, body)
+		_rrect(cc, Rect2(bc + Vector2(-34, -30) * k, Vector2(62, 24) * k), 10 * k, body)
+		_rrect(cc, Rect2(bc + Vector2(-28, -25) * k, Vector2(24, 15) * k), 4 * k, col.darkened(0.5))
+		_rrect(cc, Rect2(bc + Vector2(0, -25) * k, Vector2(22, 15) * k), 4 * k, col.darkened(0.5))
+		cc.draw_circle(bc + Vector2(-34, 16) * k, 13 * k, Color(0.08, 0.08, 0.1))
+		cc.draw_circle(bc + Vector2(34, 16) * k, 13 * k, Color(0.08, 0.08, 0.1))
+		cc.draw_circle(bc + Vector2(-34, 16) * k, 6 * k, Color(0.7, 0.72, 0.78))
+		cc.draw_circle(bc + Vector2(34, 16) * k, 6 * k, Color(0.7, 0.72, 0.78))
+		var f := K.font(750)
+		var f2 := K.font(550)
+		var y0 := band.end.y + 26 * k
+		cc.draw_string(f2, Vector2(14, y0), str(c[2]) + "  ·  " + String(c[3]), HORIZONTAL_ALIGNMENT_LEFT, sz.x - 28, int(14 * k), Color(1, 1, 1, 0.6))
+		cc.draw_multiline_string(f, Vector2(14, y0 + 24 * k), String(c[1]), HORIZONTAL_ALIGNMENT_LEFT, sz.x - 28, int(19 * k), 2, Color.WHITE)
+		cc.draw_string(f, Vector2(14, sz.y - 14), String(r["name"]).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, sz.x - 28, int(13 * k), col)
+		if count > 1:
+			var xs := "x%d" % count
+			var xw := f.get_string_size(xs, HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 * k)).x
+			cc.draw_string(f, Vector2(sz.x - 14 - xw, sz.y - 14), xs, HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 * k), Color(1, 1, 1, 0.6)))
+	return cc
+
+func _card_detail(c: Array, from_pause: bool) -> void:
+	var vb: VBoxContainer = await _sheet(String(c[1]), "star", Cards.RARITY[int(c[4])]["col"], 880.0)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 26)
+	vb.add_child(hb)
+	hb.add_child(_card(c, true, Vector2(264, 354)))
+	var right := VBoxContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.add_theme_constant_override("separation", 10)
+	hb.add_child(right)
+	right.add_child(K.label("%s  ·  %d  ·  %s" % [String(Cards.RARITY[int(c[4])]["name"]), int(c[2]), String(c[3])], 22, Cards.RARITY[int(c[4])]["col"], 700, HORIZONTAL_ALIGNMENT_LEFT))
+	var fact := K.label(String(c[5]), 26, K.INK, 600, HORIZONTAL_ALIGNMENT_LEFT)
+	fact.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	fact.custom_minimum_size = Vector2(520, 0)
+	right.add_child(fact)
+	var ok := K.button("Back to the cards", K.PAPER, K.LINE, 26, 0, 66)
+	_tap(ok, func(): open_cards(from_pause))
+	vb.add_child(ok)
+
+## A pack, opened: three cards turn over one after another (NEW, or what a duplicate's paid).
+func _open_pack(from_pause: bool) -> void:
+	var got: Array = Cards.open_pack(game.save)
+	game._save_now()
+	game.sfx("mission", -4.0, 1.1)
+	var vb: VBoxContainer = await _sheet("A new pack", "star", Color("ffb020"), 980.0)
+	var hb := HBoxContainer.new()
+	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	hb.add_theme_constant_override("separation", 24)
+	vb.add_child(hb)
+	var i := 0
+	for g in got:
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 8)
+		hb.add_child(col)
+		var cd := _card(g[0], true, Vector2(240, 322))
+		cd.pivot_offset = Vector2(120, 161)
+		cd.scale = Vector2(0.0, 1.0)
+		col.add_child(cd)
+		var tag := K.label("NEW!" if g[1] else ("Duplicate  +" + K.money(int(g[2]))), 22, Color("ffd34d") if g[1] else K.INK_SOFT, 750)
+		tag.modulate.a = 0.0
+		col.add_child(tag)
+		var tw := create_tween()
+		tw.tween_interval(0.35 + i * 0.45)
+		tw.tween_callback(func(): game.sfx("cash" if not g[1] else "mag_in", -6.0, 1.2 + i * 0.1))
+		tw.tween_property(cd, "scale", Vector2.ONE, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tw.tween_property(tag, "modulate:a", 1.0, 0.2)
+		i += 1
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	vb.add_child(row)
+	var more: int = Cards.packs(game.save)
+	if more > 0:
+		var again := K.button("Open another  (%d)" % more, Color("ffb020"), Color("c98500"), 26, 0, 66, "star")
+		again.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_tap(again, func(): _open_pack(from_pause))
+		row.add_child(again)
+	var back := K.button("See your cards", K.PAPER, K.LINE, 26, 0, 66)
+	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tap(back, func(): open_cards(from_pause))
+	row.add_child(back)
 
 func open_achievements(from_pause := false) -> void:
 	var data: Dictionary = game.save.data
