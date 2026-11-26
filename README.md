@@ -204,7 +204,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   runs, and it's yours to drive (a truck's slow and heavy, a sports car quick). The car you were in stays
   parked where you left it, and you can go back to it. Take a police car, or take one with a patrol car
   looking on, and you're wanted.
-- Car cards: fifty real cars, each with a true fact, Common to Legendary. You level up by playing (drifting,
+- Car cards: fifty made-up cars (each a nod to a classic, with an enthusiast's blurb), Common to Legendary. You level up by playing (drifting,
   distance, races, escapes, heists, trophies, places found, hidden cash) and every level is a pack of three
   (the third at least Uncommon); a duplicate pays cash instead. From the title screen or the pause menu.
 - The map is the island in 3D from above (drag, pinch); tap anywhere to drop a waypoint for the GPS. The
@@ -401,7 +401,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `scripts/game/onfoot.gd` | You on foot: walking, running, jumping, the animation (main.gd drives it and the camera) |
 | `scripts/game/avatar.gd` | A playable character: the baked Kenney mini character, its animations, an accessory on its head |
 | `tools/chars/bake_chars.gd` | Bakes the Kenney Mini Characters 2.0 (CC0) to `assets/chars/`: rig, animations, colours in the vertices |
-| `scripts/game/cards.gd` | The fifty car cards (facts, rarities), XP and levels, packs |
+| `scripts/game/cards.gd` | The fifty car cards (made-up cars, blurbs, rarities), XP and levels, packs; art in assets/cards/<id>.png |
+| `shaders/card.gdshader` | The cards' look: metal frames, foil and holo by rarity, the card back, the foil pack |
 | `shaders/sky.gdshader` | The sky: sun, moon, stars, drifting clouds |
 | `scripts/game/ragdoll_rig.gd` | (see below) |
 | `scripts/game/heist.gd` | The safes, the heist (drill hunt, drilling, the crack, the getaway, the safehouse), dropped cash |

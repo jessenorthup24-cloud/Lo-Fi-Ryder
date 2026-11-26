@@ -11,6 +11,7 @@ const PAL := preload("res://scripts/core/palette.gd")
 const MB := preload("res://scripts/core/mesh_builder.gd")
 const Ach := preload("res://scripts/game/achievements.gd")
 const Cards := preload("res://scripts/game/cards.gd")
+const CARD_SHADER := preload("res://shaders/card.gdshader")
 const SaveData := preload("res://scripts/game/save.gd")
 const CarScript := preload("res://scripts/game/drift_car.gd")
 const Phone := preload("res://scripts/ui/phone.gd")
@@ -2421,7 +2422,7 @@ func open_cards(from_pause := false) -> void:
 	var got: Dictionary = sv.data.get("cards", {})
 	for c in Cards.LIST:
 		var have := int(got.get(c[0], 0))
-		var cardc := _card(c, have > 0, Vector2(176, 236), have)
+		var cardc := _card(c, have > 0, Vector2(170, 238), have)
 		if have > 0:
 			_tap_card(cardc, c, from_pause)
 		grid.add_child(cardc)
@@ -2436,109 +2437,351 @@ func _tap_card(cardc: Control, c: Array, from_pause: bool) -> void:
 			game.ui_tap()
 			_card_detail(c, from_pause))
 
-## One card, drawn: its rarity's colour round the edge, the car's name and year, a car on it; face down if
-## you've not got it yet.
-func _card(c: Array, face: bool, sz: Vector2, count := 1) -> Control:
-	var r: Dictionary = Cards.RARITY[int(c[4])]
-	var col: Color = r["col"]
-	var cc := Control.new()
-	cc.custom_minimum_size = sz
-	cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cc.draw.connect(func():
-		var rect := Rect2(Vector2.ZERO, sz)
-		_rrect(cc, rect, 16, Color(0.07, 0.065, 0.1) if face else Color(0.1, 0.1, 0.13), col if face else Color(1, 1, 1, 0.12), 4)
-		if not face:
-			var f0 := K.font(800)
-			var qw := f0.get_string_size("?", HORIZONTAL_ALIGNMENT_LEFT, -1, int(sz.y * 0.3)).x
-			cc.draw_string(f0, Vector2((sz.x - qw) * 0.5, sz.y * 0.6), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, int(sz.y * 0.3), Color(1, 1, 1, 0.15))
-			return
-		# a band of the rarity's colour, a car on it
-		var band := Rect2(Vector2(10, 10), Vector2(sz.x - 20, sz.y * 0.42))
-		_rrect(cc, band, 10, col.darkened(0.45))
-		_rrect(cc, band.grow(-6), 8, col.darkened(0.2))
-		var k := sz.x / 176.0
-		var bc := band.get_center() + Vector2(0, 8 * k)
-		var body := Color(0.96, 0.97, 1.0)
-		_rrect(cc, Rect2(bc + Vector2(-58, -10) * k, Vector2(116, 26) * k), 10 * k, body)
-		_rrect(cc, Rect2(bc + Vector2(-34, -30) * k, Vector2(62, 24) * k), 10 * k, body)
-		_rrect(cc, Rect2(bc + Vector2(-28, -25) * k, Vector2(24, 15) * k), 4 * k, col.darkened(0.5))
-		_rrect(cc, Rect2(bc + Vector2(0, -25) * k, Vector2(22, 15) * k), 4 * k, col.darkened(0.5))
-		cc.draw_circle(bc + Vector2(-34, 16) * k, 13 * k, Color(0.08, 0.08, 0.1))
-		cc.draw_circle(bc + Vector2(34, 16) * k, 13 * k, Color(0.08, 0.08, 0.1))
-		cc.draw_circle(bc + Vector2(-34, 16) * k, 6 * k, Color(0.7, 0.72, 0.78))
-		cc.draw_circle(bc + Vector2(34, 16) * k, 6 * k, Color(0.7, 0.72, 0.78))
-		var f := K.font(750)
-		var f2 := K.font(550)
-		var y0 := band.end.y + 26 * k
-		cc.draw_string(f2, Vector2(14, y0), str(c[2]) + "  ·  " + String(c[3]), HORIZONTAL_ALIGNMENT_LEFT, sz.x - 28, int(14 * k), Color(1, 1, 1, 0.6))
-		cc.draw_multiline_string(f, Vector2(14, y0 + 24 * k), String(c[1]), HORIZONTAL_ALIGNMENT_LEFT, sz.x - 28, int(19 * k), 2, Color.WHITE)
-		cc.draw_string(f, Vector2(14, sz.y - 14), String(r["name"]).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, sz.x - 28, int(13 * k), col)
-		if count > 1:
-			var xs := "x%d" % count
-			var xw := f.get_string_size(xs, HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 * k)).x
-			cc.draw_string(f, Vector2(sz.x - 14 - xw, sz.y - 14), xs, HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 * k), Color(1, 1, 1, 0.6)))
-	return cc
+## One card. Face up: a metal frame in its rarity's colour (foil and a holo sheen from Rare up, gold for
+## Legendary), the car's photo, its name, year and origin, a line from its fact. Face down: the card back.
+## info: the back with the fact written on it, and who took the photo.
+func _card(c: Array, face: bool, sz: Vector2, count := 1, info := false) -> Control:
+	var root := Control.new()
+	root.custom_minimum_size = sz
+	root.size = sz
+	root.pivot_offset = sz * 0.5
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var art := ColorRect.new()
+	art.size = sz
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sm := ShaderMaterial.new()
+	sm.shader = CARD_SHADER
+	sm.set_shader_parameter("card_px", sz)
+	sm.set_shader_parameter("mode", 0 if face else 1)
+	sm.set_shader_parameter("show_ring", not info)
+	var r: int = int(c[4]) if not c.is_empty() else 0
+	sm.set_shader_parameter("rarity", r)
+	sm.set_shader_parameter("rarity_col", Cards.RARITY[r]["col"])
+	var tex := _card_photo(String(c[0])) if face and not c.is_empty() else null
+	sm.set_shader_parameter("has_photo", tex != null)
+	if tex:
+		sm.set_shader_parameter("photo", tex)
+		sm.set_shader_parameter("photo_aspect", float(tex.get_width()) / maxf(float(tex.get_height()), 1.0))
+	art.material = sm
+	root.add_child(art)
+	var ov := Control.new()
+	ov.size = sz
+	ov.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ov.draw.connect(func(): _card_text(ov, c, face, sz, count, info, tex != null))
+	root.add_child(ov)
+	root.set_meta("mat", sm)
+	return root
 
+var _photo_cache := {}
+
+func _card_photo(id: String) -> Texture2D:
+	if _photo_cache.has(id):
+		return _photo_cache[id]
+	var t: Texture2D = null
+	for ext in ["png", "jpg", "webp"]:
+		var p := "res://assets/cards/%s.%s" % [id, ext]
+		if ResourceLoader.exists(p):
+			t = load(p)
+			break
+	_photo_cache[id] = t
+	return t
+
+## The largest size (up to `size`) that fits `text` in `w` pixels.
+func _fit(f: Font, text: String, w: float, size: int) -> int:
+	var s := size
+	while s > 8 and f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, s).x > w:
+		s -= 1
+	return s
+
+func _card_text(o: Control, c: Array, face: bool, sz: Vector2, count: int, info: bool, photo: bool) -> void:
+	var k := sz.x / 250.0
+	var bold := K.font(800)
+	var mid := K.font(650)
+	var thin := K.font(500)
+	if not face and not info:
+		# the back: the game's name in the ring
+		var t1 := "LO-FI"
+		var t2 := "DRYFTER"
+		var s1 := int(30 * k)
+		var s2 := int(26 * k)
+		o.draw_string(bold, Vector2((sz.x - bold.get_string_size(t1, 0, -1, s1).x) * 0.5, sz.y * 0.48), t1, HORIZONTAL_ALIGNMENT_LEFT, -1, s1, Color("ff4f8b"))
+		o.draw_string(bold, Vector2((sz.x - bold.get_string_size(t2, 0, -1, s2).x) * 0.5, sz.y * 0.48 + 30 * k), t2, HORIZONTAL_ALIGNMENT_LEFT, -1, s2, Color.WHITE)
+		var t3 := "CAR CARDS"
+		o.draw_string(mid, Vector2((sz.x - mid.get_string_size(t3, 0, -1, int(13 * k)).x) * 0.5, sz.y * 0.88), t3, HORIZONTAL_ALIGNMENT_LEFT, -1, int(13 * k), Color(1, 1, 1, 0.55))
+		return
+	var r: Dictionary = Cards.RARITY[int(c[4])]
+	var rc: Color = r["col"]
+	var num := Cards.LIST.find(c) + 1
+	var pad := 20.0 * k
+	if info:
+		# the back, written on: the car, the fact, the photo credit
+		var y := 46.0 * k
+		var ns := _fit(bold, String(c[1]), sz.x - pad * 2, int(24 * k))
+		o.draw_string(bold, Vector2(pad, y), String(c[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, ns, Color.WHITE)
+		y += 26 * k
+		o.draw_string(mid, Vector2(pad, y), "%d  ·  %s  ·  %s" % [int(c[2]), String(c[3]).to_upper(), String(r["name"]).to_upper()], HORIZONTAL_ALIGNMENT_LEFT, sz.x - pad * 2, int(13 * k), rc)
+		y += 16 * k
+		o.draw_line(Vector2(pad, y), Vector2(sz.x - pad, y), Color(rc, 0.6), 2.0 * k)
+		y += 30 * k
+		o.draw_multiline_string(thin, Vector2(pad, y), String(c[5]), HORIZONTAL_ALIGNMENT_LEFT, sz.x - pad * 2, int(18 * k), 9, Color(1, 1, 1, 0.92))
+		o.draw_string(mid, Vector2(pad, sz.y - 16 * k), "No. %02d / %d" % [num, Cards.LIST.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * k), Color(1, 1, 1, 0.5))
+		return
+	# front: the name across the top, its rarity in gems at the right
+	var gem_w := 12.0 * k * (int(c[4]) + 1)
+	var ns2 := _fit(bold, String(c[1]), sz.x - pad * 2 - gem_w - 6 * k, int(20 * k))
+	o.draw_string_outline(bold, Vector2(pad, sz.y * 0.085), String(c[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, ns2, int(4 * k), Color(0, 0, 0, 0.5))
+	o.draw_string(bold, Vector2(pad, sz.y * 0.085), String(c[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, ns2, Color.WHITE)
+	for g in int(c[4]) + 1:
+		var gc := Vector2(sz.x - pad - 5 * k - g * 12 * k, sz.y * 0.068)
+		var d := 5.0 * k
+		o.draw_colored_polygon(PackedVector2Array([gc + Vector2(0, -d), gc + Vector2(d, 0), gc + Vector2(0, d), gc + Vector2(-d, 0)]), rc.lightened(0.2))
+	if not photo:
+		# (no photo yet: a car shape on the backdrop)
+		var bc := Vector2(sz.x * 0.5, sz.y * 0.4)
+		var body := Color(0.95, 0.96, 1.0, 0.9)
+		_rrect(o, Rect2(bc + Vector2(-64, -6) * k, Vector2(128, 28) * k), 11 * k, body)
+		_rrect(o, Rect2(bc + Vector2(-36, -28) * k, Vector2(68, 26) * k), 11 * k, body)
+		o.draw_circle(bc + Vector2(-38, 22) * k, 14 * k, Color(0.08, 0.08, 0.1))
+		o.draw_circle(bc + Vector2(38, 22) * k, 14 * k, Color(0.08, 0.08, 0.1))
+	# under the photo: year and where from, the number
+	var yy := sz.y * 0.67
+	o.draw_string(mid, Vector2(pad, yy), "%d  ·  %s" % [int(c[2]), String(c[3]).to_upper()], HORIZONTAL_ALIGNMENT_LEFT, -1, int(13 * k), Color(1, 1, 1, 0.75))
+	var ntxt := "%02d/%d" % [num, Cards.LIST.size()]
+	o.draw_string(mid, Vector2(sz.x - pad - mid.get_string_size(ntxt, 0, -1, int(12 * k)).x, yy), ntxt, HORIZONTAL_ALIGNMENT_LEFT, -1, int(12 * k), Color(1, 1, 1, 0.45))
+	# the rarity, and the start of the fact
+	o.draw_string(bold, Vector2(pad, yy + 24 * k), String(r["name"]).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, int(15 * k), rc.lightened(0.15))
+	var fact := String(c[5])
+	var first := fact.substr(0, fact.find(". ") + 1) if fact.find(". ") > 0 else fact
+	o.draw_multiline_string(thin, Vector2(pad, yy + 44 * k), first, HORIZONTAL_ALIGNMENT_LEFT, sz.x - pad * 2, int(12 * k), 3, Color(1, 1, 1, 0.7))
+	if count > 1:
+		var xs := "x%d" % count
+		o.draw_string(bold, Vector2(sz.x - pad - bold.get_string_size(xs, 0, -1, int(14 * k)).x, sz.y - 14 * k), xs, HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 * k), Color(1, 1, 1, 0.7))
+
+## A foil pack (the wrapper you tear open).
+func _pack(sz: Vector2) -> Control:
+	var root := Control.new()
+	root.custom_minimum_size = sz
+	root.size = sz
+	root.pivot_offset = sz * 0.5
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var art := ColorRect.new()
+	art.size = sz
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sm := ShaderMaterial.new()
+	sm.shader = CARD_SHADER
+	sm.set_shader_parameter("card_px", sz)
+	sm.set_shader_parameter("mode", 2)
+	sm.set_shader_parameter("rarity_col", Color(1.0, 0.33, 0.55))
+	art.material = sm
+	root.add_child(art)
+	var ov := Control.new()
+	ov.size = sz
+	ov.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ov.draw.connect(func():
+		var k := sz.x / 260.0
+		var bold := K.font(800)
+		var mid := K.font(650)
+		var lines := [["LO-FI DRYFTER", mid, int(15 * k), Color(1, 1, 1, 0.85), sz.y * 0.2], ["CAR", bold, int(54 * k), Color.WHITE, sz.y * 0.47],
+			["CARDS", bold, int(46 * k), Color("ffd34d"), sz.y * 0.59], ["3 CARDS  ·  SERIES 1", mid, int(14 * k), Color(1, 1, 1, 0.85), sz.y * 0.82]]
+		for l in lines:
+			var f: Font = l[1]
+			var w := f.get_string_size(String(l[0]), 0, -1, int(l[2])).x
+			ov.draw_string_outline(f, Vector2((sz.x - w) * 0.5, float(l[4])), String(l[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(l[2]), int(6 * k), Color(0, 0, 0, 0.45))
+			ov.draw_string(f, Vector2((sz.x - w) * 0.5, float(l[4])), String(l[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(l[2]), l[3]))
+	root.add_child(ov)
+	root.set_meta("mat", sm)
+	return root
+
+## A card's detail: big, and tap it to turn it over (the fact's on the back).
 func _card_detail(c: Array, from_pause: bool) -> void:
-	var vb: VBoxContainer = await _sheet(String(c[1]), "star", Cards.RARITY[int(c[4])]["col"], 880.0)
+	var vb: VBoxContainer = await _sheet(String(c[1]), "star", Cards.RARITY[int(c[4])]["col"], 760.0)
+	var h := minf(470.0, _vs().y - 250.0)
+	var sz := Vector2(h * 0.714, h)
 	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 26)
+	hb.alignment = BoxContainer.ALIGNMENT_CENTER
 	vb.add_child(hb)
-	hb.add_child(_card(c, true, Vector2(264, 354)))
-	var right := VBoxContainer.new()
-	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right.add_theme_constant_override("separation", 10)
-	hb.add_child(right)
-	right.add_child(K.label("%s  ·  %d  ·  %s" % [String(Cards.RARITY[int(c[4])]["name"]), int(c[2]), String(c[3])], 22, Cards.RARITY[int(c[4])]["col"], 700, HORIZONTAL_ALIGNMENT_LEFT))
-	var fact := K.label(String(c[5]), 26, K.INK, 600, HORIZONTAL_ALIGNMENT_LEFT)
-	fact.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	fact.custom_minimum_size = Vector2(520, 0)
-	right.add_child(fact)
-	var ok := K.button("Back to the cards", K.PAPER, K.LINE, 26, 0, 66)
+	var holder := Control.new()
+	holder.custom_minimum_size = sz
+	holder.mouse_filter = Control.MOUSE_FILTER_STOP
+	hb.add_child(holder)
+	var front := _card(c, true, sz)
+	var back := _card(c, false, sz, 1, true)
+	back.visible = false
+	holder.add_child(front)
+	holder.add_child(back)
+	var flipping := [false]
+	holder.gui_input.connect(func(e):
+		if ((e is InputEventScreenTouch or e is InputEventMouseButton) and not e.pressed) and not flipping[0]:
+			flipping[0] = true
+			game.sfx("tap", -6.0, 1.3)
+			var showing: Control = front if front.visible else back
+			var other: Control = back if front.visible else front
+			var tw := create_tween()
+			tw.tween_property(showing, "scale:x", 0.0, 0.14).set_ease(Tween.EASE_IN)
+			tw.tween_callback(func():
+				showing.visible = false
+				showing.scale.x = 1.0
+				other.scale.x = 0.0
+				other.visible = true)
+			tw.tween_property(other, "scale:x", 1.0, 0.16).set_ease(Tween.EASE_OUT)
+			tw.tween_callback(func(): flipping[0] = false))
+	vb.add_child(K.label("Tap the card to turn it over", 16, K.INK_SOFT, 600))
+	var ok := K.button("Back to the cards", K.PAPER, K.LINE, 26, 0, 64)
 	_tap(ok, func(): open_cards(from_pause))
 	vb.add_child(ok)
 
-## A pack, opened: three cards turn over one after another (NEW, or what a duplicate's paid).
+## Opening a pack: the pack, tap it and it shakes and bursts open, three cards fly out face down and turn
+## over one after another (a flash in their rarity's colour; NEW, or what a duplicate paid).
 func _open_pack(from_pause: bool) -> void:
 	var got: Array = Cards.open_pack(game.save)
 	game._save_now()
-	game.sfx("mission", -4.0, 1.1)
-	var vb: VBoxContainer = await _sheet("A new pack", "star", Color("ffb020"), 980.0)
-	var hb := HBoxContainer.new()
-	hb.alignment = BoxContainer.ALIGNMENT_CENTER
-	hb.add_theme_constant_override("separation", 24)
-	vb.add_child(hb)
-	var i := 0
-	for g in got:
-		var col := VBoxContainer.new()
-		col.add_theme_constant_override("separation", 8)
-		hb.add_child(col)
-		var cd := _card(g[0], true, Vector2(240, 322))
-		cd.pivot_offset = Vector2(120, 161)
-		cd.scale = Vector2(0.0, 1.0)
-		col.add_child(cd)
-		var tag := K.label("NEW!" if g[1] else ("Duplicate  +" + K.money(int(g[2]))), 22, Color("ffd34d") if g[1] else K.INK_SOFT, 750)
+	for ch in overlay.get_children():
+		ch.queue_free()
+	overlay.visible = true
+	hud.modulate.a = 0.0
+	var vs: Vector2 = _vs()
+	var dim := ColorRect.new()
+	dim.color = Color(0.02, 0.02, 0.05, 0.94)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(dim)
+	var stage := Control.new()
+	stage.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(stage)
+	var ch_h := minf(vs.y * 0.56, 380.0)
+	var csz := Vector2(ch_h * 0.714, ch_h)
+	var psz := Vector2(ch_h * 0.74, ch_h * 1.08)
+	var pk := _pack(psz)
+	pk.position = (vs - psz) * 0.5
+	pk.scale = Vector2(0.5, 0.5)
+	pk.modulate.a = 0.0
+	stage.add_child(pk)
+	var hint := K.outlined(K.label("Tap to open", 22, Color.WHITE, 700), K.INK, 6)
+	hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	hint.position = Vector2(-150, -70)
+	hint.size = Vector2(300, 40)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stage.add_child(hint)
+	var ti := create_tween()
+	ti.set_parallel(true)
+	ti.tween_property(pk, "scale", Vector2.ONE, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	ti.tween_property(pk, "modulate:a", 1.0, 0.25)
+	# a gentle float while it waits
+	var bob := create_tween().set_loops()
+	bob.tween_property(pk, "rotation", 0.04, 0.9).set_trans(Tween.TRANS_SINE)
+	bob.tween_property(pk, "rotation", -0.04, 0.9).set_trans(Tween.TRANS_SINE)
+	var opened := [false]
+	var open := func():
+		if opened[0]:
+			return
+		opened[0] = true
+		bob.kill()
+		hint.visible = false
+		game.sfx("mag_out", -2.0, 0.8)
+		var pm: ShaderMaterial = pk.get_meta("mat")
+		var t := create_tween()
+		for k in 6:
+			t.tween_property(pk, "rotation", 0.09 * (1.0 if k % 2 == 0 else -1.0), 0.05)
+		t.tween_property(pk, "rotation", 0.0, 0.05)
+		t.parallel().tween_method(func(v): pm.set_shader_parameter("glow", v), 0.0, 1.2, 0.3)
+		t.tween_callback(func(): game.sfx("explosion", -14.0, 1.8))
+		t.tween_property(pk, "scale", Vector2(1.25, 1.25), 0.18)
+		t.parallel().tween_property(pk, "modulate:a", 0.0, 0.18)
+		t.tween_callback(func():
+			pk.queue_free()
+			_deal(stage, got, csz, vs, from_pause))
+	dim.gui_input.connect(func(e):
+		if (e is InputEventScreenTouch or e is InputEventMouseButton) and not e.pressed:
+			open.call())
+	if String(game.args.get("cardtest", "")) == "pack":
+		get_tree().create_timer(0.7).timeout.connect(open)
+
+func _deal(stage: Control, got: Array, csz: Vector2, vs: Vector2, from_pause: bool) -> void:
+	var gap := 34.0
+	var x0 := vs.x * 0.5 - (csz.x * 1.5 + gap)
+	var y := (vs.y - csz.y) * 0.5 - 24.0
+	for i in got.size():
+		var g: Array = got[i]
+		var c: Array = g[0]
+		var slot := Control.new()
+		slot.position = Vector2(vs.x * 0.5 - csz.x * 0.5, vs.y * 0.5 - csz.y * 0.5)
+		slot.size = csz
+		slot.pivot_offset = csz * 0.5
+		slot.scale = Vector2(0.4, 0.4)
+		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		stage.add_child(slot)
+		var back := _card(c, false, csz)
+		var front := _card(c, true, csz)
+		front.visible = false
+		slot.add_child(back)
+		slot.add_child(front)
+		var tag := K.outlined(K.label("NEW!" if g[1] else ("+" + K.money(int(g[2]))), 24, Color("ffd34d") if g[1] else Color(1, 1, 1, 0.8), 800), K.INK, 6)
+		tag.position = Vector2(0, csz.y + 10)
+		tag.size = Vector2(csz.x, 30)
+		tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		tag.modulate.a = 0.0
-		col.add_child(tag)
-		var tw := create_tween()
-		tw.tween_interval(0.35 + i * 0.45)
-		tw.tween_callback(func(): game.sfx("cash" if not g[1] else "mag_in", -6.0, 1.2 + i * 0.1))
-		tw.tween_property(cd, "scale", Vector2.ONE, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		tw.tween_property(tag, "modulate:a", 1.0, 0.2)
-		i += 1
+		slot.add_child(tag)
+		var to := Vector2(x0 + i * (csz.x + gap), y)
+		var t := create_tween()
+		t.tween_interval(i * 0.12)
+		t.tween_property(slot, "position", to, 0.35).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		t.parallel().tween_property(slot, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t.parallel().tween_property(slot, "rotation", (i - 1) * 0.05, 0.35)
+		# then turn over, one after another (the rarest last makes the best show, but it's the order they came)
+		t.tween_interval(0.5 + i * 0.55)
+		t.tween_property(slot, "scale:x", 0.0, 0.14).set_ease(Tween.EASE_IN)
+		var r: int = int(c[4])
+		t.tween_callback(func():
+			back.visible = false
+			front.visible = true
+			var fm: ShaderMaterial = front.get_meta("mat")
+			var gt := create_tween()
+			gt.tween_method(func(v): fm.set_shader_parameter("glow", v), 0.4 + r * 0.25, 0.0, 0.7)
+			_burst(stage, to + csz * 0.5, Cards.RARITY[r]["col"], csz.x * (0.6 + r * 0.25))
+			game.sfx("cash" if r < 3 else "mission", -6.0 + r, 1.0 + r * 0.08))
+		t.tween_property(slot, "scale:x", 1.0, 0.18).set_ease(Tween.EASE_OUT)
+		t.tween_property(tag, "modulate:a", 1.0, 0.2)
+	# then what next
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	vb.add_child(row)
+	row.add_theme_constant_override("separation", 14)
+	row.position = Vector2(vs.x * 0.5 - 360, vs.y - 96)
+	row.size = Vector2(720, 70)
+	row.modulate.a = 0.0
+	stage.add_child(row)
 	var more: int = Cards.packs(game.save)
 	if more > 0:
-		var again := K.button("Open another  (%d)" % more, Color("ffb020"), Color("c98500"), 26, 0, 66, "star")
+		var again := K.button("Open another  (%d)" % more, Color("ffb020"), Color("c98500"), 24, 0, 64, "star")
 		again.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_tap(again, func(): _open_pack(from_pause))
 		row.add_child(again)
-	var back := K.button("See your cards", K.PAPER, K.LINE, 26, 0, 66)
-	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_tap(back, func(): open_cards(from_pause))
-	row.add_child(back)
+	var see := K.button("See your cards", K.PAPER, K.LINE, 24, 0, 64)
+	see.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tap(see, func(): open_cards(from_pause))
+	row.add_child(see)
+	var rt := create_tween()
+	rt.tween_interval(0.9 + got.size() * 0.7)
+	rt.tween_property(row, "modulate:a", 1.0, 0.3)
+
+## A ring of light going out from a card as it turns over.
+func _burst(stage: Control, at: Vector2, col: Color, r: float) -> void:
+	var b := Control.new()
+	b.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.position = at
+	stage.add_child(b)
+	stage.move_child(b, 0)
+	b.set_meta("k", 0.0)
+	b.draw.connect(func():
+		var k: float = b.get_meta("k")
+		for i in 3:
+			var rr := r * (0.4 + k * (0.9 + i * 0.25))
+			b.draw_arc(Vector2.ZERO, rr, 0, TAU, 64, Color(col, (1.0 - k) * (0.7 - i * 0.2)), 10.0 * (1.0 - k) + 2.0, true)
+		b.draw_circle(Vector2.ZERO, r * 0.6 * (1.0 - k), Color(col.lightened(0.4), 0.25 * (1.0 - k))))
+	var t := create_tween()
+	t.tween_method(func(v):
+		b.set_meta("k", v)
+		b.queue_redraw(), 0.0, 1.0, 0.7)
+	t.tween_callback(b.queue_free)
 
 func open_achievements(from_pause := false) -> void:
 	var data: Dictionary = game.save.data

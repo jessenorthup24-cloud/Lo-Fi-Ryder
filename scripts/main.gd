@@ -1107,11 +1107,13 @@ func _crew_tests() -> void:
 		set_meta("cd_done", true)
 		save.add_stat("drift_points", 400000)
 		pause(false)
-		if String(args["cardtest"]) == "pack":
+		if String(args["cardtest"]) in ["pack", "packview"]:
 			ui._open_pack(false)
+		elif String(args["cardtest"]) == "back":
+			ui._card_detail(Cards.LIST[45], false)
 		else:
 			ui.open_cards()
-		get_tree().create_timer(2.6).timeout.connect(func():
+		get_tree().create_timer(5.0 if String(args["cardtest"]) == "pack" else 1.6).timeout.connect(func():
 			print("CARDS xp=%d level=%s packs=%d owned=%d" % [Cards.xp(save), str(Cards.level_of(Cards.xp(save))), Cards.packs(save), Cards.owned(save)])
 			get_viewport().get_texture().get_image().save_png("/tmp/audit/cards_%s.png" % String(args["cardtest"]))
 			get_tree().quit())
