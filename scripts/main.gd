@@ -1056,6 +1056,21 @@ func _crew_tests() -> void:
 			if frames % 30 == 0:
 				print("GUN t=%.1f gun=%s ammo=%s hp=%.0f heat=%d target=%s people_down=%d cops=%d officers=%d anim=%s cash_drops=%d cash=%d" % [time, gunplay.weapon.get("id", "?"), gunplay.ammo_text(), gunplay.hp,
 					police.heat, "yes" if gunplay.lock_pos != Vector3.INF else "no", gunplay.kills["people"], gunplay.kills["police"], gunplay.officers.size(), foot.avatar.current(), heist.cash.size(), int(save.data["coins"])])
+	if args.has("lotcheck") and state == DRIVE and not has_meta("lc"):
+		set_meta("lc", true)
+		for spec in [["beach", Vector2(60, 338), Vector2(50, 30)], ["farm", Vector2(238, -14), Vector2(48, 36)]]:
+			var c0: Vector2 = spec[1]
+			var hs0: Vector2 = spec[2]
+			var low := 0
+			var blk := 0
+			for i in 21:
+				for j in 21:
+					var q := c0 + Vector2(lerpf(-hs0.x, hs0.x, i / 20.0), lerpf(-hs0.y, hs0.y, j / 20.0))
+					if island.height_at(q.x, q.y) < 0.4:
+						low += 1
+					if island.is_blocked(q.x, q.y):
+						blk += 1
+			print("LOT %s below_sea=%d blocked=%d of 441" % [spec[0], low, blk])
 	if args.has("skytest") and state == DRIVE:
 		# (a test: the camera tipped up to the sky)
 		look_pitch_t = -0.25

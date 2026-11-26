@@ -16,6 +16,8 @@ const Green := preload("res://scripts/game/green.gd")
 const CASTLE := Vector2(-30, -362)
 const SQUARE := Vector2(-110, 30)
 const SKATE := Vector2(70, 90)
+const BEACH_LOT := Vector2(60, 338)     # the beach car park (a big open lot: room to drift)
+const FARM_LOT := Vector2(238, -14)     # the farmyard
 const PARK := Vector2(-50, 150)
 const CITY_X := [-260.0, -200.0, -140.0, -80.0, -20.0, 40.0, 100.0]
 const CITY_Z := [-60.0, 0.0, 60.0, 120.0, 180.0]
@@ -112,8 +114,8 @@ static func plan(I) -> void:
 	I.add_lot(SKATE, Vector2(21, 21), I.S_CONCRETE)                      # skate park
 	I.add_lot(Vector2(-392, 162), Vector2(40, 30), I.S_CONCRETE)          # harbour
 	I.raises.append([Vector2(-393, 162), Vector2(43, 34), 1.4, 5.0])     # its quay, built up level to the water
-	I.add_lot(Vector2(60, 378), Vector2(28, 14), I.S_ASPHALT)             # beach car park
-	I.add_lot(Vector2(235, -14), Vector2(30, 20), I.S_DIRT)               # farmyard
+	I.add_lot(BEACH_LOT, Vector2(50, 30), I.S_ASPHALT)                    # beach car park (room to drift)
+	I.add_lot(FARM_LOT, Vector2(48, 36), I.S_DIRT)                        # farmyard (room to drift)
 	I.add_lot(CASTLE, Vector2(23, 23), I.S_COBBLE, 0.0, false)             # castle courtyard
 	I.add_lot(Vector2(-46, -132), Vector2(13, 12), I.S_CONCRETE)          # gas station
 	I.add_lot(Vector2(246, -246), Vector2(14, 10), I.S_DIRT)              # campsite
@@ -173,8 +175,8 @@ static func challenges(I) -> void:
 		{"id": "bowl", "name": "The Drift Bowl", "pos": Vector3(175, 0, 205), "r": 56.0, "time": 60.0, "medals": [6000, 15000, 30000]},
 		{"id": "square", "name": "Town Square Loop", "pos": Vector3(SQUARE.x, 0, SQUARE.y), "r": 46.0, "time": 60.0, "medals": [4000, 10000, 20000]},
 		{"id": "harbour", "name": "Harbour Lot", "pos": Vector3(-392, 0, 162), "r": 38.0, "time": 45.0, "medals": [3000, 8000, 16000]},
-		{"id": "farmyard", "name": "Farmyard Donuts", "pos": Vector3(235, 0, -14), "r": 30.0, "time": 45.0, "medals": [2500, 7000, 14000]},
-		{"id": "beach", "name": "Beach Car Park", "pos": Vector3(60, 0, 378), "r": 30.0, "time": 45.0, "medals": [2500, 7000, 14000]},
+		{"id": "farmyard", "name": "Farmyard Donuts", "pos": Vector3(FARM_LOT.x, 0, FARM_LOT.y), "r": 50.0, "time": 60.0, "medals": [4000, 10000, 20000]},
+		{"id": "beach", "name": "Beach Car Park", "pos": Vector3(BEACH_LOT.x, 0, BEACH_LOT.y), "r": 52.0, "time": 60.0, "medals": [4000, 10000, 20000]},
 		{"id": "skate", "name": "Skate Park Jam", "pos": Vector3(SKATE.x, 0, SKATE.y), "r": 32.0, "time": 45.0, "medals": [2000, 6000, 12000]},
 		{"id": "stunt", "name": "Stunt Yard Jam", "pos": Vector3(STUNT.x, 0, STUNT.y), "r": 66.0, "time": 75.0, "medals": [4000, 10000, 20000],
 			"rect": Rect2(STUNT - STUNT_HS, STUNT_HS * 2.0)},
