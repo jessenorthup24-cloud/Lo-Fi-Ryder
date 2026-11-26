@@ -27,6 +27,7 @@ const Weather := preload("res://scripts/game/weather.gd")
 const OnFoot := preload("res://scripts/game/onfoot.gd")
 const Gunplay := preload("res://scripts/game/gunplay.gd")
 const Heist := preload("res://scripts/game/heist.gd")
+const Property := preload("res://scripts/game/property.gd")
 const Cards := preload("res://scripts/game/cards.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
@@ -155,6 +156,7 @@ var crew: Crew               # the drivers out on the island (and the ones drivi
 var foot: OnFoot = null      # you, out of the car (null while you're driving)
 var gunplay: Gunplay         # guns, your health, the police on foot
 var heist: Heist             # the safes, the heists, dropped cash
+var property: Node3D        # the mansion and the garage you build up (property.gd)
 var on_foot := false
 var stick := Vector2.ZERO    # the on-foot stick: x right, y forward
 var stick_idx := -1          # the finger on it
@@ -316,6 +318,10 @@ func _build_world() -> void:
 	heist.name = "Heist"
 	add_child(heist)
 	heist.setup(self)
+	property = Property.new()
+	property.name = "Property"
+	add_child(property)
+	property.build(self)
 	crew = Crew.new()
 	crew.name = "Crew"
 	add_child(crew)
@@ -879,6 +885,7 @@ func _process(dt: float) -> void:
 					ui.hud_update_light()
 			police.tick(dt)
 			heist.tick(dt)
+			property.tick(dt)
 			crew.tick(dt)
 			_crew_tests()
 		PAUSED, GARAGE:

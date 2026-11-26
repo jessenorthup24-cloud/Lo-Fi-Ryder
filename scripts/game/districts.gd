@@ -19,6 +19,11 @@ const SKATE := Vector2(70, 90)
 const BEACH_LOT := Vector2(60, 338)     # the beach car park (a big open lot: room to drift)
 const FARM_LOT := Vector2(238, -14)     # the farmyard
 const PARK := Vector2(-50, 150)
+## The plots you build on (property.gd): centre, turn (+Z, the front, toward the road), half size, the gap to the road.
+const PLOTS := {
+	"garage": {"c": Vector2(20, 250), "yaw": PI, "hs": Vector2(22.5, 47.5), "back": 22.0},
+	"mansion": {"c": Vector2(135, 283), "yaw": 1.72, "hs": Vector2(24.5, 21.5), "back": 22.0},
+}
 const CITY_X := [-260.0, -200.0, -140.0, -80.0, -20.0, 40.0, 100.0]
 const CITY_Z := [-60.0, 0.0, 60.0, 120.0, 180.0]
 const AVENUES := [["Harbor Avenue", -260.0], ["Oak Avenue", -200.0], ["Elm Avenue", -140.0], ["Market Street", -80.0],
@@ -55,6 +60,14 @@ static func plan(I) -> void:
 	# areas kept flat (the land generator reads these)
 	I.flats.append([Vector2(-80, 60), Vector2(190, 135), 45.0])      # the city
 	I.flats.append([Vector2(-215, -160), Vector2(80, 70), 40.0])     # Maple Hills
+	# the plots you build on: kept clear and flat, a driveway out to the road
+	for id in PLOTS:
+		var pl: Dictionary = PLOTS[id]
+		var c: Vector2 = pl["c"]
+		var hs: Vector2 = pl["hs"]
+		var f := Vector2(sin(float(pl["yaw"])), cos(float(pl["yaw"])))
+		I.add_lot(c, hs + Vector2(1, 1), I.S_GRASS, float(pl["yaw"]))
+		I.add_road(String(id).capitalize() + " Drive", [c + f * (hs.y - 3.0), c + f * (hs.y + float(pl["back"]) * 0.5), c + f * (hs.y + float(pl["back"]) + 7.0)], "yard")
 	I.flats.append([Vector2(300, 90), Vector2(95, 165), 55.0])       # farms
 	I.flats.append([Vector2(-60, 310), Vector2(230, 60), 40.0])      # beach front
 	I.flats.append([Vector2(-55, -132), Vector2(26, 22), 25.0])      # gas station

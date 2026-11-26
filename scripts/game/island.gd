@@ -106,7 +106,7 @@ func build(material: ShaderMaterial, s: int) -> void:
 	road_mat.set_shader_parameter("depth_bias", 0.0005)
 	var steps := [["water", _water], ["coast", _coast], ["plan", func(): Districts.plan(self)], ["heights", _heights],
 		["roads", _road_levels], ["network", func(): _network(); _level_junctions()], ["cut", _cut_terrain], ["surfaces", _surfaces], ["terrain", _terrain], ["road meshes", _road_meshes], ["lots", _lot_meshes],
-		["bodies", _bodies], ["map", _map_meshes], ["rail", _rail], ["populate", func(): Districts.populate(self)], ["scatter", func(): Districts.scatter(self)],
+		["bodies", _bodies], ["map", _map_meshes], ["rail", _rail], ["plots", _plot_search], ["populate", func(): Districts.populate(self)], ["scatter", func(): Districts.scatter(self)],
 		["merge", _merge_statics], ["decals", _decal_mesh]]
 	for st in steps:
 		var t0 := Time.get_ticks_usec()
@@ -114,6 +114,58 @@ func build(material: ShaderMaterial, s: int) -> void:
 		timings[st[0]] = (Time.get_ticks_usec() - t0) / 1000
 
 var timings := {}
+
+
+## A one-off (--plotsearch): flat, empty plots facing a road for the mansion and the garage, looked for
+## before the town fills in.
+func _plot_search() -> void:
+	if not "--plotsearch" in OS.get_cmdline_user_args():
+		return
+	var im := Image.create(N, N, false, Image.FORMAT_RGB8)
+	for j in N:
+		for i in N:
+			var x := -HALF + i * CELL
+			var z := -HALF + j * CELL
+			var h := height_at(x, z)
+			var c := Color(0.1, 0.3, 0.7) if h < 0.6 else Color(0.25, 0.6, 0.25).darkened(clampf(h / 60.0, 0.0, 0.7))
+			if blocked[j * N + i] != 0:
+				c = Color(0.8, 0.2, 0.2)
+			im.set_pixel(i, j, c)
+	im.save_png("/tmp/plotmap.png")
+	print("PLOTMAP N=%d CELL=%.1f HALF=%.0f" % [N, CELL, HALF])
+	for spec in [["mansion", Vector2(25, 22)], ["garage", Vector2(23, 48)]]:
+		var hs: Vector2 = spec[1]
+		var found := []
+		for r in roads:
+			if String(r.get("kind", "")) in ["track", "drift", "yard", "dirt", "mountain"]:
+				continue
+			var pts: PackedVector2Array = r["pts"]
+			for i in range(4, pts.size() - 4, 8):
+				var t := (pts[i + 2] - pts[i - 2]).normalized()
+				for sd in [-1.0, 1.0, -2.0, 2.0, -3.0, 3.0]:
+					var nrm: Vector2 = Vector2(-t.y, t.x) * signf(float(sd))
+					var back: float = [9.0, 22.0, 40.0][int(absf(float(sd))) - 1]
+					var c: Vector2 = pts[i] + nrm * (hs.y + back)
+					var yaw := atan2(nrm.x, nrm.y) + PI      # (+Z, the front, toward the road)
+					if not is_free(c, hs + Vector2(3, 3), yaw):
+						continue
+					var bs := Basis(Vector3.UP, yaw)
+					var lo := INF
+					var hi := -INF
+					var ok := true
+					for gx in range(-2, 3):
+						for gz in range(-2, 3):
+							var w: Vector3 = bs * Vector3(hs.x * gx / 2.0, 0, hs.y * gz / 2.0)
+							var h: float = height_at(c.x + w.x, c.y + w.z)
+							if h < 1.0 or is_blocked(c.x + w.x, c.y + w.z):
+								ok = false
+							lo = minf(lo, h)
+							hi = maxf(hi, h)
+					if ok:
+						found.append([hi - lo + back * 0.05, c, yaw, String(r.get("name", "")) + " back %.0f" % back])
+		found.sort_custom(func(a, b): return a[0] < b[0])
+		for k in mini(12, found.size()):
+			print("PLOT %s slope=%.1f at=(%.0f, %.0f) yaw=%.2f road=%s" % [spec[0], found[k][0], found[k][1].x, found[k][1].y, found[k][2], found[k][3]])
 
 ## The railway round the island (laid before the town is built, so its strip stays clear).
 var rail: Node3D

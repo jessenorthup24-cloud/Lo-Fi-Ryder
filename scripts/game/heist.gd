@@ -259,6 +259,12 @@ func _build_safe(sf: Dictionary) -> void:
 	var dot: MeshInstance3D = island.map_marker(sf["pos"], Color("8d9bb5"), 4.5)
 	sf["dot"] = dot
 
+## Where the money goes: your mansion, once it's built; the safehouse till then.
+func _drop_at() -> Vector3:
+	if game.property != null and game.property.finished("mansion"):
+		return game.property.mansion_door()
+	return safehouse["pos"]
+
 func _place_safehouse() -> void:
 	# by where you start, on Main Street
 	var start := Vector2(-262, 61)
@@ -413,7 +419,7 @@ func tick(dt: float) -> void:
 			if game.police.wanted():
 				state = ESCAPE
 				game.ui.toast("They've spotted you: lose them first", "star", Color("ff4f6b"), Color.WHITE, 2.0)
-			elif (safehouse["pos"] as Vector3).distance_to(yp) < 7.0:
+			elif _drop_at().distance_to(yp) < 7.0:
 				_complete()
 
 static func K_PAPER() -> Color:
@@ -437,7 +443,7 @@ func route() -> Dictionary:
 			if (cur["pos"] as Vector3).distance_to(game.you().global_position) > 12.0:
 				return {"pos": cur["pos"], "name": "The safe", "kind": "heist"}
 		DELIVER:
-			return {"pos": safehouse["pos"], "name": "Safehouse", "kind": "heist"}
+			return {"pos": _drop_at(), "name": "Your mansion" if _drop_at() != safehouse["pos"] else "Safehouse", "kind": "heist"}
 	return {}
 
 ## The nearest safe that's not been cracked lately ({} if none).
