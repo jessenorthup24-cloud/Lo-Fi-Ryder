@@ -296,7 +296,7 @@ func _upkeep(d: Dictionary, dt: float, cp: Vector3, scan: bool) -> void:
 	# a patrol car sees one fly past
 	if scan and not d["chased"] and d["mode"] != "busted":
 		d["cool"] = float(d["cool"]) - 0.5
-		if float(d["cool"]) <= 0.0 and c.linear_velocity.length() * 3.6 > 82.0:
+		if float(d["cool"]) <= 0.0 and c.linear_velocity.length() * 3.6 > 72.0:
 			_patrol_check(d)
 	# gone: well away from you and out of sight (your crew get put back behind you instead)
 	d["life"] = float(d["life"]) + dt
@@ -582,8 +582,8 @@ func _patrol_check(d: Dictionary) -> void:
 		if b.global_position.distance_to(p) > police.SEE_R:
 			continue
 		if police._cone(b.global_position, -b.global_transform.basis.z, p, police.SEE_R, police.SEE_ANG, police.NEAR_R):
-			d["cool"] = 25.0
-			if randf() > (0.12 if d["mode"] == "crew" else 0.4):
+			d["cool"] = 18.0
+			if randf() > (0.25 if d["mode"] == "crew" else 0.65):
 				return           # (they let this one go)
 			police.chase_npc(tc, c)
 			d["chased"] = true

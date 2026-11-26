@@ -883,10 +883,12 @@ func _drive(u: Dictionary, dt: float) -> void:
 	u["look"] = float(u["look"]) - dt
 	if float(u["look"]) <= 0.0:
 		u["look"] = 0.3
-		u["clear"] = know and d_t < 40.0 and _sees(pos, tpos)
+		u["clear"] = know and d_t < 110.0 and _sees(pos, tpos)
 	var aim: Vector2
 	var vt := 44.0
-	var close := know and d_t < 34.0 and bool(u["clear"])
+	# catch them by any means: in sight and within a hundred metres (or right on them), it goes straight for
+	# them, off the road, over the kerbs and the grass, not round by the streets
+	var close := know and ((d_t < 100.0 and bool(u["clear"])) or d_t < 22.0)
 	if close:
 		aim = _close_in(u, c, tgt, v)
 		vt = float(u["vt"])
@@ -1054,13 +1056,13 @@ func _drive(u: Dictionary, dt: float) -> void:
 			u["clear"] = sees_it
 		u["lost_t"] = 0.0 if sees_it else float(u["lost_t"]) + dt
 		u["npc_t"] = float(u.get("npc_t", 0.0)) + dt
-		if float(u["lost_t"]) > 9.0 or d_t > 240.0 or float(u["npc_t"]) > 50.0:      # (and they don't keep at it for ever)
+		if float(u["lost_t"]) > 14.0 or d_t > 260.0 or float(u["npc_t"]) > 110.0:      # (and they don't keep at it for ever)
 			_leave(u, 0.0)
 			if game.crew:
 				game.crew.npc_lost(tgt)
 		elif tr2.linear_velocity.length() < 2.5 and d_t < 7.5:
 			u["bust"] = float(u["bust"]) + dt
-			if float(u["bust"]) > BUST_T:
+			if float(u["bust"]) > BUST_T * 1.6:
 				_leave(u, 3.0)
 				if game.crew:
 					game.crew.npc_busted(tgt)
@@ -1126,7 +1128,8 @@ func _close_in(u: Dictionary, c: Car, tgt: Node3D, v: float) -> Vector2:
 		aim3 = spot
 		u["vt"] = 0.0 if ds < 2.5 else clampf(ds * 0.9, 2.0, 14.0)
 		u["mode"] = "box"
-	var h := 2 if u.get("npc", false) else heat
+	# (after one of the drivers: on its tail and boxing it in, not spinning it out, so a chase lasts a while)
+	var h := (1 if float(u.get("npc_t", 0.0)) < 45.0 else 2) if u.get("npc", false) else heat
 	if tvl < 4.0:
 		pass
 	elif h >= 2 and along > -5.5 and along < 1.2 and absf(side) < 4.2 and tvl > 8.0:
