@@ -24,7 +24,7 @@ var hp := MAX_HP
 var weapon: Dictionary = {}
 var look := 0
 var ammo := {}                  # weapon id -> rounds left in the magazine
-var cool := 0.0                 # till the next shot
+var cool := -1.0                # till the next shot
 var reload_t := 0.0             # reloading (s left)
 var hurt_t := 0.0               # since you last took a hit (no regen in a fight)
 var gun_node: MeshInstance3D
@@ -386,6 +386,8 @@ func _kill_person(pr: Dictionary, d: Vector3, dmg: float) -> void:
 	_blood(xf.origin + Vector3(0, 0.9, 0), d)
 	game.save.add_stat("people_hit", 1)
 	kills["people"] += 1
+	if randf() < 0.75:
+		game.heist.drop_cash(xf.origin + d * 0.8, randi_range(3, 12) * 5)
 	game.police.heat_pts += 0.35
 	game.police.ped_hit(xf.origin)
 
@@ -421,6 +423,7 @@ func _officer_down(o: Dictionary, push: Vector3) -> void:
 	n.collision_layer = 0
 	n.collision_mask = 0
 	n.set_meta("down", true)
+	game.heist.drop_cash(n.global_position + push.normalized() * 0.8, randi_range(8, 24) * 5)
 	(o["av"] as Avatar).go_limp(self, n.velocity * 0.5, push)
 	get_tree().create_timer(14.0).timeout.connect(func():
 		if is_instance_valid(n):

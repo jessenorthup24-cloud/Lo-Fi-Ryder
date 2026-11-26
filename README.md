@@ -204,6 +204,15 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   runs, and it's yours to drive (a truck's slow and heavy, a sports car quick). The car you were in stays
   parked where you left it, and you can go back to it. Take a police car, or take one with a patrol car
   looking on, and you're wanted.
+- Cash is the money (the green bill on the HUD: $). It buys everything in the garage. People and officers you
+  take down drop a bundle or two (walk or drive over it); bundles of hidden cash are tucked about the island.
+- Heists: 25 safes stand by the roads (grey dots on the map). Walk up to one and tap START HEIST (or H). An
+  orange ring on the map shows roughly where a core drill's been stashed: find it (on foot, to pick it up)
+  and bring it back inside 90 seconds, or someone tips off the police. Set it up on the safe and it cuts for
+  two minutes: the alarm goes, every police car knows where you are (no busting: it's a shootout), and it
+  only cuts while you're within 45 m. Then the door swings open: grab the duffle, lose the police, and take
+  it to the safehouse (a green beam, west end of town) for $7,500 to $12,500. Die or get busted on the way
+  and it's gone. A cracked safe's empty for 20 minutes.
 - Guns, on foot: six kinds (pistol, revolver, SMG, shotgun, rifle, sniper), each with five looks, bought
   and picked in the garage's Guns tab (you start with a pistol; the first look's free). Every gun's held
   in both hands. Holding FIRE (or switching AIM on: the button left of the door, or B) puts you in aim:
@@ -387,6 +396,8 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `scripts/game/onfoot.gd` | You on foot: walking, running, jumping, the animation (main.gd drives it and the camera) |
 | `scripts/game/avatar.gd` | A playable character: the baked Kenney mini character, its animations, an accessory on its head |
 | `tools/chars/bake_chars.gd` | Bakes the Kenney Mini Characters 2.0 (CC0) to `assets/chars/`: rig, animations, colours in the vertices |
+| `scripts/game/heist.gd` | The safes, the heist (drill hunt, drilling, the crack, the getaway, the safehouse), dropped cash |
+| `tools/props/bake_props.gd` | Bakes the heist props (safe, core drill, duffle, cash) from glTF; `tools/audio/make_heist.py` their sounds |
 | `scripts/game/gunplay.gd` | Guns on foot: aim and lock-on, firing, hits and effects, reloads, cars burning and blowing up, your health, officers on foot, WASTED |
 | `scripts/game/ragdoll_rig.gd` | A rigged character gone limp: rigid bodies for its parts, driving its skeleton (you and officers) |
 | `scripts/game/aim_mod.gd` | Points a character's arms (both hands on the gun) and upper body at what they're aiming at, over the animation |
@@ -431,6 +442,7 @@ godot --path . -- --drive --guntest=rifle --at=square   # out with a gun, shooti
 godot --path . -- --drive --guntest=smg --guncar          # shoot the nearest car till it blows (logged)
 godot --path . -- --drive --guntest=rifle --gunhold       # out and aiming, holding still (the pose, the reticle)
 godot --path . -- --drive --guntest=rifle --gundie        # shot dead: the ragdoll, WASTED
+godot --path . -- --drive --heisttest=0                   # the whole heist on safe 0, fast (logged)
 godot --path . -- --garage=guns --gun=shotgun --look=1    # the Guns tab, holding this gun
 godot --path . -- --drive --stealtest=k_car_taxi # out, take the nearest taxi, drive it, back to your own car (logged)
 godot --path . -- --garage=driver --avatar=robot --acc=glasses   # the Driver tab, as this character

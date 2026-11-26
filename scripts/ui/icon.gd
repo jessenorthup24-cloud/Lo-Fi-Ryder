@@ -17,10 +17,16 @@ func _draw() -> void:
 	var c := o + Vector2(s, s) * 0.5
 	match kind:
 		"coin":
-			draw_circle(c, s * 0.48, Color("e0a523"))
-			draw_circle(c + Vector2(0, -s * 0.03), s * 0.44, Color("ffc93c"))
-			draw_circle(c + Vector2(0, -s * 0.03), s * 0.28, Color("ffe27a"))
-			draw_rect(Rect2(c + Vector2(-s * 0.05, -s * 0.2), Vector2(s * 0.1, s * 0.34)), Color("e0a523"))
+			# cash: a green banknote with a dollar sign (the game's money; the kind's kept its old name)
+			var bill := Rect2(o + Vector2(s * 0.02, s * 0.22), Vector2(s * 0.96, s * 0.56))
+			_round_rect(Rect2(bill.position + Vector2(s * 0.03, s * 0.05), bill.size), s * 0.08, Color("2f8f3a"))
+			_round_rect(bill, s * 0.08, Color("66d31f"))
+			_round_rect(bill.grow(-s * 0.07), s * 0.05, Color("8fe35a"))
+			draw_circle(c, s * 0.17, Color("3fa52a"))
+			var f := ThemeDB.fallback_font
+			var fs := int(s * 0.3)
+			var tw := f.get_string_size("$", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			draw_string(f, c + Vector2(-tw * 0.5, fs * 0.36), "$", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color("f2ffe6"))
 		"fuel":
 			var body := Rect2(o + Vector2(s * 0.16, s * 0.26), Vector2(s * 0.62, s * 0.7))
 			_round_rect(body, s * 0.12, Color("ec4b3f"))

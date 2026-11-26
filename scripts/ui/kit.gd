@@ -338,6 +338,10 @@ static func spacer(h: float) -> Control:
 	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return c
 
+## Money, as the HUD shows it: $12,500.
+static func money(n: int) -> String:
+	return ("-$" if n < 0 else "$") + fmt(absi(n))
+
 static func fmt(n: int) -> String:
 	var s := str(absi(n))
 	var out := ""

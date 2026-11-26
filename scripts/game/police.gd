@@ -59,6 +59,7 @@ var patrol_near := false    # a patrol car's about (the limit sign comes up)
 var race_chase := false     # they're onto a street race: the racers too
 var siren_k := 0.0          # (the sirens are 3D now, one on each car: this stays 0)
 var held := false
+var pinned := false         # a heist's drill is going: they always know where you are, and it's a shootout (no busting)
 var stats := {"spawned": 0, "busted_racers": 0, "wrecked": 0, "notices": 0, "blocks": 0, "pits": 0}
 var _sighted := false
 var _race_id := 0
@@ -376,7 +377,7 @@ func _chase(dt: float, cp: Vector3) -> void:
 	if heli and heli.sees(cp):
 		any = true
 		_sighted = true
-	if not _sighted and chase_t < 15.0:
+	if (not _sighted and chase_t < 15.0) or pinned:
 		any = true            # (on their way: the radio tells them where you are)
 	if race_chase and game.race != null and game.race.state == 1:
 		any = true            # (a race: they know where it goes. Losing them starts once you're over the line)
@@ -401,7 +402,7 @@ func _chase(dt: float, cp: Vector3) -> void:
 		game.police_heat_up(heat)
 	game.save.max_stat("max_heat", heat)
 	# boxed in and stopped
-	var boxed: bool = game.you_speed() < 2.0 and nearest < 7.0 and seen
+	var boxed: bool = game.you_speed() < 2.0 and nearest < 7.0 and seen and not pinned
 	bust = clampf(bust + (dt / BUST_T if boxed else -dt / BUST_T * 0.7), 0.0, 1.0)
 	if bust >= 1.0:
 		_busted()

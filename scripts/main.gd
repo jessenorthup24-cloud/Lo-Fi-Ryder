@@ -26,6 +26,7 @@ const Crew := preload("res://scripts/game/crew.gd")
 const Weather := preload("res://scripts/game/weather.gd")
 const OnFoot := preload("res://scripts/game/onfoot.gd")
 const Gunplay := preload("res://scripts/game/gunplay.gd")
+const Heist := preload("res://scripts/game/heist.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
 
@@ -152,6 +153,7 @@ var boats: Boats
 var crew: Crew               # the drivers out on the island (and the ones driving with you)
 var foot: OnFoot = null      # you, out of the car (null while you're driving)
 var gunplay: Gunplay         # guns, your health, the police on foot
+var heist: Heist             # the safes, the heists, dropped cash
 var on_foot := false
 var stick := Vector2.ZERO    # the on-foot stick: x right, y forward
 var stick_idx := -1          # the finger on it
@@ -306,6 +308,10 @@ func _build_world() -> void:
 	gunplay.name = "Gunplay"
 	add_child(gunplay)
 	gunplay.setup(self)
+	heist = Heist.new()
+	heist.name = "Heist"
+	add_child(heist)
+	heist.setup(self)
 	crew = Crew.new()
 	crew.name = "Crew"
 	add_child(crew)
@@ -457,7 +463,7 @@ func _build_world() -> void:
 		ui.show_title()
 	if save.data.get("migrated", false):
 		save.data.erase("migrated")
-		get_tree().create_timer(1.5).timeout.connect(func(): ui.toast("Welcome to the island! Your old upgrades were refunded as coins.", "coin", K.SUN))
+		get_tree().create_timer(1.5).timeout.connect(func(): ui.toast("Welcome to the island! Your old upgrades were refunded as cash.", "coin", K.SUN))
 	sound.start_music()
 	get_tree().create_timer(2.0).timeout.connect(ach_check)
 
@@ -836,6 +842,7 @@ func _process(dt: float) -> void:
 				else:
 					ui.hud_update_light()
 			police.tick(dt)
+			heist.tick(dt)
 			crew.tick(dt)
 			_crew_tests()
 		PAUSED, GARAGE:
@@ -1029,8 +1036,53 @@ func _crew_tests() -> void:
 			if args.has("gunfront"):
 				look_yaw_t = PI * 0.75                       # (the camera round in front, to see the gun)
 			if frames % 30 == 0:
-				print("GUN t=%.1f gun=%s ammo=%s hp=%.0f heat=%d target=%s people_down=%d cops=%d officers=%d anim=%s" % [time, gunplay.weapon.get("id", "?"), gunplay.ammo_text(), gunplay.hp,
-					police.heat, "yes" if gunplay.lock_pos != Vector3.INF else "no", gunplay.kills["people"], gunplay.kills["police"], gunplay.officers.size(), foot.avatar.current()])
+				print("GUN t=%.1f gun=%s ammo=%s hp=%.0f heat=%d target=%s people_down=%d cops=%d officers=%d anim=%s cash_drops=%d cash=%d" % [time, gunplay.weapon.get("id", "?"), gunplay.ammo_text(), gunplay.hp,
+					police.heat, "yes" if gunplay.lock_pos != Vector3.INF else "no", gunplay.kills["people"], gunplay.kills["police"], gunplay.officers.size(), foot.avatar.current(), heist.cash.size(), int(save.data["coins"])])
+	if args.has("heisttest") and state == DRIVE:
+		# a test: the whole heist, skipping the walking (and most of the drilling)
+		var hs: Dictionary = heist.safes[int(args.get("heisttest", "0")) if String(args["heisttest"]).is_valid_int() else 0]
+		var front: Vector3 = (hs["node"] as Node3D).global_transform * Vector3(0, 0.5, 3.0)
+		var step: int = get_meta("ht_step", 0)
+		if step == 0 and time > 3.0:
+			if not on_foot:
+				toggle_foot()
+			foot.place(front, float(hs["yaw"]))
+			foot_yaw = float(hs["yaw"])
+			set_meta("ht_step", 1)
+		elif step == 1 and time > 3.6:
+			heist.start()
+			print("HEIST started=%s state=%d safe=%s pay=%d drill=%s zone=%s" % [str(heist.active()), heist.state, hs["id"], heist.pay, heist.drill.global_position if heist.drill else "-", heist.zone_c])
+			set_meta("ht_step", 2)
+		elif step == 2 and time > 5.0 and heist.drill:
+			var dp: Vector3 = heist.drill.global_position
+			foot.place(dp + Vector3(1.2, 0.5, 0), 0.0)
+			set_meta("ht_step", 3)
+		elif step == 3 and time > 6.0:
+			print("HEIST after drill: state=%d carrying=%s" % [heist.state, heist.carrying])
+			foot.place(front, float(hs["yaw"]))
+			set_meta("ht_step", 4)
+		elif step == 4 and time > 7.5:
+			print("HEIST mounted: state=%d wanted=%s pinned=%s" % [heist.state, str(police.wanted()), str(police.pinned)])
+			if not args.has("heistwait"):
+				heist.t = heist.DEFEND_T - 1.0
+			set_meta("ht_step", 5)
+		elif step == 5 and heist.state >= heist.CRACKED and time > 10.5:
+			foot.place((hs["node"] as Node3D).global_transform * Vector3(0, 0.5, 1.6), float(hs["yaw"]))
+			set_meta("ht_step", 6)
+		elif step == 6 and time > 11.5:
+			print("HEIST grabbed: state=%d carrying=%s heat=%d" % [heist.state, heist.carrying, police.heat])
+			police.clear()
+			set_meta("ht_step", 7)
+		elif step == 7 and time > 12.5:
+			print("HEIST lost them: state=%d" % heist.state)
+			if not on_foot:
+				toggle_foot()
+			foot.place((heist.safehouse["pos"] as Vector3) + Vector3(0, 0.5, 0), 0.0)
+			set_meta("ht_step", 8)
+			set_meta("ht_cash", int(save.data["coins"]))
+		elif step == 8 and time > 13.5:
+			print("HEIST done: state=%d cash %d -> %d" % [heist.state, int(get_meta("ht_cash")), int(save.data["coins"])])
+			set_meta("ht_step", 9)
 	if args.has("stealtest") and state == DRIVE:
 		# a test: out at 3 s, up to the nearest traffic car, take it, drive it off
 		if not has_meta("st_out") and time > 3.0:
@@ -2353,7 +2405,14 @@ func _end_challenges() -> void:
 
 func _build_coins() -> void:
 	coin_pool = Pool.new()
-	coin_pool.setup(M.get_mesh("coin"), island.coin_spots.size() + 4, toon, false, true)
+	# hidden cash: a bundle of notes (its print keeps its own material; the paper's the toon one)
+	var cash_mesh: Mesh = M.get_mesh("coin")
+	if ResourceLoader.exists("res://assets/props/cash.res"):
+		cash_mesh = (load("res://assets/props/cash.res") as Mesh).duplicate()
+		cash_mesh.surface_set_material(0, toon)
+		coin_pool.setup(cash_mesh, island.coin_spots.size() + 4, null, false, true)
+	else:
+		coin_pool.setup(cash_mesh, island.coin_spots.size() + 4, toon, false, true)
 	add_child(coin_pool)
 	for c in island.coin_spots:
 		var slot := coin_pool.alloc()
@@ -2367,8 +2426,8 @@ func _refresh_coins() -> void:
 			coin_pool.put(c["slot"], Transform3D(Basis().scaled(Vector3.ONE * 0.001), c["pos"]))
 
 func _coins_tick(_dt: float) -> void:
-	var p := car.global_position + Vector3(0, 0.8, 0)
-	var b := Basis(Vector3.UP, time * 2.2).scaled(Vector3.ONE * 2.6)
+	var p := you().global_position + Vector3(0, 0.8, 0)
+	var b := (Basis(Vector3.UP, time * 2.2) * Basis(Vector3.RIGHT, -0.9)).scaled(Vector3.ONE * 5.5)
 	for c in coins_live:
 		if c["taken"]:
 			continue
@@ -2382,8 +2441,8 @@ func _coins_tick(_dt: float) -> void:
 			save.data["coins_taken"].append(c["id"])
 			save.data["coins"] = int(save.data["coins"]) + COIN_PICKUP
 			coin_pool.put(c["slot"], Transform3D(Basis().scaled(Vector3.ONE * 0.001), cp))
-			fx.sparkle(cp, Color("ffd34d"), 12)
-			sfx("coin", 0.0, 1.2)
+			fx.sparkle(cp, Color("7be36b"), 12)
+			sfx("cash", 0.0, 1.0)
 			buzz(30, 0.6)
 			ui.found_coin(save.data["coins_taken"].size(), coins_live.size(), COIN_PICKUP)
 			ach_check()
@@ -2481,6 +2540,7 @@ func police_reacquired() -> void:
 
 ## Busted: the picture slows and drains of colour, BUSTED across it, and the fine.
 func police_busted(fine: int) -> void:
+	heist.fail("busted")
 	save.data["coins"] = maxi(int(save.data["coins"]) - fine, 0)
 	save.add_stat("busts", 1)
 	ui.busted_fx(fine)
@@ -2498,10 +2558,11 @@ func police_busted(fine: int) -> void:
 ## Shot down on foot: WASTED. The picture drains, you lose a bit of your coins and any wanted level, and
 ## you're back in your car where you left it, healed up.
 func wasted() -> void:
+	heist.fail("wasted")
 	var fine := mini(int(save.data["coins"]), 100 + int(save.data["coins"]) / 20)
 	save.data["coins"] = maxi(int(save.data["coins"]) - fine, 0)
 	save.add_stat("wasted", 1)
-	ui.busted_fx(fine, "WASTED", ("Hospital bill: %d coins" % fine) if fine > 0 else "Patched up for free")
+	ui.busted_fx(fine, "WASTED", ("Hospital bill: " + K.money(fine)) if fine > 0 else "Patched up for free")
 	sfx("body_land", -2.0, 0.8)
 	slowmo(0.35, 1.3)
 	police.clear()
@@ -2727,7 +2788,7 @@ func buy_repair() -> void:
 	var coins := int(save.data["coins"])
 	var fix := minf(worst, float(coins) / REPAIR_PRICE)
 	if fix < 1.0:
-		ui.toast("Not enough coins for repairs", "coin", K.PAPER, K.INK, 1.8)
+		ui.toast("Not enough cash for repairs", "coin", K.PAPER, K.INK, 1.8)
 		return
 	save.data["coins"] = coins - int(ceil(fix * REPAIR_PRICE))
 	if fix >= worst - 0.5:
@@ -2833,7 +2894,10 @@ func nearest_station() -> Dictionary:
 ## Where the GPS should take you right now: the next gate, back into the zone, a station when you're low
 ## on fuel or battered, or the place you picked.
 func _route_target() -> Dictionary:
-	var p := car.global_position
+	var p := you().global_position
+	var ht: Dictionary = heist.route()
+	if not ht.is_empty() or heist.active():
+		return ht
 	if not trial.is_empty():
 		var gates: Array = trial["gates"]
 		if trial_gate < gates.size():
@@ -2868,13 +2932,13 @@ func _route_tick(dt: float) -> void:
 	if changed or (not want.is_empty() and route_t <= 0.0):
 		route = want
 		route_t = 1.5
-		route_pts = PackedVector3Array() if want.is_empty() else router.find(car.global_position, want["pos"])
+		route_pts = PackedVector3Array() if want.is_empty() else router.find(you().global_position, want["pos"])
 		island.route_line(route_pts, Color("ffd34d") if want.get("kind", "") == "trial" else Color("4aa8ff"))
 	if route.is_empty() or route_pts.is_empty():
 		ui.route_arrow(false)
 		return
 	# the arrow points at the road some way ahead along the route (so it shows the turn coming up)
-	var p := car.global_position
+	var p := you().global_position
 	var bi := 0
 	var bd := INF
 	for i in route_pts.size():
@@ -3497,6 +3561,7 @@ func _foot_tick(dt: float) -> void:
 	if not on_foot:
 		return
 	_foot_cam(dt)
+	_route_tick(dt)
 	ui.foot_hud(foot.global_position, foot.facing, atmos.clock_text() + (("  ·  " + weather.label()) if weather and weather.label() != "" else ""), int(save.data["coins"]), near_car())
 
 ## The on-foot camera: over your shoulder, a few metres back; drag to swing it round, it drifts in behind
@@ -3607,6 +3672,9 @@ func _unhandled_input(e: InputEvent) -> void:
 				keys["reload"] = on
 			KEY_K, KEY_B:
 				keys["aim"] = on
+			KEY_H:
+				if on and state == DRIVE:
+					heist.start()
 			KEY_TAB, KEY_V:
 				keys["swap"] = on
 			KEY_N, KEY_E:

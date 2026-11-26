@@ -33,6 +33,11 @@ var speed_lbl: Label
 var speedo: Control
 var foot_mode := false
 var hp_bar: ProgressBar
+var heist_btn: Button        # by a safe: START HEIST
+var heist_box: PanelContainer   # a heist on: what to do, the clock, a bar
+var _heist_title: Label
+var _heist_sub: Label
+var _heist_bar: ProgressBar
 const FOOT_PADS := ["stick", "jump", "sprint", "fire", "swap", "aim", "reload"]
 var reticle: Control        # on foot, aiming: the crosshair in the middle (red when it's locked on)
 var _hit_t := 0.0            # a hit marker showing (s left)
@@ -342,7 +347,7 @@ func show_title() -> void:
 	garage.visible = false
 	close_sheet()
 	title.modulate.a = 1.0
-	title_coins.get_meta("label").text = K.fmt(int(game.save.data["coins"]))
+	title_coins.get_meta("label").text = K.money(int(game.save.data["coins"]))
 	(title.get_node("Build") as Label).text = "%s   ·   %d / %d TROPHIES" % [build_label().to_upper(), Ach.count(game.save.data), Ach.LIST.size()]
 	# (a gentle way in: the type rises and fades up)
 	title.modulate.a = 0.0
@@ -604,6 +609,39 @@ func _build_hud() -> void:
 	reticle.visible = false
 	reticle.draw.connect(_draw_reticle)
 	hud.add_child(reticle)
+	# heists: the button by a safe, and the panel up top while one's on
+	heist_btn = K.button("START HEIST", Color("ff4f6b"), Color("c23650"), 30, 300, 84, "lock")
+	heist_btn.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	heist_btn.position = Vector2(-150, -230)
+	heist_btn.visible = false
+	_tap(heist_btn, func(): game.heist.start())
+	hud.add_child(heist_btn)
+	heist_box = PanelContainer.new()
+	var hsb := StyleBoxFlat.new()
+	hsb.bg_color = Color(0.06, 0.055, 0.09, 0.72)
+	hsb.set_corner_radius_all(22)
+	hsb.border_color = Color(1, 1, 1, 0.18)
+	hsb.set_border_width_all(1)
+	hsb.content_margin_left = 22
+	hsb.content_margin_right = 22
+	hsb.content_margin_top = 10
+	hsb.content_margin_bottom = 12
+	heist_box.add_theme_stylebox_override("panel", hsb)
+	heist_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	heist_box.position = Vector2(-190, 14)
+	heist_box.custom_minimum_size = Vector2(380, 0)
+	heist_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	heist_box.visible = false
+	var hv := VBoxContainer.new()
+	hv.add_theme_constant_override("separation", 4)
+	heist_box.add_child(hv)
+	_heist_title = K.label("", 20, Color(1, 1, 1, 0.8), 650)
+	hv.add_child(_heist_title)
+	_heist_sub = K.label("", 34, Color.WHITE, 750)
+	hv.add_child(_heist_sub)
+	_heist_bar = K.bar(336, 8, Color("ffb347"), Color(1, 1, 1, 0.15))
+	hv.add_child(_heist_bar)
+	hud.add_child(heist_box)
 	reset_hint = K.button("Stuck? Reset car", K.SUN, K.SUN_DK, 28, 0, 72, "home")
 	reset_hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	reset_hint.position = Vector2(-160, 60)
@@ -968,7 +1006,7 @@ func wanted_up(h: int) -> void:
 ## Lost them: the stars fade away, and a quiet note of the bounty.
 func wanted_lost(bounty: int, _heat: int) -> void:
 	_wanted_fade = 1.2
-	toast("Lost the police  ·  +%d" % bounty, "coin", Color(0.12, 0.13, 0.16, 0.85), Color.WHITE, 2.4)
+	toast("Lost the police  ·  +" + K.money(bounty), "coin", Color(0.12, 0.13, 0.16, 0.85), Color.WHITE, 2.4)
 
 ## A big knock: the screen flashes pale for an instant (k: 0..1, how hard), whatever the time scale.
 var _flash: ColorRect
@@ -985,6 +1023,51 @@ func impact_flash(k: float) -> void:
 	tw.tween_property(_flash, "color:a", 0.0, 0.25)
 
 ## Busted: the picture drains of colour, BUSTED across it, the fine under it; then it all fades back.
+## By a safe: the START HEIST button ("" hides it).
+func heist_prompt(text: String) -> void:
+	heist_btn.visible = text != "" and not overlay.visible
+
+## The heist panel: the step, the clock (or what's in the bag), a bar (frac < 0: none); red when it's urgent.
+func heist_hud(title: String, sub: String, frac: float, alarm: bool) -> void:
+	heist_box.visible = title != ""
+	if title == "":
+		return
+	_heist_title.text = title.to_upper()
+	_heist_sub.text = sub
+	_heist_sub.add_theme_color_override("font_color", Color("ff6b80") if alarm else Color.WHITE)
+	_heist_bar.visible = frac >= 0.0
+	_heist_bar.value = clampf(frac, 0.0, 1.0)
+
+## The money's home: HEIST COMPLETE, and the take.
+func heist_done(amount: int) -> void:
+	var lay := Control.new()
+	lay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	lay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(lay)
+	var big := K.outlined(K.label("HEIST COMPLETE", 88, Color("7be36b"), 800), Color(0.05, 0.06, 0.1), 16)
+	big.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	big.position = Vector2(-500, -110)
+	big.size = Vector2(1000, 120)
+	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	big.pivot_offset = big.size * 0.5
+	lay.add_child(big)
+	var sub := K.outlined(K.label("+" + K.money(amount), 54, Color.WHITE, 800), Color(0.05, 0.06, 0.1), 10)
+	sub.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	sub.position = Vector2(-300, 24)
+	sub.size = Vector2(600, 70)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lay.add_child(sub)
+	lay.modulate.a = 0.0
+	big.scale = Vector2.ONE * 1.2
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(lay, "modulate:a", 1.0, 0.35)
+	tw.tween_property(big, "scale", Vector2.ONE, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.set_parallel(false)
+	tw.tween_interval(2.6)
+	tw.tween_property(lay, "modulate:a", 0.0, 0.7)
+	tw.tween_callback(lay.queue_free)
+
 func busted_fx(fine: int, word := "BUSTED", line := "") -> void:
 	var lay := Control.new()
 	lay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1005,7 +1088,7 @@ func busted_fx(fine: int, word := "BUSTED", line := "") -> void:
 	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	big.pivot_offset = big.size * 0.5
 	lay.add_child(big)
-	var sub := K.outlined(K.label(line if line != "" else (("Fined %d coins" % fine) if fine > 0 else "Let off with a warning"), 26, Color.WHITE, 700), Color(0.05, 0.06, 0.1), 8)
+	var sub := K.outlined(K.label(line if line != "" else (("Fined " + K.money(fine)) if fine > 0 else "Let off with a warning"), 26, Color.WHITE, 700), Color(0.05, 0.06, 0.1), 8)
 	sub.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	sub.position = Vector2(-300, 34)
 	sub.size = Vector2(600, 40)
@@ -1208,7 +1291,7 @@ func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> 
 		clock_lbl.text = clock
 	if coins != _last_coins:
 		_last_coins = coins
-		coins_pill.get_meta("label").text = K.fmt(coins)
+		coins_pill.get_meta("label").text = K.money(coins)
 	var dc: Control = ctl["door"]
 	if bool(dc.get_meta("near", false)) != near:
 		dc.set_meta("near", near)
@@ -1335,10 +1418,10 @@ func station_update(fuel: float, damage: float, fuel_cost: int, repair_cost: int
 	st_fuel_lbl.text = "Fuel %d%%" % int(round(fuel))
 	st_cond_lbl.text = "Condition %d%%" % int(round(100.0 - damage))
 	var full := fuel > 99.5
-	st_fuel_btn.text = "Full" if full else ("Fill up · %s coins" % K.fmt(fuel_cost))
+	st_fuel_btn.text = "Full" if full else ("Fill up · " + K.money(fuel_cost))
 	st_fuel_btn.disabled = full
 	var fixed := damage < 0.5
-	st_cond_btn.text = "Like new" if fixed else ("Repair · %s coins" % K.fmt(repair_cost))
+	st_cond_btn.text = "Like new" if fixed else ("Repair · " + K.money(repair_cost))
 	st_cond_btn.disabled = fixed
 	st_fuel_btn.modulate.a = 0.55 if full else 1.0
 	st_cond_btn.modulate.a = 0.55 if fixed else 1.0
@@ -1471,7 +1554,7 @@ func hud_update(d: Dictionary) -> void:
 	place_lbl.text = d["place"]
 	if int(d["coins"]) != _last_coins:
 		_last_coins = int(d["coins"])
-		coins_pill.get_meta("label").text = K.fmt(_last_coins)
+		coins_pill.get_meta("label").text = K.money(_last_coins)
 	# drift meter
 	var pts: float = d["drift"]
 	var combo: int = d["combo"]
@@ -1532,7 +1615,7 @@ func banked(total: int, coins: int) -> void:
 	_bank_t = 1.1
 	_drift_show = 1.0
 	drift_lbl.text = "+" + K.fmt(total)
-	angle_lbl.text = ("+%d coins" % coins) if coins > 0 else "nice!"
+	angle_lbl.text = ("+" + K.money(coins)) if coins > 0 else "nice!"
 	drift_card.pivot_offset = Vector2(0, drift_card.size.y * 0.5)
 	drift_card.scale = Vector2(1.08, 1.08)
 	create_tween().tween_property(drift_card, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
@@ -1591,7 +1674,7 @@ func discovered(name: String) -> void:
 	toast("Found %s  (%d/%d)" % [name, n, island.places.size()], "map", K.TEAL, Color.WHITE, 2.6)
 
 func found_coin(n: int, total: int, pay: int) -> void:
-	toast("Hidden coin %d/%d  +%d" % [n, total, pay], "coin", K.SUN, K.INK, 1.8)
+	toast("Hidden cash %d/%d  +%s" % [n, total, K.money(pay)], "coin", K.SUN, K.INK, 1.8)
 
 func show_reset_hint() -> void:
 	if not reset_hint.visible:
@@ -1856,7 +1939,7 @@ func challenge_result(name: String, score: String, medal: int, pay: int, record:
 	if medal > 0:
 		tb.tween_callback(func(): _confetti(cols[medal], 24 + medal * 18))
 	if pay > 0:
-		vb.add_child(K.label("+%d coins" % pay, 30, K.INK, 700))
+		vb.add_child(K.label("+" + K.money(pay), 30, K.INK, 700))
 	if record:
 		vb.add_child(K.label("New personal best!", 26, K.INK_SOFT, 700))
 	# a quick way to have another go (the card stays up a little longer for it)
@@ -2233,7 +2316,7 @@ func _ach_row(a: Dictionary, got: bool, prog: float) -> Control:
 		rw.add_child(Icon.new("check", K.TEAL, 28))
 	else:
 		rw.add_child(Icon.new("coin", K.INK, 22))
-		rw.add_child(K.label(str(a["reward"]), 20, K.INK, 650))
+		rw.add_child(K.label(K.money(int(a["reward"])), 20, K.INK, 650))
 	hb.add_child(rw)
 	return p
 
@@ -2248,7 +2331,7 @@ const HELP_PAGES := [
 	["Drifting", "tire", [
 		["tire", "Tap DRIFT (the lever) while you steer to swing the tail out, then keep the gas down and steer into the turn to hold it."],
 		["right", "Steer the other way with the gas down to flick into a drift the other way. Let go of steering, or ease off, to straighten up."],
-		["star", "Drifts score points and coins. Chain them for a bigger multiplier, skim walls and cars for a close bonus, and don't crash mid-drift."],
+		["star", "Drifts score points and cash. Chain them for a bigger multiplier, skim walls and cars for a close bonus, and don't crash mid-drift."],
 		["tank", "NOS: tap the bottle to switch it on (and again to switch it off). It burns while you're on the gas."],
 	]],
 	["Tricks", "wind", [
@@ -2260,7 +2343,7 @@ const HELP_PAGES := [
 		["flag", "Orange rings are drift zones, blue time trials, purple drift runs and red ones races. The map sets a route to any of them, or to a gas station."],
 		["phone", "The phone (by the minimap) calls the drivers you've met: they'll ride with you. The group button beside it pulls the camera out to fit you all in."],
 		["star", "Speed past a patrol car or hit one and they'll come after you: stars show under the minimap. Get out of sight and stay out to lose them."],
-		["car", "Coins buy cars, paint and upgrades in the garage. The legendary cars are the best drifters of all."],
+		["car", "Cash buys cars, paint and upgrades in the garage. The legendary cars are the best drifters of all."],
 	]],
 ]
 
@@ -2359,7 +2442,7 @@ func open_map() -> void:
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hb.add_child(right)
 	var found: int = game.save.data["places"].size()
-	right.add_child(K.label("Places found %d/%d · Hidden coins %d/%d" % [found, island.places.size(), game.save.data["coins_taken"].size(), island.coin_spots.size()], 22, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
+	right.add_child(K.label("Places found %d/%d · Hidden cash %d/%d" % [found, island.places.size(), game.save.data["coins_taken"].size(), island.coin_spots.size()], 22, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
 	var sc := ScrollContainer.new()
 	sc.custom_minimum_size = Vector2(560, sz - 40.0)
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -2570,7 +2653,7 @@ func hide_garage() -> void:
 
 func _garage_refresh() -> void:
 	var s = game.save.data
-	g_coins.get_meta("label").text = K.fmt(int(s["coins"]))
+	g_coins.get_meta("label").text = K.money(int(s["coins"]))
 	for c in g_panel.get_children():
 		c.queue_free()
 	var tabs := HBoxContainer.new()
@@ -2633,7 +2716,7 @@ func _paint_tab() -> void:
 	if list.size() < 2:
 		g_panel.add_child(K.label("No other paint jobs for this one.", 22, K.INK_SOFT, 600))
 		return
-	g_panel.add_child(K.label("Tap a colour to try it on. %s coins each." % K.fmt(PAINT_PRICE), 20, K.INK_SOFT, 600))
+	g_panel.add_child(K.label("Tap a colour to try it on. %s each." % K.money(PAINT_PRICE), 20, K.INK_SOFT, 600))
 	var shown := _worn_paint(id) if g_paint < 0 else g_paint
 	var row := HFlowContainer.new()
 	row.add_theme_constant_override("h_separation", 12)
@@ -2671,9 +2754,9 @@ func _paint_tab() -> void:
 	elif _owns_paint(id, shown):
 		act = K.button("Use this paint", K.TEAL, K.TEAL_DK, 30, 0, 80, "play")
 	elif int(s["coins"]) >= PAINT_PRICE:
-		act = K.button("Buy paint · %s" % K.fmt(PAINT_PRICE), K.CORAL, K.CORAL_DK, 30, 0, 80, "coin")
+		act = K.button("Buy paint · " + K.money(PAINT_PRICE), K.CORAL, K.CORAL_DK, 30, 0, 80, "coin")
 	else:
-		act = K.button("%s coins" % K.fmt(PAINT_PRICE), Color("c9c3bb"), Color("aba59d"), 28, 0, 80, "lock")
+		act = K.button(K.money(PAINT_PRICE), Color("c9c3bb"), Color("aba59d"), 28, 0, 80, "lock")
 		act.disabled = true
 	var pick := shown
 	_tap(act, func(): _paint_action(id, pick))
@@ -2764,13 +2847,13 @@ func _guns_tab() -> void:
 		var id: String = gw["id"]
 		var have: bool = id in owned
 		var on := id == cur
-		var txt := String(gw["name"]) if have else "%s · %s" % [gw["name"], K.fmt(int(gw["price"]))]
+		var txt := String(gw["name"]) if have else "%s · %s" % [gw["name"], K.money(int(gw["price"]))]
 		var b := K.button(txt, K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 16, 0, 50, "" if have else "coin")
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_tap(b, func():
 			if not (id in owned):
 				if int(s["coins"]) < int(gw["price"]):
-					toast("Not enough coins", "coin")
+					toast("Not enough cash", "coin")
 					return
 				s["coins"] = int(s["coins"]) - int(gw["price"])
 				owned.append(id)
@@ -2794,7 +2877,7 @@ func _guns_tab() -> void:
 	for i in looks.size():
 		var have2: bool = i in mine
 		var on2 := i == lk
-		var lt := Weapons.look_name(String(looks[i])) if have2 else K.fmt(Weapons.LOOK_PRICE)
+		var lt := Weapons.look_name(String(looks[i])) if have2 else K.money(Weapons.LOOK_PRICE)
 		var lb := K.button(lt, K.CORAL if on2 else K.CREAM, K.CORAL_DK if on2 else K.LINE_DK, 14, 0, 46, "" if have2 else "coin")
 		lb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var ii := i
@@ -2804,7 +2887,7 @@ func _guns_tab() -> void:
 				return
 			if not (ii in mine):
 				if int(s["coins"]) < Weapons.LOOK_PRICE:
-					toast("Not enough coins", "coin")
+					toast("Not enough cash", "coin")
 					return
 				s["coins"] = int(s["coins"]) - Weapons.LOOK_PRICE
 				mine.append(ii)
@@ -2909,9 +2992,9 @@ func _cars_tab() -> void:
 	elif owned:
 		act = K.button("Drive this one", K.TEAL, K.TEAL_DK, 32, 0, 84, "play")
 	elif int(s["coins"]) >= price:
-		act = K.button("Buy · %s" % K.fmt(price), K.CORAL, K.CORAL_DK, 32, 0, 84, "coin")
+		act = K.button("Buy · " + K.money(price), K.CORAL, K.CORAL_DK, 32, 0, 84, "coin")
 	else:
-		act = K.button("%s coins" % K.fmt(price), Color("c9c3bb"), Color("aba59d"), 30, 0, 84, "lock")
+		act = K.button(K.money(price), Color("c9c3bb"), Color("aba59d"), 30, 0, 84, "lock")
 		act.disabled = true
 	_tap(act, _garage_action)
 	g_panel.add_child(act)
@@ -2988,7 +3071,7 @@ func _tune_tab() -> void:
 		eg.add_child(bar)
 	# neon
 	if not bool(s.data.get("neon_kit", false)):
-		var nb := K.button("Neon underglow kit · %s" % K.fmt(SaveData.NEON_KIT), K.CORAL, K.CORAL_DK, 22, 0, 58, "coin")
+		var nb := K.button("Neon underglow kit · " + K.money(SaveData.NEON_KIT), K.CORAL, K.CORAL_DK, 22, 0, 58, "coin")
 		nb.disabled = int(s.data["coins"]) < SaveData.NEON_KIT
 		_tap(nb, func():
 			if int(s.data["coins"]) < SaveData.NEON_KIT:
@@ -3109,7 +3192,7 @@ func _upgrades_tab() -> void:
 			b = K.button("Max", Color("c9c3bb"), Color("aba59d"), 24, 120, 60)
 			b.disabled = true
 		else:
-			b = K.button(K.fmt(cost), cols[u], (cols[u] as Color).darkened(0.2), 24, 120, 60, "coin")
+			b = K.button(K.money(cost), cols[u], (cols[u] as Color).darkened(0.2), 24, 120, 60, "coin")
 			b.disabled = int(s.data["coins"]) < cost
 			var uu: String = u
 			_tap(b, func(): _buy_upgrade(uu))
