@@ -297,7 +297,7 @@ static func _make_spaces() -> void:
 			seen[p] = true
 			var an := AnimationNodeAnimation.new()
 			an.animation = pre + String(e[0])
-			bs.add_blend_point(an, p)
+			bs.add_blend_point(an, p, -1, StringName("p%d" % cloud.size()))
 			cloud.append(p)
 		_spaces[key] = [bs, Geometry2D.convex_hull(cloud), float(pts[1][2]), float(pts[2][2])]
 

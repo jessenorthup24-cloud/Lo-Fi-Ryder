@@ -795,15 +795,29 @@ func _officers_tick(dt: float, you: CharacterBody3D) -> void:
 		if d < 32.0 and float(o["cool"]) <= 0.0:
 			o["cool"] = randf_range(0.9, 1.6)
 			var from := n.global_position + Vector3(0, 1.3, 0)
-			var aim := yp + Vector3(0, 1.0, 0)
+			# who they shoot at: you, or one of your crew if they're nearer
+			var ally: Dictionary = {}
+			var ad := d - 3.0
+			if game.allies:
+				for a in game.allies.alive():
+					var da: float = (a["node"] as Node3D).global_position.distance_to(n.global_position)
+					if da < ad:
+						ad = da
+						ally = a
+			var aim := (yp if ally.is_empty() else (ally["node"] as Node3D).global_position) + Vector3(0, 1.0, 0)
+			var ato := aim - from
 			game.sfx("shot_pistol", clampf(-4.0 - d * 0.25, -14.0, -4.0), randf_range(0.9, 1.0))
-			game.fx.spark_burst(from + to.normalized() * 0.6, to.normalized(), 3, 5.0)
+			game.fx.spark_burst(from + ato.normalized() * 0.6, ato.normalized(), 3, 5.0)
 			if _clear(from, aim):
-				var moving := Vector3(you.velocity.x, 0, you.velocity.z).length() > 4.0
-				var chance := clampf(0.55 - d * 0.018 - (0.18 if moving else 0.0), 0.1, 0.55)
+				var moving := Vector3(you.velocity.x, 0, you.velocity.z).length() > 4.0 and ally.is_empty()
+				var dd := d if ally.is_empty() else ad
+				var chance := clampf(0.55 - dd * 0.018 - (0.18 if moving else 0.0), 0.1, 0.55)
 				if randf() < chance:
 					_tracer(from, aim)
-					hurt(OFFICER_SHOT, from)
+					if ally.is_empty():
+						hurt(OFFICER_SHOT, from)
+					else:
+						game.allies.hurt(ally, OFFICER_SHOT, from)
 				else:
 					_tracer(from, aim + Vector3(randf_range(-1.4, 1.4), randf_range(-0.4, 0.8), randf_range(-1.4, 1.4)))
 

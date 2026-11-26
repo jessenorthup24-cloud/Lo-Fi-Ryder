@@ -30,6 +30,7 @@ const Gunplay := preload("res://scripts/game/gunplay.gd")
 const Heist := preload("res://scripts/game/heist.gd")
 const Property := preload("res://scripts/game/property.gd")
 const Shops := preload("res://scripts/game/shops.gd")
+const Allies := preload("res://scripts/game/allies.gd")
 const Cards := preload("res://scripts/game/cards.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
@@ -160,6 +161,7 @@ var gunplay: Gunplay         # guns, your health, the police on foot
 var heist: Heist             # the safes, the heists, dropped cash
 var property: Node3D        # the mansion and the garage you build up (property.gd)
 var shops: Node3D           # Lo-Fi Customs, the Armory, Lo-Fi Threads (shops.gd)
+var allies: Node3D          # your crew on foot, fighting beside you (allies.gd)
 var on_foot := false
 var stick := Vector2.ZERO    # the on-foot stick: x right, y forward
 var stick_idx := -1          # the finger on it
@@ -329,6 +331,10 @@ func _build_world() -> void:
 	shops.name = "Shops"
 	add_child(shops)
 	shops.build(self)
+	allies = Allies.new()
+	allies.name = "Allies"
+	add_child(allies)
+	allies.setup(self)
 	crew = Crew.new()
 	crew.name = "Crew"
 	add_child(crew)
@@ -957,6 +963,7 @@ func _process(dt: float) -> void:
 			heist.tick(dt)
 			property.tick(dt)
 			shops.tick(dt)
+			allies.tick(dt)
 			crew.tick(dt)
 			_crew_tests()
 		PAUSED, GARAGE:
@@ -1288,7 +1295,7 @@ func _crew_tests() -> void:
 		elif step == 4 and time > 7.5:
 			print("HEIST mounted: state=%d wanted=%s pinned=%s" % [heist.state, str(police.wanted()), str(police.pinned)])
 			if not args.has("heistwait"):
-				heist.t = heist.DEFEND_T - 1.0
+				heist.drill_t = heist.defend_t - 1.0
 			set_meta("ht_step", 5)
 		elif step == 5 and heist.state >= heist.CRACKED and time > 10.5:
 			foot.place((hs["node"] as Node3D).global_transform * Vector3(0, 0.5, 1.6), float(hs["yaw"]))

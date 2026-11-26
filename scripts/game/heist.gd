@@ -25,9 +25,13 @@ const RESET_S := 1200          # seconds (real) till a cracked safe's full again
 const PAY := [7500, 12500]     # what's in a safe
 const OPEN := 1.75             # the door's angle, open (rad)
 
-enum { IDLE, FETCH, RETURN, DEFEND, CRACKED, ESCAPE, DELIVER }
+enum { IDLE, FETCH, RETURN, DEFEND, CRACKED, ESCAPE, DELIVER, STASH }
 const STEP_NAMES := ["", "Find the tool bag", "Bring the tool bag to the safe", "Defend the drill", "Grab the money",
-	"Lose the police", "Take the money to the safehouse"]
+	"Lose the police", "Take the money to the safehouse", "Stash the bag in your car"]
+const CREW_CUT := 0.15         # each friend who comes along takes this share
+## The more heists you've pulled, the bigger they get: more money, a longer drill, more bags to carry out
+## (a trip to your car with each), and later on the drill can burn out halfway (go and find another).
+const TIER_MAX := 6
 
 var game: Node
 var island: Node
@@ -47,6 +51,13 @@ var duffle: Node3D
 var near: Dictionary = {}      # the safe you're stood by (the START HEIST button), {} if none
 var cash: Array = []           # dropped cash: {node, value, t}
 var pay := 0
+var tier := 0
+var defend_t := DEFEND_T       # how long this one's drill takes
+var drill_t := 0.0             # how far the drill's got (kept through a breakdown)
+var break_at := -1.0           # the drill burns out at this point (-1: it won't)
+var bags_total := 1
+var bags_left := 1
+var crew_in: Array = []        # the names of the friends in on it (each takes CREW_CUT)
 var _drill_snd: AudioStreamPlayer3D
 var _carry_on: Node3D          # what's on your back (the avatar it's on)
 var _cash_mesh: Mesh
@@ -361,7 +372,7 @@ func tick(dt: float) -> void:
 	match state:
 		IDLE:
 			near = {}
-			if on_foot and not game.challenge_on() and game.Progress.level(game.save) >= game.Progress.HEIST_LEVEL:
+			if on_foot and not game.challenge_on() and (game.Progress.level(game.save) >= game.Progress.HEIST_LEVEL or game.args.has("heisttest")):
 				for sf in safes:
 					if (sf["pos"] as Vector3).distance_to(yp) < 3.4 and not _cracked(sf):
 						near = sf
@@ -398,22 +409,30 @@ func tick(dt: float) -> void:
 		DEFEND:
 			var there := yp.distance_to(cur["pos"]) < LEAVE_R
 			if there:
-				t += dt
+				drill_t += dt
+			if break_at > 0.0 and drill_t >= break_at:
+				_burn_out()
+				return
 			drill_bit.rotate_object_local(Vector3.FORWARD, dt * (30.0 if there else 4.0))
 			if there and randf() < dt * 20.0:
 				var tip: Vector3 = drill_bit.global_transform * Vector3(0, 0, 0.2)
 				game.fx.spark_burst(tip, (drill.global_transform.basis.z).normalized(), 3, 4.0)
 			_drill_snd.pitch_scale = 1.0 if there else 0.55
 			game.police.heat_pts = maxf(game.police.heat_pts, 3.0)
-			var left := maxf(DEFEND_T - t, 0.0)
-			game.ui.heist_hud(STEP_NAMES[state] if there else "Get back to the drill!", "%d:%02d" % [int(left) / 60, int(left) % 60], t / DEFEND_T, not there)
-			if t >= DEFEND_T:
+			var left := maxf(defend_t - drill_t, 0.0)
+			game.ui.heist_hud(STEP_NAMES[state] if there else "Get back to the drill!", "%d:%02d" % [int(left) / 60, int(left) % 60], drill_t / defend_t, not there)
+			if drill_t >= defend_t:
 				_crack()
+		STASH:
+			var cpos: Vector3 = game.car.global_position
+			game.ui.heist_hud(STEP_NAMES[state], "%d more in the safe" % bags_left, float(bags_total - bags_left) / float(bags_total), game.police.wanted())
+			if on_foot and cpos.distance_to(yp) < 4.5:
+				_stash()
 		CRACKED:
 			var sf: Dictionary = cur
 			sf["open"] = move_toward(float(sf["open"]), 1.0, dt * 1.2)
 			(sf["door"] as Node3D).rotation.y = OPEN * ease(float(sf["open"]), 0.4)
-			game.ui.heist_hud(STEP_NAMES[state], "$" + _fmt(pay), 1.0, false)
+			game.ui.heist_hud(STEP_NAMES[state], ("$" + _fmt(pay)) + ("  ·  bag %d of %d" % [bags_total - bags_left + 1, bags_total] if bags_total > 1 else ""), 1.0, false)
 			if duffle and float(sf["open"]) > 0.85 and duffle.global_position.distance_to(yp) < 2.8 and on_foot:
 				_grab_duffle()
 		ESCAPE:
@@ -491,7 +510,17 @@ func start() -> void:
 	state = FETCH
 	t = 0.0
 	tipped = false
-	pay = rng.randi_range(PAY[0], PAY[1]) / 50 * 50
+	tier = clampi(int(game.save.stat("heists")) if not game.args.has("heisttier") else int(game.args["heisttier"]), 0, TIER_MAX)
+	pay = int(rng.randi_range(PAY[0], PAY[1]) * (1.0 + 0.35 * tier)) / 50 * 50
+	defend_t = DEFEND_T + 25.0 * tier
+	drill_t = 0.0
+	bags_total = 1 + (1 if tier >= 2 else 0) + (1 if tier >= 4 else 0)
+	bags_left = bags_total
+	break_at = defend_t * rng.randf_range(0.35, 0.7) if tier >= 1 and rng.randf() < 0.3 + 0.1 * tier else -1.0
+	crew_in.clear()
+	for d in game.crew.drivers:
+		if String(d["mode"]) == "crew":
+			crew_in.append(String(game.crew.ROSTER[int(d["who"])]["name"]))
 	game.ui.heist_prompt("")
 	# the tool bag (the core drill's in it), stashed by a road somewhere; the ring on the map is round it,
 	# but not centred on it
@@ -521,6 +550,14 @@ func start() -> void:
 	_refresh_dots()
 	game.sfx("mission", -4.0, 1.0)
 	game.ui.toast("Find the yellow tool bag (the drill's in it): it's in the orange ring on the map", "map", Color("ffb347"), Color.WHITE, 3.2)
+	var more := []
+	if bags_total > 1:
+		more.append("%d bags in this one" % bags_total)
+	if not crew_in.is_empty():
+		more.append("%s in for %d%% each" % [", ".join(crew_in), int(CREW_CUT * 100.0)])
+	if not more.is_empty():
+		get_tree().create_timer(3.4, false).timeout.connect(func():
+			game.ui.toast(" · ".join(more), "group", Color(0.12, 0.13, 0.16, 0.9), Color.WHITE, 3.0))
 
 func _pick_drill() -> void:
 	state = RETURN
@@ -536,6 +573,8 @@ func _mount() -> void:
 	state = DEFEND
 	t = 0.0
 	carrying = ""
+	if drill and is_instance_valid(drill):
+		drill.queue_free()          # (the burnt-out one, if it broke down)
 	var sf: Dictionary = cur
 	var n: Node3D = sf["node"]
 	# the drill on its tripod in front of the door, bit to the lock
@@ -562,7 +601,8 @@ func _mount() -> void:
 		game.police.heat_pts = maxf(game.police.heat_pts, 3.0)
 	else:
 		game.police.start(3.0, "Alarm: a safe's being drilled")
-	game.ui.toast("Drilling: hold them off for two minutes", "star", Color("ff4f6b"), Color.WHITE, 2.6)
+	game.ui.toast(("Drilling: hold them off for %d:%02d" % [int(defend_t - drill_t) / 60, int(defend_t - drill_t) % 60]) if drill_t <= 0.0 else "New drill on: keep them off it",
+		"star", Color("ff4f6b"), Color.WHITE, 2.6)
 
 func _crack() -> void:
 	state = CRACKED
@@ -585,17 +625,85 @@ func _crack() -> void:
 func _grab_duffle() -> void:
 	duffle.queue_free()
 	duffle = null
+	bags_left -= 1
+	carrying = "duffle"
+	game.sfx("cash", 0.0, 0.9)
+	game.police.heat_pts = maxf(game.police.heat_pts, 4.0)
+	if not game.police.wanted():
+		game.police.start(4.0, "Safe robbery")
+	if bags_left > 0:
+		# (more in there: this one to your car first, then back for the next)
+		state = STASH
+		game.ui.toast("Get this bag in your car: %d more to come" % bags_left, "car", Color("ffb347"), Color.WHITE, 2.4)
+		return
 	if drill:
 		var dn := drill
 		get_tree().create_timer(20.0).timeout.connect(func():
 			if is_instance_valid(dn):
 				dn.queue_free())
 		drill = null
-	carrying = "duffle"
-	game.sfx("cash", 0.0, 0.9)
-	game.police.heat_pts = maxf(game.police.heat_pts, 4.0)
-	game.police.start(4.0, "Safe robbery")
 	state = ESCAPE
+
+## A bag in the car: back to the safe for the next.
+func _stash() -> void:
+	carrying = ""
+	game.sfx("cash", -2.0, 1.1)
+	state = CRACKED
+	var sf: Dictionary = cur
+	var n: Node3D = sf["node"]
+	duffle = _prop("duffle")
+	add_child(duffle)
+	duffle.global_transform = Transform3D(Basis(Vector3.UP, float(sf["yaw"])), n.global_position + n.global_transform.basis.z * (0.21 * SAFE_SCALE + 0.35) + Vector3(0, 0.02, 0))
+	game.ui.toast("In the car. Back to the safe: %d to go" % bags_left, "check", Color("3fd26b"), Color.WHITE, 2.0)
+
+## The drill's burnt out halfway: smoke, and off to find another (closer this time). It picks up where the
+## last one stopped.
+func _burn_out() -> void:
+	break_at = -1.0
+	if _drill_snd:
+		_drill_snd.stop()
+	if drill:
+		for k in 6:
+			game.fx.flame(drill.global_position + Vector3(randf_range(-0.3, 0.3), 1.0, randf_range(-0.3, 0.3)), 0.5, Vector3(0, 0.6, 0), 0.6)
+	game.sfx("backfire", -2.0, 0.7)
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var sp: Vector3 = cur["pos"]
+	var s2 := _tucked(rng, Vector2(sp.x, sp.z), 140.0, 300.0, 1500, 4.0)
+	if s2.is_empty():
+		s2 = _roadside(rng, Vector2(sp.x, sp.z), 140.0, 400.0, 3000, 0.8)
+	if s2.is_empty():
+		return
+	state = FETCH
+	t = maxf(t, FETCH_T * 0.5)
+	var old := drill
+	drill = _prop("tool_duffle")
+	add_child(drill)
+	drill.global_transform = Transform3D(Basis(Vector3.UP, rng.randf() * TAU), s2["pos"])
+	drill_bit = null
+	drill_light = OmniLight3D.new()
+	drill_light.light_color = Color(1.0, 0.3, 0.25)
+	drill_light.omni_range = 5.0
+	drill_light.position.y = 1.4
+	drill.add_child(drill_light)
+	if old and is_instance_valid(old):
+		get_tree().create_timer(15.0, false).timeout.connect(func():
+			if is_instance_valid(old):
+				old.queue_free())
+	var a := rng.randf() * TAU
+	zone_c = (s2["pos"] as Vector3) + Vector3(cos(a), 0, sin(a)) * rng.randf_range(0.0, ZONE_R * 0.6)
+	zone_mi = MeshInstance3D.new()
+	var cy := CylinderMesh.new()
+	cy.top_radius = ZONE_R
+	cy.bottom_radius = ZONE_R
+	cy.height = 0.5
+	cy.radial_segments = 40
+	zone_mi.mesh = cy
+	zone_mi.material_override = _ring_mat
+	zone_mi.layers = island.MAP_LAYER
+	add_child(zone_mi)
+	zone_mi.global_position = Vector3(zone_c.x, 302.0, zone_c.z)
+	game.ui.toast("The drill's burnt out! Find another tool bag: orange ring on the map", "map", Color("ff4f6b"), Color.WHITE, 3.0)
 
 func _escaped() -> void:
 	state = DELIVER
@@ -603,11 +711,16 @@ func _escaped() -> void:
 	game.ui.toast("Lost them: take the money to the safehouse", "home", Color("3fd26b"), Color.WHITE, 2.6)
 
 func _complete() -> void:
-	game.save.data["coins"] = int(game.save.data["coins"]) + pay
+	# your crew take their cut
+	var cut := int(float(pay) * CREW_CUT) * crew_in.size()
+	var mine := pay - cut
+	game.save.data["coins"] = int(game.save.data["coins"]) + mine
 	game.save.add_stat("heists", 1)
 	game.sfx("mission", 0.0)
 	game.sfx("cash", -2.0)
-	game.ui.heist_done(pay)
+	game.ui.heist_done(mine)
+	if cut > 0:
+		game.ui.toast("%s took %s between them" % [", ".join(crew_in), "$" + _fmt(cut)], "group", Color(0.12, 0.13, 0.16, 0.9), Color.WHITE, 3.0)
 	_reset()
 	game._save_now()
 
