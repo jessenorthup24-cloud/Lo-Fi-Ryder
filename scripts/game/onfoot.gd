@@ -47,8 +47,15 @@ var slide_t := 0.0             # sliding: carried on by the run, slowing, no ste
 var _slide_dir := Vector3.ZERO
 var scripted := false          # the game's moving you (climbing into a car): no walking, no physics
 var down_t := 0.0              # knocked flat (bailed out of a moving car): ragdolling, then up again
+var _lean := Vector2.ZERO      # the body leaning: (forward, into the turn), radians
+var _last_facing := 0.0
+var _last_spd := 0.0
 
 func _physics_process(dt: float) -> void:
+	if scripted or down_t > 0.0:
+		_lean = Vector2.ZERO
+		avatar.rotation.x = 0.0
+		avatar.rotation.z = 0.0
 	if scripted:
 		velocity = Vector3.ZERO
 		avatar.rotation.y = facing + PI
@@ -115,12 +122,30 @@ func _physics_process(dt: float) -> void:
 	if hv.length() > 0.4 and aiming <= 0.0 and slide_t <= 0.0:
 		facing = lerp_angle(facing, atan2(-hv.x, -hv.z), 1.0 - exp(-dt * 7.5))
 	avatar.rotation.y = facing + PI          # (the Kenney characters face +Z)
+	_lean_tick(dt, hv, grounded)
 	# below the sea or fallen off the world: back up on land
 	if global_position.y < -6.0:
 		var p: Vector3 = global_position
 		global_position = Vector3(p.x, island.height_at(p.x, p.z) + 1.0, p.z)
 		velocity = Vector3.ZERO
 	_animate(hv, grounded)
+
+## Running, the body leans: into a turn (more the faster and tighter), forward pulling away, back pulling
+## up. Pivoting at the feet, it's the weight shifting, not the legs. Straight up again aiming or sliding.
+func _lean_tick(dt: float, hv: Vector3, grounded: bool) -> void:
+	var spd := hv.length()
+	var turn := wrapf(facing - _last_facing, -PI, PI) / maxf(dt, 0.001)
+	_last_facing = facing
+	var acc := (spd - _last_spd) / maxf(dt, 0.001)
+	_last_spd = spd
+	var free := grounded and aiming <= 0.0 and slide_t <= 0.0 and not crouch
+	var want := Vector2.ZERO
+	if free:
+		want.x = clampf(acc * 0.010, -0.07, 0.09)
+		want.y = clampf(-turn * spd * 0.02, -0.17, 0.17)
+	_lean = _lean.lerp(want, 1.0 - exp(-dt * (7.0 if free else 12.0)))
+	avatar.rotation.x = _lean.x
+	avatar.rotation.z = _lean.y
 
 ## Crouch (or stand back up). Running, you slide into it: down on one hip, carried on by the run.
 func toggle_crouch() -> void:

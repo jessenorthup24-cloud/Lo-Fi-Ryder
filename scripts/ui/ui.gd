@@ -1040,9 +1040,11 @@ func _build_wanted() -> void:
 		wanted_stars.append(st)
 	wanted_why = K.outlined(K.label("", 16, Color.WHITE, 700), K.INK, 6)
 	wanted_why.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	wanted_why.position = Vector2(-304, 330)
-	wanted_why.size = Vector2(360, 24)
-	wanted_why.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# (right-aligned under the stars and wrapping, so a long reason never runs off the edge)
+	wanted_why.position = Vector2(-316, 338)
+	wanted_why.size = Vector2(296, 24)
+	wanted_why.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	wanted_why.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	wanted_why.visible = false
 	hud.add_child(wanted_why)
 	limit_sign = PanelContainer.new()
