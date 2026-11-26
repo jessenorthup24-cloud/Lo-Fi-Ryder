@@ -14,22 +14,22 @@ const Avatar := preload("res://scripts/game/avatar.gd")
 ## A strike: the clip, the stretch of it played (from, to) and when it lands (hit), in the clip's seconds,
 ## played at speed; damage, how they reel (react), how far it knocks them, how close it reaches.
 const COMBO := [
-	{"clip": "fight_cross_punch", "from": 0.80, "hit": 1.12, "to": 1.50, "speed": 1.6, "dmg": 14.0, "react": "head", "push": 0.5, "reach": 1.4, "snd": "punch"},
-	{"clip": "fight_body_jab_cross", "from": 0.30, "hit": 0.58, "to": 0.92, "speed": 1.5, "dmg": 12.0, "react": "body", "push": 0.45, "reach": 1.35, "snd": "punch"},
+	{"clip": "fight_cross_punch", "from": 0.80, "hit": 1.08, "to": 1.46, "speed": 1.55, "dmg": 14.0, "react": "head", "push": 0.5, "reach": 1.4, "snd": "punch"},
+	{"clip": "fight_body_jab_cross", "from": 0.20, "hit": 0.44, "to": 0.64, "speed": 1.35, "dmg": 12.0, "react": "body", "push": 0.45, "reach": 1.35, "snd": "punch"},
 	{"clip": "fight_elbow_uppercut_combo", "from": 0.62, "hit": 0.95, "to": 1.28, "speed": 1.5, "dmg": 18.0, "react": "head", "push": 0.6, "reach": 1.25, "snd": "punch"},
-	{"clip": "fight_roundhouse_kick", "from": 0.42, "hit": 0.90, "to": 1.50, "speed": 1.45, "dmg": 30.0, "react": "ko", "push": 1.4, "reach": 1.6, "snd": "kick_hit", "finisher": true},
+	{"clip": "fight_roundhouse_kick", "from": 0.42, "hit": 0.94, "to": 1.50, "speed": 1.45, "dmg": 30.0, "react": "ko", "push": 1.4, "reach": 1.6, "snd": "kick_hit", "finisher": true},
 ]
-const KICK := {"clip": "fight_kicking", "from": 0.80, "hit": 1.20, "to": 1.65, "speed": 1.55, "dmg": 24.0, "react": "body", "push": 1.6, "reach": 1.7, "snd": "kick_hit"}
+const KICK := {"clip": "fight_kicking", "from": 0.82, "hit": 1.21, "to": 1.65, "speed": 1.55, "dmg": 24.0, "react": "body", "push": 1.6, "reach": 1.7, "snd": "kick_hit"}
 ## What people throw back at you.
 const FOE_ATK := [
-	{"clip": "fight_cross_punch", "from": 0.70, "hit": 1.12, "to": 1.50, "speed": 1.25, "dmg": 9.0},
-	{"clip": "fight_body_jab_cross", "from": 0.22, "hit": 0.58, "to": 0.95, "speed": 1.2, "dmg": 8.0},
-	{"clip": "fight_kicking", "from": 0.75, "hit": 1.20, "to": 1.65, "speed": 1.3, "dmg": 12.0},
+	{"clip": "fight_cross_punch", "from": 0.66, "hit": 1.08, "to": 1.46, "speed": 1.1, "dmg": 9.0},
+	{"clip": "fight_body_jab_cross", "from": 0.05, "hit": 0.44, "to": 0.64, "speed": 1.0, "dmg": 8.0},
+	{"clip": "fight_kicking", "from": 0.72, "hit": 1.21, "to": 1.65, "speed": 1.15, "dmg": 12.0},
 ]
 const REACT := {
 	"head": ["fight_big_hit_to_head", 0.05, 0.85, 1.4],
 	"body": ["fight_hit_to_body", 0.05, 0.85, 1.35],
-	"light": ["fight_hit_reaction", 0.05, 0.75, 1.4],
+	"light": ["fight_hit_reaction", 0.1, 0.95, 1.45],
 }
 const LOCK_R := 6.5           # who you'll swing at
 const CHAIN := 0.5            # seconds after a swing ends that the next press still carries the combo on
@@ -83,8 +83,6 @@ func tick(dt: float, fire_tap: bool, block_held: bool) -> void:
 	if fire_tap and not busy:
 		_press(foot, av)
 	_swing_tick(dt, foot, av)
-	_foes_tick(dt, foot)
-	_calls_tick(dt)
 	# squared up: turned to them, the guard stance (and a step slower)
 	var near := _nearest(foot, 4.5)
 	if not foes.is_empty() or not atk.is_empty():
@@ -94,9 +92,26 @@ func tick(dt: float, fire_tap: bool, block_held: bool) -> void:
 		foot.facing = lerp_angle(foot.facing, atan2(-to.x, -to.z), 1.0 - exp(-dt * 8.0))
 		foot.aiming = 0.15
 	av.fight = fight_t > 0.0
-	foot.move_scale = 0.35 if not atk.is_empty() else (0.75 if fight_t > 0.0 else 1.0)
+	foot.move_scale = 0.0 if (not atk.is_empty() or dodge_t > 0.0) else (0.75 if fight_t > 0.0 else 1.0)
 	_social_cd = maxf(0.0, _social_cd - dt)
 	social = {} if (fight_t > 0.0 or _social_cd > 0.0) else _social_pick(foot)
+
+## The people fighting you and the calls to the police carry on whatever's in your hands (a gun out, in the
+## car: they give up when you drive off).
+func _process(dt: float) -> void:
+	if game == null or game.state != game.DRIVE:
+		return
+	if game.on_foot and game.foot != null:
+		_foes_tick(dt, game.foot)
+	else:
+		for f in foes:
+			(f["pr"] as Dictionary).erase("fight")
+			var fav = f["pr"].get("live")
+			if fav != null and is_instance_valid(fav):
+				(fav as Avatar).fight = false
+		foes.clear()
+		fight_t = 0.0
+	_calls_tick(dt)
 
 ## Out of the fight at once (into a car, a gun drawn, a shop).
 func stand_down() -> void:
@@ -149,13 +164,13 @@ func _start(foot: CharacterBody3D, av: Avatar) -> void:
 		foot.aiming = 0.4
 		# stepped in: closing the gap over the wind-up, to arm's length
 		var gap := to.length() - float(def["reach"]) * 0.8
-		var wind := (float(def["hit"]) - float(def["from"])) / float(def["speed"])
 		if gap > 0.05:
-			foot.shove = to.normalized() * minf(gap, 2.6) / maxf(wind, 0.12) * 1.3
+			# (the shove fades at 9 m/s each second: this much carries you just the gap, no further)
+			foot.shove = to.normalized() * minf(sqrt(2.0 * 9.0 * minf(gap, 2.2)), 6.5)
 		if tgt["kind"] == "cop":
 			_provoked_by_swing(tgt)
 	var dur := (float(def["to"]) - float(def["from"])) / float(def["speed"])
-	av.play_once(String(def["clip"]), float(def["from"]), dur, float(def["speed"]), true, 0.06)
+	av.play_once(String(def["clip"]), float(def["from"]), dur, float(def["speed"]), true, 0.09)
 	atk = {"def": def, "t": 0.0, "landed": false, "queued": false, "tgt": tgt, "swished": false}
 	fight_t = 4.0
 
@@ -218,6 +233,9 @@ func _land(foot: CharacterBody3D, def: Dictionary, tgt: Dictionary) -> void:
 	game.buzz(60 if heavy else 35, 0.9 if heavy else 0.6)
 	if def["react"] != "body" and randf() < (0.8 if heavy else 0.3):
 		game.fx.blood(at, d, 6 if heavy else 3, 3.0)
+	game.fx.puff(at, Color(1, 1, 1, 0.8), 0.12 if not heavy else 0.2, d * 2.0, 0.18, 0.0)
+	if tgt["kind"] == "ped" and not game.police.wanted() and game.chase_ok() and game.police._witnessed(me):
+		game.police.start(1.0, "Assault in front of the police")
 	var hp := _hurt(tgt, dmg)
 	var av: Avatar = tgt["av"]
 	if hp <= 0.0 or def["react"] == "ko" and hp < PERSON_HP * 0.45:
@@ -501,6 +519,16 @@ func _foes_tick(dt: float, foot: CharacterBody3D) -> void:
 			av.fight = false
 			continue
 		pr["face"] = lerp_angle(float(pr["face"]), atan2(-to.x, -to.z), 1.0 - exp(-dt * 7.0))
+		# (no walking through you, or through each other)
+		if dist < 0.85 and dist > 0.01:
+			pr["pos"] = (pr["pos"] as Vector3) - to.normalized() * (0.85 - dist)
+		for g in foes:
+			if g != f:
+				var gp2: Vector3 = (g["pr"] as Dictionary)["pos"]
+				var sep: Vector3 = (pr["pos"] as Vector3) - gp2
+				sep.y = 0.0
+				if sep.length() < 0.8 and sep.length() > 0.01:
+					pr["pos"] = (pr["pos"] as Vector3) + sep.normalized() * (0.8 - sep.length()) * 0.5
 		f["block_t"] = maxf(0.0, float(f["block_t"]) - dt)
 		if float(f["stun"]) > 0.0:
 			f["stun"] = float(f["stun"]) - dt
@@ -552,9 +580,18 @@ func _foe_swing(dt: float, f: Dictionary, av: Avatar, foot: CharacterBody3D, dis
 			elif block_t > 0.0:
 				game.sfx("block", -3.0, randf_range(0.9, 1.05))
 				game.shake = maxf(game.shake, 0.12)
+				game.buzz(25, 0.5)
 				_hitstop(0.04)
-				f["stun"] = 0.7         # (thrown off: your opening)
+				# your arms take it (a jolt back), and they're thrown off balance: your opening
+				var d2 := foot.global_position - from
+				d2.y = 0.0
+				d2 = d2.normalized() if d2.length() > 0.01 else Vector3.FORWARD
+				(foot.avatar as Avatar).hit(foot.global_position + Vector3(0, 1.3, 0), d2, 0.6)
+				foot.shove = d2 * 1.6
+				f["stun"] = 0.7
 				f["atk"] = {}
+				var r: Array = REACT["light"]
+				av.play_once(String(r[0]), float(r[1]), 0.5, float(r[3]), true, 0.06)
 				return
 			else:
 				hurt_you(float(def["dmg"]) * randf_range(0.9, 1.15), from, String(def["clip"]).contains("kick"))

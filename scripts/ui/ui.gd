@@ -1472,6 +1472,8 @@ func set_foot(on: bool) -> void:
 	ctl["block"].visible = false
 	ctl["block"].set_meta("want", false)
 	if not on:
+		if melee_mark:
+			melee_mark.visible = false
 		ctl["door"].set_meta("want", true)
 		ctl["door"].visible = true
 		ctl["door"].modulate.a = 1.0
@@ -1509,6 +1511,27 @@ func _pop(c: Control, want: bool) -> void:
 		tw.tween_property(c, "modulate:a", 0.0, 0.16)
 		tw.tween_property(c, "scale", Vector2(0.8, 0.8), 0.16)
 		tw.chain().tween_callback(func(): c.visible = false)
+
+## Squared up to someone: a small red chevron over their head (who your punches go to).
+var melee_mark: Control
+func _melee_mark_tick() -> void:
+	if melee_mark == null:
+		melee_mark = Control.new()
+		melee_mark.size = Vector2(28, 22)
+		melee_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		melee_mark.draw.connect(func():
+			var pts := PackedVector2Array([Vector2(2, 2), Vector2(26, 2), Vector2(14, 20)])
+			melee_mark.draw_colored_polygon(pts, Color("ff4f6b"))
+			melee_mark.draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[0]]), Color(0.1, 0.05, 0.08, 0.8), 2.0, true))
+		hud.add_child(melee_mark)
+	var p: Vector3 = game.melee.focus() if game.gunplay.holstered else Vector3.INF
+	var cam: Camera3D = game.cam
+	if p == Vector3.INF or cam.is_position_behind(p + Vector3(0, 2.1, 0)):
+		melee_mark.visible = false
+		return
+	var sp := cam.unproject_position(p + Vector3(0, 2.15, 0))
+	melee_mark.visible = true
+	melee_mark.position = sp - Vector2(14, 22) + Vector2(0, sin(Time.get_ticks_msec() * 0.006) * 3.0)
 
 ## By someone you could talk to: GREET and TAUNT, low in the middle.
 var social_box: HBoxContainer
@@ -1570,6 +1593,7 @@ func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> 
 		fc.set_meta("fist", gp0.holstered)
 		fc.queue_redraw()
 	_social_prompt(game.melee.social)
+	_melee_mark_tick()
 	(ctl["stick"] as Control).set_meta("knob", game.stick)
 	ctl["stick"].queue_redraw()
 	var gp = game.gunplay

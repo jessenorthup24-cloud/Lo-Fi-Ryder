@@ -4030,6 +4030,8 @@ func _foot_tick(dt: float) -> void:
 ## you as you walk. Aiming, it comes in close over your right shoulder, narrows, and looks straight down the
 ## reticle; locked on to someone, it drifts round onto them.
 var _crouch_k := 0.0          # (the camera down with you when you crouch)
+var _fight_k := 0.0           # (framed for a fist fight)
+var _fight_look := Vector3.ZERO
 func _foot_cam(dt: float) -> void:
 	if busted_t > 0.0 and foot:
 		# busted: slowly round you, low down, the officers in shot
@@ -4056,7 +4058,9 @@ func _foot_cam(dt: float) -> void:
 	var mf: Vector3 = melee.focus() if melee else Vector3.INF
 	if mf != Vector3.INF and look_t > 0.6:
 		var md: Vector3 = mf - foot.global_position
-		var mwant := atan2(-md.x, -md.z) - look_yaw_t
+		# (a three-quarter view of the two of you: off to your right-rear, not straight down the line
+		# between you, where you'd block them from view)
+		var mwant := atan2(-md.x, -md.z) + 0.75 - look_yaw_t
 		foot_yaw = lerp_angle(foot_yaw, mwant, 1.0 - exp(-dt * 2.2))
 	# locked on: the view drifts onto them (the reticle settles on the one you're shooting)
 	if gunplay.lock_pos != Vector3.INF and ak > 0.3 and gunplay.manual_t <= 0.0:
@@ -4084,7 +4088,12 @@ func _foot_cam(dt: float) -> void:
 		head = body + Vector3(0, 0.6, 0)      # (down: the camera up and back, on your body as it falls)
 	var back := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
 	var side := Vector3(cos(yaw), 0, -sin(yaw))       # (to your right, looking the way the camera does)
-	var want := head + back * dist + side * lerpf(0.45, 0.65, ak)
+	# in a fist fight: further over your shoulder and a little closer in, so you're both in it (you to the
+	# left, them beyond to the right), the view on the space between you
+	_fight_k = move_toward(_fight_k, 1.0 if mf != Vector3.INF and ak < 0.1 else 0.0, dt * 2.5)
+	var fk := smoothstep(0.0, 1.0, _fight_k)
+	dist -= fk * 0.7
+	var want := head + back * dist + side * lerpf(lerpf(0.45, 0.65, ak), 0.7, fk)
 	# not through walls or the ground
 	var q := PhysicsRayQueryParameters3D.create(head, want, 1 | 2 | 4)
 	q.exclude = [foot.get_rid()]
@@ -4095,6 +4104,10 @@ func _foot_cam(dt: float) -> void:
 	cam.position = cam.position.lerp(want, 1.0 - exp(-dt * lerpf(14.0, 22.0, ak)))
 	# not aiming it looks at you; aiming, straight out along the view (so the reticle's where you shoot)
 	var look := (head + Vector3(0, 0.1, 0)).lerp(cam.position - back * 30.0, ak)
+	if fk > 0.0 and mf != Vector3.INF:
+		_fight_look = (head.lerp(mf + Vector3(0, 1.3, 0), 0.5))
+	if fk > 0.0:
+		look = look.lerp(_fight_look + side * 0.35, fk * 0.85)
 	if look.distance_to(cam.position) > 0.01:
 		cam.look_at(look, Vector3.UP)
 	# aiming: closer in, and through an optic, closer still (its zoom)

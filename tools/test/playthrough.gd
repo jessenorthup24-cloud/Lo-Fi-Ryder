@@ -84,6 +84,8 @@ func _run() -> void:
 			await _tutor()
 		"brawler":
 			await _brawler()
+		"brawlseq":
+			await _brawlseq()
 		"ram":
 			await _ram()
 		"ram2":
@@ -982,3 +984,63 @@ func _brawler() -> void:
 	game.toggle_foot()
 	await wait(0.8)
 	check(game.gunplay.holstered, "out of the car again: hands empty")
+
+## Frames of a fight in sequence (for checking it flows): a combo, their swing blocked, a dodge, the finisher.
+func _brawlseq() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.0)
+	game.toggle_foot()
+	await wait(1.0)
+	var pr := await _walk_up_to_someone()
+	if pr.is_empty():
+		return
+	game.melee._provoke(pr)
+	pr["fist_hp"] = 200.0
+	await wait(2.5)
+	var f: Dictionary = game.melee.foes[0]
+	f["cool"] = 99.0
+	var n := 0
+	# the combo: four presses, a beat apart
+	for k in 4:
+		game.held["fire"] = true
+		await wait(0.04)
+		game.held["fire"] = false
+		for j in 3:
+			await wait(0.1)
+			n += 1
+			await snap("c%02d" % n)
+	await wait(0.6)
+	# their swing: blocked
+	f["cool"] = 0.0
+	f["stun"] = 0.0
+	for j in 12:
+		await wait(0.08)
+		if not f["atk"].is_empty() and not f["atk"]["landed"]:
+			var a: Dictionary = f["atk"]
+			var t_hit: float = (float(a["def"]["hit"]) - float(a["def"]["from"])) / float(a["def"]["speed"])
+			if t_hit - float(a["t"]) < 0.3:
+				game.held["block"] = true
+		n += 1
+		await snap("b%02d" % n)
+	game.held["block"] = false
+	await wait(0.5)
+	# a dodge
+	game.held["block"] = true
+	for j in 6:
+		await wait(0.08)
+		n += 1
+		await snap("d%02d" % n)
+	game.held["block"] = false
+	f["cool"] = 99.0
+	pr["fist_hp"] = 20.0
+	await wait(0.6)
+	game.melee.combo = 3
+	game.melee.since = 0.0
+	game.held["fire"] = true
+	await wait(0.04)
+	game.held["fire"] = false
+	for j in 10:
+		await wait(0.1)
+		n += 1
+		await snap("k%02d" % n)
