@@ -50,7 +50,7 @@ var _heist_title: Label
 var _heist_sub: Label
 var _heist_bar: ProgressBar
 const FOOT_PADS := ["stick", "jump", "sprint", "fire", "swap", "reload", "crouch"]     # (no AIM: holding FIRE aims)
-var reticle: Control        # on foot, aiming: the crosshair in the middle (red when it's locked on)
+var reticle: Control        # on foot, aiming: the dot in the middle (red when it's locked on)
 var _hit_t := 0.0            # a hit marker showing (s left)
 var _hit_kill := false
 var aim_mark: Control       # on foot: the stick, jump and sprint instead of the car's controls
@@ -1456,16 +1456,8 @@ func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> 
 		rl.set_meta("prog", prog)
 		rl.set_meta("empty", empty)
 		rl.queue_redraw()
-	var cam: Camera3D = game.cam
-	if gp.lock_pos != Vector3.INF and gp.aim_k > 0.2 and not cam.is_position_behind(gp.lock_pos):
-		if not aim_mark.visible:
-			aim_mark.scale = Vector2.ONE * 1.8           # (snaps in)
-		aim_mark.visible = true
-		aim_mark.scale = aim_mark.scale.lerp(Vector2.ONE, 0.3)
-		aim_mark.rotation += 0.02
-		aim_mark.position = cam.unproject_position(gp.lock_pos) - Vector2(36, 36)
-	else:
-		aim_mark.visible = false
+	# (no ring round whoever you're locked on to: the soft lock still works, and the dot goes red)
+	aim_mark.visible = false
 	_hit_t = maxf(0.0, _hit_t - get_process_delta_time())
 	reticle.visible = gp.aim_k > 0.05 or _hit_t > 0.0
 	reticle.modulate.a = clampf(gp.aim_k * 1.4, 0.0, 1.0) if _hit_t <= 0.0 else 1.0
@@ -1484,15 +1476,10 @@ func _draw_reticle() -> void:
 	var locked: bool = gp.lock_pos != Vector3.INF
 	var col := Color(1.0, 0.3, 0.4, 0.95) if locked else Color(1, 1, 1, 0.92)
 	var ink := Color(0, 0, 0, 0.45)
-	# the gap opens with the spread and the kick
-	var gap: float = 7.0 + float(gp.weapon.get("spread", 0.02)) * 260.0 + gp._recoil * 9.0
-	for k in 4:
-		var a := TAU * k / 4.0
-		var dv := Vector2(cos(a), sin(a))
-		reticle.draw_line(c + dv * gap, c + dv * (gap + 10.0), ink, 5.0, true)
-		reticle.draw_line(c + dv * gap, c + dv * (gap + 10.0), col, 2.5, true)
-	reticle.draw_circle(c, 3.0, ink)
-	reticle.draw_circle(c, 1.8, col)
+	# a dot (red when it's locked on), swelling a little with the kick
+	var r: float = 3.6 + gp._recoil * 1.6
+	reticle.draw_circle(c, r + 1.6, ink)
+	reticle.draw_circle(c, r, col)
 	if _hit_t > 0.0:
 		var t := _hit_t / (0.32 if _hit_kill else 0.18)
 		var hc := Color(1.0, 0.18, 0.25, t) if _hit_kill else Color(1, 1, 1, t)
