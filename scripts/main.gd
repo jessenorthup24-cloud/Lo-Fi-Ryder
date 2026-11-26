@@ -611,6 +611,35 @@ func resume() -> void:
 	ui.close_sheet()
 	ui.show_hud()
 
+## Dez's fee to bring one of your cars (free right by your own garage).
+func delivery_fee() -> int:
+	return 200 + 25 * Progress.level(save)
+
+## Dez brings one of your cars: a few seconds, then it's parked on the road beside you (and if you were
+## driving, you're in it: he takes the other one home).
+func deliver_car(id: String) -> void:
+	var fee := delivery_fee()
+	if int(save.data["coins"]) < fee or not save.owns(id):
+		return
+	save.data["coins"] = int(save.data["coins"]) - fee
+	save.save()
+	ui.toast("Dez: on my way with it", "car", Color("5cc8ff"), Color.WHITE, 2.2)
+	sfx("radio_chirp", -9.0, 1.1)
+	get_tree().create_timer(6.0, false).timeout.connect(func():
+		if state != DRIVE and state != PAUSED:
+			return
+		var p: Vector3 = you().global_position
+		var xf := _road_spot(p + Vector3(randf_range(-4, 4), 0, randf_range(-4, 4)), car.global_rotation.y)
+		save.data["car"] = id
+		save.save()
+		car_changed()
+		car.place(Transform3D(xf.basis, xf.origin + Vector3(0, 0.6, 0)))
+		car.linear_velocity = Vector3.ZERO
+		if not on_foot:
+			_snap_cam()
+		ui.toast("Dez: it's out front. Keys are in it", "car", Color("3fd26b"), Color.WHITE, 2.6)
+		sfx("door", -6.0) if sound._stream("door") else sfx("bump", -10.0, 1.4))
+
 ## In at a shop's door: that shop's counters (ui.gd's garage screen). You come back out at its door.
 func open_shop(id: String) -> void:
 	if police.wanted():

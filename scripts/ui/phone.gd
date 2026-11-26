@@ -23,6 +23,8 @@ var _sig := ""
 var _rows := {}          # who -> {dist: Label, state: Label}
 var _t := 0.0
 var radar_btn: Button
+var dez_btn: Button
+var _mode := "contacts"        # or "dez": your cars, to have one brought
 
 func setup(u: Node, g: Node) -> void:
 	ui = u
@@ -74,6 +76,18 @@ func setup(u: Node, g: Node) -> void:
 		_radar_label()
 		ui.toggle_phone())
 	apps.add_child(radar_btn)
+	# Dez: brings any car you own to wherever you are, for a fee (from level 3)
+	dez_btn = K.button("Dez", Color("2f5f8a"), Color("1f4466"), 17, 0, 46, "car")
+	dez_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dez_btn.pressed.connect(func():
+		game.ui_tap()
+		if game.Progress.level(game.save) < game.Progress.DELIVERY_LEVEL:
+			ui.toast("Dez picks up at level %d" % game.Progress.DELIVERY_LEVEL, "lock", K.PAPER, K.INK, 2.0)
+			return
+		_mode = "contacts" if _mode == "dez" else "dez"
+		_sig = ""
+		refresh())
+	apps.add_child(dez_btn)
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	vb.add_child(head)
@@ -99,6 +113,7 @@ func _radar_label() -> void:
 	radar_btn.text = "Radar: on (tap to stop)" if ui.radar_on else "Safe radar"
 
 func open() -> void:
+	_mode = "contacts"
 	_radar_label()
 	_sig = ""
 	refresh()
@@ -112,6 +127,15 @@ func tick(dt: float) -> void:
 func refresh() -> void:
 	var crew: Node = game.crew
 	if crew == null:
+		return
+	if _mode == "dez":
+		var h0: float = game.atmos.hour
+		clock_lbl.text = "%02d:%02d" % [int(h0) % 24, int(fmod(h0, 1.0) * 60.0)]
+		var sig0 := "dez|%s|%d" % [String(game.save.data["car"]), int(game.save.data["coins"]) / 50]
+		if sig0 != _sig:
+			_sig = sig0
+			_dez_list()
+		hint_lbl.text = "Dez brings it to you, wherever you are"
 		return
 	var h: float = game.atmos.hour
 	clock_lbl.text = "%02d:%02d" % [int(h) % 24, int(fmod(h, 1.0) * 60.0)]
@@ -201,4 +225,42 @@ func _rebuild(cs: Array, n: int, busy: bool) -> void:
 				refresh())
 		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		hb.add_child(b)
+	ui._pass_touches.call_deferred(list)
+
+## Dez's list: every car you own (not the one you're in), each with what it costs to have it brought.
+func _dez_list() -> void:
+	for ch in list.get_children():
+		ch.queue_free()
+	_rows.clear()
+	var CARS = preload("res://scripts/game/cars.gd")
+	if game.Progress.level(game.save) < game.Progress.DELIVERY_LEVEL:
+		list.add_child(K.label("Dez picks up from level %d.\nTill then: Lo-Fi Customs, or your garage" % game.Progress.DELIVERY_LEVEL, 16, K.INK_SOFT, 600))
+		return
+	var fee: int = game.delivery_fee()
+	list.add_child(K.label("Dez: delivery · %s a car" % K.money(fee), 17, Color("5cc8ff"), 700, HORIZONTAL_ALIGNMENT_LEFT))
+	var any := false
+	for d in CARS.LIST:
+		var id := String(d["id"])
+		if not game.save.owns(id) or id == String(game.save.data["car"]):
+			continue
+		any = true
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		list.add_child(row)
+		var nm := K.label(String(d["name"]), 19, K.INK, 650, HORIZONTAL_ALIGNMENT_LEFT)
+		nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nm.clip_text = true
+		row.add_child(nm)
+		var b := K.button("Bring it", GO, GO_DK, 16, 90, 42)
+		b.disabled = int(game.save.data["coins"]) < fee or game.challenge_on()
+		b.pressed.connect(func():
+			if ui._drag_dist > 18.0:
+				return
+			game.ui_tap()
+			game.deliver_car(id)
+			_mode = "contacts"
+			ui.toggle_phone())
+		row.add_child(b)
+	if not any:
+		list.add_child(K.label("Buy more cars at Lo-Fi Customs", 16, K.INK_SOFT, 600))
 	ui._pass_touches.call_deferred(list)

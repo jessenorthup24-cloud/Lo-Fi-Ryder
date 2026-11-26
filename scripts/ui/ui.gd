@@ -2491,12 +2491,14 @@ func open_pause() -> void:
 		["Keep driving", "play", K.CORAL, K.CORAL_DK, func(): game.resume()],
 		["Reset car", "home", K.SUN, K.SUN_DK, func(): game.reset_car()],
 		["Map", "map", K.TEAL, K.TEAL_DK, func(): open_map()],
-		["Garage", "car", K.SKY, K.SKY_DK, func():
-			if game.police.wanted():
-				toast("Lose the police first", "eye", Color("ff5c7a"), Color.WHITE)     # (the menu stays up)
-				return
-			close_sheet()
-			game.open_garage()],
+		["Your cars", "car", K.SKY, K.SKY_DK, func():
+			# (Dez brings any of them to you; the shops are on Main Street)
+			game.resume()
+			if not phone.visible:
+				toggle_phone()
+			phone._mode = "dez"
+			phone._sig = ""
+			phone.refresh()],
 		["Trophies", "trophy", K.LILAC, K.LILAC_DK, func(): open_achievements(true)],
 		["Car cards", "star", Color("ffb020"), Color("c98500"), func(): open_cards(true)],
 		["Settings", "gear", K.PAPER, K.LINE, func(): open_settings(true)],
