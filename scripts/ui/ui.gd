@@ -1517,10 +1517,15 @@ var melee_mark: Control
 func _melee_mark_tick() -> void:
 	if melee_mark == null:
 		melee_mark = Control.new()
-		melee_mark.size = Vector2(28, 22)
+		melee_mark.size = Vector2(60, 34)
 		melee_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		melee_mark.draw.connect(func():
-			var pts := PackedVector2Array([Vector2(2, 2), Vector2(26, 2), Vector2(14, 20)])
+			# their fight left (someone fighting you), then the chevron
+			var hpk: float = melee_mark.get_meta("hp", -1.0)
+			if hpk >= 0.0:
+				melee_mark.draw_rect(Rect2(4, 0, 52, 7), Color(0.05, 0.04, 0.07, 0.75))
+				melee_mark.draw_rect(Rect2(5, 1, 50.0 * hpk, 5), Color("ff4f6b").lerp(Color("ffd34d"), clampf(hpk * 1.3 - 0.3, 0.0, 1.0)))
+			var pts := PackedVector2Array([Vector2(18, 12), Vector2(42, 12), Vector2(30, 30)])
 			melee_mark.draw_colored_polygon(pts, Color("ff4f6b"))
 			melee_mark.draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[0]]), Color(0.1, 0.05, 0.08, 0.8), 2.0, true))
 		hud.add_child(melee_mark)
@@ -1531,7 +1536,11 @@ func _melee_mark_tick() -> void:
 		return
 	var sp := cam.unproject_position(p + Vector3(0, 2.15, 0))
 	melee_mark.visible = true
-	melee_mark.position = sp - Vector2(14, 22) + Vector2(0, sin(Time.get_ticks_msec() * 0.006) * 3.0)
+	melee_mark.position = sp - Vector2(30, 32) + Vector2(0, sin(Time.get_ticks_msec() * 0.006) * 3.0)
+	var hpk: float = game.melee.focus_hp()
+	if absf(float(melee_mark.get_meta("hp", -2.0)) - hpk) > 0.005:
+		melee_mark.set_meta("hp", hpk)
+		melee_mark.queue_redraw()
 
 ## By someone you could talk to: GREET and TAUNT, low in the middle.
 var social_box: HBoxContainer

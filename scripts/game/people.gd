@@ -234,6 +234,8 @@ func _place_live(pr: Dictionary, base: Vector3, _t: float) -> void:
 	var av: Avatar = pr["live"]
 	if pr.has("fight"):
 		# squared up to you (melee.gd moves and animates them): just where they stand, facing you
+		if av.limp:
+			return          # (knocked down: the body lies where it fell)
 		av.global_position = base
 		av.rotation.y = float(pr["face"]) + PI
 		return

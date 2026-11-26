@@ -86,6 +86,10 @@ func _run() -> void:
 			await _brawler()
 		"brawlseq":
 			await _brawlseq()
+		"kotest":
+			await _kotest()
+		"street":
+			await _street()
 		"ram":
 			await _ram()
 		"ram2":
@@ -889,6 +893,7 @@ func _brawler() -> void:
 	check(game.foot.avatar.current() != "", "waved")
 	# a punch: they reel; keep going and it's a fight or they run
 	pr["grit"] = 1.0          # (this one fights)
+	pr["style"] = "scrapper"
 	game.held["fire"] = true
 	await wait(0.05)
 	game.held["fire"] = false
@@ -897,7 +902,7 @@ func _brawler() -> void:
 	await wait(0.2)
 	await snap("punch_land")
 	await wait(0.4)
-	check(float(pr.get("fist_hp", 60.0)) < 60.0, "the punch landed (hp %.0f)" % float(pr.get("fist_hp", 60.0)))
+	check(float(pr.get("fist_hp", 60.0)) < float(pr.get("fist_max", 60.0)), "the punch landed (hp %.0f of %.0f), not a knock-out" % [float(pr.get("fist_hp", 60.0)), float(pr.get("fist_max", 60.0))])
 	check(game.melee.foes.size() == 1 and pr.has("fight"), "they're fighting back")
 	var bp: Control = ui.ctl["block"]
 	check(bp.visible and bp.modulate.a > 0.9 and bp.scale.x > 0.9 and bp.is_visible_in_tree(), "BLOCK up in the fight (at %s, a %.2f, scale %.2f, in tree %s, parent %s)" % [bp.get_global_rect(), bp.modulate.a, bp.scale.x, bp.is_visible_in_tree(), bp.get_parent().name])
@@ -1044,3 +1049,101 @@ func _brawlseq() -> void:
 		await wait(0.1)
 		n += 1
 		await snap("k%02d" % n)
+
+## Knock-outs as they look: thrown limp (the ragdoll), and dropped where they stood (fall, fit, still).
+func _kotest() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.0)
+	game.toggle_foot()
+	await wait(1.0)
+	for mode in ["ragdoll", "drop"]:
+		var pr := await _walk_up_to_someone()
+		if pr.is_empty():
+			return
+		await wait(1.5)
+		var d: Vector3 = (pr["pos"] as Vector3) - game.foot.global_position
+		d.y = 0.0
+		d = d.normalized()
+		var c := {"kind": "ped", "ref": pr, "av": pr["live"]}
+		if mode == "ragdoll":
+			game.melee._ko(c, d * 8.5 + Vector3(0, 2.2, 0))
+		else:
+			game.melee._ko(c, d * 3.0 + Vector3(0, 1.0, 0))
+		for k in 4:
+			await wait(0.6 if k < 2 else 2.0)
+			await snap("%s_%d" % [mode, k])
+		game.police.clear()
+		await wait(1.0)
+
+func _punch() -> void:
+	game.held["fire"] = true
+	await wait(0.05)
+	game.held["fire"] = false
+
+## Street fights of every sort: they fight back, circle you, take a few to put down (more the better they
+## are), get knocked down and up again.
+func _street() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.0)
+	game.toggle_foot()
+	await wait(1.0)
+	for style in ["scrapper", "brawler", "boxer"]:
+		game.police.clear()
+		game.gunplay.hp = game.gunplay.MAX_HP
+		var pr := await _walk_up_to_someone()
+		if pr.is_empty():
+			note("nobody about for the %s" % style)
+			continue
+		pr["style"] = style
+		pr["grit"] = 1.0
+		game.melee._provoke(pr)
+		var f: Dictionary = game.melee.foes[0]
+		check(float(pr["fist_hp"]) == float(game.melee.PROFILES[style]["hp"]), "%s squares up (hp %.0f)" % [style, float(pr["fist_hp"])])
+		# they come at you: circling first, then a combo
+		var p0: Vector3 = pr["pos"]
+		var hp0: float = game.gunplay.hp
+		var circled := 0.0
+		for k in 50:
+			await wait(0.1)
+			if f["phase"] == "circle":
+				circled += (pr["pos"] as Vector3).distance_to(p0)
+			p0 = pr["pos"]
+			game.gunplay.hp = maxf(game.gunplay.hp, 30.0)
+		check(circled > 0.8, "%s circled you (%.1f m)" % [style, circled])
+		check(game.gunplay.hp < hp0 or game.gunplay.hp <= 30.0, "%s fought back: landed punches (hp %.0f -> %.0f)" % [style, hp0, game.gunplay.hp])
+		# put them down: count the presses (keep standing up to it)
+		var presses := 0
+		var downs := 0
+		var was_down := false
+		var got_up := false
+		for k in 120:
+			if pr.get("down", false):
+				break
+			game.gunplay.hp = game.gunplay.MAX_HP
+			if float(f.get("down_t", 0.0)) > 0.0:
+				if not was_down:
+					downs += 1
+				was_down = true
+				await wait(0.2)
+				continue
+			if was_down:
+				got_up = true
+				was_down = false
+			# (in reach: walk up to them)
+			var to: Vector3 = (pr["pos"] as Vector3) - game.foot.global_position
+			to.y = 0.0
+			if to.length() > 1.6:
+				game.foot.global_position += to.normalized() * (to.length() - 1.2)
+			await _punch()
+			presses += 1
+			await wait(0.22)
+		check(pr.get("down", false), "%s knocked out" % style)
+		note("%s: %d punches to knock out, knocked down %d times, got up %s; melee %s" % [style, presses, downs, got_up, game.melee.stats])
+		for kk in game.melee.stats:
+			game.melee.stats[kk] = 0
+		check(presses >= {"scrapper": 3, "brawler": 5, "boxer": 7}[style], "%s took a few (%d punches)" % [style, presses])
+		if downs > 0:
+			check(got_up, "%s got back up after a knock-down" % style)
+		await wait(1.5)
