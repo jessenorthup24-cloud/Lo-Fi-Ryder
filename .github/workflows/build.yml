@@ -130,9 +130,9 @@ jobs:
             echo "assets repo, as the token sees it: HTTP $code"
             if git clone -q --depth 1 "https://x-access-token:${ASSETS_TOKEN}@github.com/jessenorthup24-cloud/lo-fi-assets-private.git" /tmp/private; then
               mkdir -p assets/guns
-              cp /tmp/private/guns/*.res /tmp/private/guns/guns_meta.json assets/guns/
+              cp -r /tmp/private/guns/. assets/guns/
               rm -rf /tmp/private
-              echo "guns: $(ls assets/guns/*.res | wc -l) models"
+              echo "guns: $(ls assets/guns/kit/*.res | wc -l) parts, $(ls assets/guns/icons | wc -l) icons"
             else
               echo "::warning::ASSETS_TOKEN can't read lo-fi-assets-private (HTTP $code): building with stand-in guns. The token needs Contents: Read-only on that repo."
             fi

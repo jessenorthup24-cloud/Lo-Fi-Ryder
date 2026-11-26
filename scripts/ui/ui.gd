@@ -3557,6 +3557,9 @@ func show_garage(from: int, mode := "own") -> void:
 	g_from = from
 	g_mode = mode
 	g_char_try = ""
+	g_gun = ""
+	g_slot = ""
+	g_try = {}
 	title.visible = false
 	hud.visible = false
 	close_sheet()
@@ -3595,8 +3598,10 @@ func _garage_refresh() -> void:
 			g_paint = -1
 			_garage_refresh())
 		tabs.add_child(b)
-	if g_tab == "driver" or g_tab == "guns":
-		_show_driver(g_tab == "guns")
+	if g_tab == "guns":
+		_show_gun()
+	elif g_tab == "driver":
+		_show_driver(false)
 	else:
 		_show_car(CARS.LIST[g_index])
 	if g_tab == "driver":
@@ -3786,77 +3791,373 @@ func _driver_tab() -> void:
 			_garage_refresh())
 		row.add_child(ab)
 
-## The Guns tab: buy the six kinds, pick which you carry, and its look (the first look's free).
+# ------------------------------------------------------------------ the Armory
+
+var g_gun := ""               # the gun on show
+var g_slot := ""              # the socket you're picking a part for ("": the list of slots)
+var g_try := {}               # a build on show that isn't yours yet (a part you're looking at)
+var g_try_part := ""
+
+## Your parts: bought ones, plus whatever came on the guns you own (their starting build).
+func _owns_part(nm: String) -> bool:
+	var s = game.save.data
+	if (s.get("parts_owned", []) as Array).has(nm):
+		return true
+	for gid in s.get("guns", ["pistol"]):
+		var b: Dictionary = Weapons.default_build(Weapons.by_id(String(gid)))
+		if String(b.get("base", "")) == nm or (b.get("parts", {}) as Dictionary).values().has(nm):
+			return true
+	return false
+
 func _guns_tab() -> void:
 	var s = game.save.data
 	if not s.has("guns"):
 		s["guns"] = ["pistol"]
 	var owned: Array = s["guns"]
-	var cur := String(s.get("gun", "pistol"))
-	var w: Dictionary = Weapons.by_id(cur)
-	var t := K.label(String(w["name"]), 30, K.INK, 500)
-	t.add_theme_font_override("font", K.font_spaced(500, 3))
-	g_panel.add_child(t)
-	g_panel.add_child(K.label("%d damage · %s · %d rounds" % [int(w["dmg"]) * int(w["pellets"]), "automatic" if w["auto"] else "semi-auto", int(w["mag"])], 17, K.INK_SOFT, 500))
+	if g_gun == "":
+		g_gun = String(s.get("gun", "pistol"))
+	var w0: Dictionary = Weapons.by_id(g_gun)
+	var have: bool = g_gun in owned
+	var mine: Dictionary = Weapons.build_of(game.save, g_gun)
+	var shown: Dictionary = g_try if not g_try.is_empty() else mine
+	var w: Dictionary = Weapons.with_build(w0, shown)
+	var base_w: Dictionary = Weapons.with_build(w0, mine)
+	var lv: int = Progress.level(game.save)
+	# the gun: < name >
+	var nav := HBoxContainer.new()
+	nav.add_theme_constant_override("separation", 10)
+	g_panel.add_child(nav)
+	var prev := K.round_button("left", K.PAPER, K.LINE, 60)
+	_tap(prev, func(): _gun_step(-1))
+	nav.add_child(prev)
+	var nm := K.label(String(w0["name"]), 30, K.INK, 700)
+	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nav.add_child(nm)
+	var nxt := K.round_button("right", K.PAPER, K.LINE, 60)
+	_tap(nxt, func(): _gun_step(1))
+	nav.add_child(nxt)
+	# what it does (as built: green where a part on show would make it better, red where worse)
 	var grid := GridContainer.new()
-	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 14)
+	grid.add_theme_constant_override("v_separation", 3)
 	g_panel.add_child(grid)
-	for gw in Weapons.LIST:
-		var id: String = gw["id"]
-		var have: bool = id in owned
-		var on := id == cur
-		var txt := String(gw["name"]) if have else "%s · %s" % [gw["name"], K.money(int(gw["price"]))]
-		var b := K.button(txt, K.CORAL if on else K.CREAM, K.CORAL_DK if on else K.LINE_DK, 16, 0, 50, "" if have else "coin")
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_tap(b, func():
-			if not (id in owned):
-				if int(s["coins"]) < int(gw["price"]):
-					toast("Not enough cash", "coin")
-					return
-				s["coins"] = int(s["coins"]) - int(gw["price"])
-				owned.append(id)
-				game.sfx("purchase", -4.0)
-			s["gun"] = id
-			game.save.save()
-			_garage_refresh())
-		grid.add_child(b)
-	# its looks
-	g_panel.add_child(K.label("Look" + ("" if Weapons.have_models() else "  (detailed models come with the full build)"), 17, K.INK_SOFT, 500))
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
-	g_panel.add_child(row)
-	if not s.has("gun_looks"):
-		s["gun_looks"] = {}
-	if not s.has("gun_look"):
-		s["gun_look"] = {}
-	var mine: Array = s["gun_looks"].get(cur, [0])
-	var lk := int(s["gun_look"].get(cur, 0))
-	var looks: Array = w["looks"]
-	for i in looks.size():
-		var have2: bool = i in mine
-		var on2 := i == lk
-		var lt := Weapons.look_name(String(looks[i])) if have2 else K.money(Weapons.LOOK_PRICE)
-		var lb := K.button(lt, K.CORAL if on2 else K.CREAM, K.CORAL_DK if on2 else K.LINE_DK, 14, 0, 46, "" if have2 else "coin")
-		lb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var ii := i
-		_tap(lb, func():
-			if not (cur in owned):
-				toast("Buy the %s first" % w["name"], "coin")
+	var stat := func(w2: Dictionary) -> Array:
+		return [float(w2["dmg"]) * float(w2["pellets"]) / 110.0, float(w2["rate"]) / 12.0, float(w2["range"]) / 300.0,
+			1.0 - clampf(float(w2["spread"]) / 0.15, 0.0, 1.0), 1.0 - clampf(float(w2.get("recoil", 1.0)) - 0.35, 0.0, 1.0), float(w2["mag"]) / 100.0]
+	var now_s: Array = stat.call(w)
+	var was_s: Array = stat.call(base_w)
+	var labels := ["Damage", "Fire rate", "Range", "Accuracy", "Control", "Rounds"]
+	for i in 6:
+		grid.add_child(K.label(labels[i] + ("  %d" % int(w["mag"]) if i == 5 else ""), 16, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
+		var bar := Control.new()
+		bar.custom_minimum_size = Vector2(230, 12)
+		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var nv := clampf(float(now_s[i]), 0.03, 1.0)
+		var wv := clampf(float(was_s[i]), 0.03, 1.0)
+		bar.draw.connect(func():
+			bar.draw_rect(Rect2(Vector2.ZERO, bar.size), K.LINE)
+			bar.draw_rect(Rect2(Vector2.ZERO, Vector2(bar.size.x * minf(nv, wv), bar.size.y)), K.TEAL_DK)
+			if nv > wv + 0.005:
+				bar.draw_rect(Rect2(Vector2(bar.size.x * wv, 0), Vector2(bar.size.x * (nv - wv), bar.size.y)), Color("3fd26b"))
+			elif nv < wv - 0.005:
+				bar.draw_rect(Rect2(Vector2(bar.size.x * nv, 0), Vector2(bar.size.x * (wv - nv), bar.size.y)), Color("ff5c7a")))
+		grid.add_child(bar)
+	var extras: Array = []
+	if bool(w.get("quiet", false)):
+		extras.append("suppressed")
+	if float(w.get("zoom", 1.0)) > 1.05:
+		extras.append("zoom %.1f×" % float(w["zoom"]))
+	if float(w.get("hip", 1.0)) < 0.99:
+		extras.append("laser / light")
+	if not extras.is_empty():
+		g_panel.add_child(K.label(" · ".join(extras), 15, Color("5cc8ff"), 600))
+	# buy it / carry it
+	var act: Button
+	var need: int = int(w0["lvl"])
+	if not have:
+		if lv < need:
+			act = K.button("Level %d  ·  %s" % [need, K.money(int(w0["price"]))], Color("c9c3bb"), Color("aba59d"), 24, 0, 62, "lock")
+			act.disabled = true
+		else:
+			act = K.button("Buy  ·  " + K.money(int(w0["price"])), K.CORAL, K.CORAL_DK, 26, 0, 62, "coin")
+	elif String(s.get("gun", "pistol")) == g_gun:
+		act = K.button("Carrying this one", Color("c9c3bb"), Color("aba59d"), 24, 0, 62, "check")
+		act.disabled = true
+	else:
+		act = K.button("Carry this one", K.TEAL, K.TEAL_DK, 26, 0, 62, "play")
+	_tap(act, func():
+		if not (g_gun in owned):
+			if int(s["coins"]) < int(w0["price"]):
+				toast("Not enough cash", "coin", Color("ff5c7a"), Color.WHITE)
 				return
-			if not (ii in mine):
-				if int(s["coins"]) < Weapons.LOOK_PRICE:
-					toast("Not enough cash", "coin")
-					return
-				s["coins"] = int(s["coins"]) - Weapons.LOOK_PRICE
-				mine.append(ii)
-				s["gun_looks"][cur] = mine
-				game.sfx("purchase", -4.0)
-			s["gun_look"][cur] = ii
-			game.save.save()
+			s["coins"] = int(s["coins"]) - int(w0["price"])
+			owned.append(g_gun)
+			game.sfx("purchase", -4.0)
+			game.buzz(50, 0.8)
+		s["gun"] = g_gun
+		game.save.save()
+		if game.gunplay:
+			game.gunplay.equip()
+		_garage_refresh())
+	act.custom_minimum_size.y = 54
+	g_panel.add_child(act)
+	if not have:
+		g_panel.add_child(K.label("Buy it to build it up: every part's swappable here", 16, K.INK_SOFT, 500))
+		return
+	# the parts: a slot for each socket the build has (tap one: what fits there)
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(0, 110)
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	g_panel.add_child(sc)
+	_drag_scroll(sc)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 6)
+	sc.add_child(list)
+	if g_slot == "":
+		_gun_slots(list, w0, shown)
+	else:
+		_gun_picker(list, w0, mine, g_slot)
+
+func _gun_step(d: int) -> void:
+	var i := 0
+	for k in Weapons.LIST.size():
+		if Weapons.LIST[k]["id"] == g_gun:
+			i = k
+	g_gun = String(Weapons.LIST[posmod(i + d, Weapons.LIST.size())]["id"])
+	g_slot = ""
+	g_try = {}
+	_garage_refresh()
+
+## The sockets this build has that take a part (in a sensible order), each with what's on it.
+func _gun_sockets(w: Dictionary, b: Dictionary) -> Array:
+	var have := {}
+	var base: Dictionary = Weapons.part(String(b.get("base", "")))
+	for s2 in base.get("sockets", {}):
+		have[s2] = true
+	for s3 in (b.get("parts", {}) as Dictionary):
+		for s4 in Weapons.part(String(b["parts"][s3])).get("sockets", {}):
+			have[s4] = true
+	var out: Array = []
+	for s5 in have:
+		if Weapons.parts_for(w, s5).size() > 0 and not String(s5).begins_with("hand"):
+			out.append(s5)
+	out.sort_custom(func(a, c):
+		var ia := Weapons.SOCKET_ORDER.find(a)
+		var ic := Weapons.SOCKET_ORDER.find(c)
+		return (ia if ia >= 0 else 99) < (ic if ic >= 0 else 99))
+	return out
+
+func _part_icon(nm: String, h := 34.0) -> Control:
+	var path := "res://assets/guns/icons/%s.png" % nm
+	var tr := TextureRect.new()
+	tr.custom_minimum_size = Vector2(h * 3.0, h)
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if ResourceLoader.exists(path):
+		tr.texture = load(path)
+	return tr
+
+func _gun_slots(list: VBoxContainer, w: Dictionary, b: Dictionary) -> void:
+	# the builds it comes in, as a start
+	var ps: Array = Weapons.presets(w)
+	if ps.size() > 1:
+		var pr := HBoxContainer.new()
+		pr.add_theme_constant_override("separation", 6)
+		list.add_child(pr)
+		for pn in ps:
+			var pb := Weapons.preset_build(w, String(pn))
+			var cost := 0
+			for pv in (pb["parts"] as Dictionary).values():
+				if not _owns_part(String(pv)):
+					cost += Weapons.part_price(w, String(pv))
+			var same: bool = JSON.stringify(pb["parts"], "", true) == JSON.stringify(b.get("parts", {}), "", true)
+			var lbl := Weapons.nice(String(pn)).replace(String(w["name"]), "").strip_edges()
+			var chip := K.button(lbl if cost == 0 else "%s %s" % [lbl, K.money(cost)], K.CORAL if same else K.CREAM, K.CORAL_DK if same else K.LINE_DK, 14, 0, 44)
+			if not same:
+				chip.add_theme_color_override("font_color", K.INK)
+			chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var pnn := String(pn)
+			_tap(chip, func(): _buy_build(w, Weapons.preset_build(w, pnn)))
+			pr.add_child(chip)
+	for sk in _gun_sockets(w, b):
+		var on := String((b.get("parts", {}) as Dictionary).get(sk, ""))
+		var row := Button.new()
+		row.custom_minimum_size = Vector2(0, 52)
+		row.add_theme_stylebox_override("normal", K.box(K.CREAM, 14, 0, Color.TRANSPARENT, 8))
+		row.add_theme_stylebox_override("pressed", K.box(K.LINE, 14, 0, Color.TRANSPARENT, 8))
+		row.add_theme_stylebox_override("hover", K.box(K.CREAM, 14, 0, Color.TRANSPARENT, 8))
+		var hb := HBoxContainer.new()
+		hb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		hb.offset_left = 12
+		hb.offset_right = -12
+		hb.add_theme_constant_override("separation", 10)
+		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(hb)
+		var sl := K.label(Weapons.socket_name(sk), 16, K.INK_SOFT, 700, HORIZONTAL_ALIGNMENT_LEFT)
+		sl.custom_minimum_size = Vector2(120, 0)
+		hb.add_child(sl)
+		if on != "":
+			hb.add_child(_part_icon(on, 30))
+		var pl := K.label(Weapons.nice(on) if on != "" else "None", 17, K.INK, 600, HORIZONTAL_ALIGNMENT_LEFT)
+		pl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pl.clip_text = true
+		pl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		hb.add_child(pl)
+		var n_opts := Weapons.parts_for(w, sk).size()
+		hb.add_child(K.label("%d ›" % n_opts, 16, K.INK_SOFT, 600))
+		var skk := String(sk)
+		_tap(row, func():
+			g_slot = skk
+			g_try = {}
 			_garage_refresh())
-		row.add_child(lb)
+		list.add_child(row)
+
+func _gun_picker(list: VBoxContainer, w: Dictionary, mine: Dictionary, sk: String) -> void:
+	var lv: int = Progress.level(game.save)
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 8)
+	list.add_child(top)
+	var bk := K.button("‹ " + Weapons.socket_name(sk), K.PAPER, K.LINE, 18, 0, 46)
+	_tap(bk, func():
+		g_slot = ""
+		g_try = {}
+		_garage_refresh())
+	top.add_child(bk)
+	var opts: Array = Weapons.parts_for(w, sk)
+	var cur := String((mine.get("parts", {}) as Dictionary).get(sk, ""))
+	var can_none: bool = opts.size() > 0 and not Weapons.socket_required(w, sk)
+	if can_none:
+		opts.push_front("")
+	for nm in opts:
+		var pn := String(nm)
+		var owned_p: bool = pn == "" or _owns_part(pn)
+		var need: int = Weapons.part_level(w, pn) if pn != "" else 1
+		var price: int = Weapons.part_price(w, pn) if pn != "" else 0
+		var on := pn == cur
+		var trying := pn == g_try_part and not g_try.is_empty() and not on
+		var row := Button.new()
+		row.custom_minimum_size = Vector2(0, 58)
+		var bg: Color = K.CORAL if on else (K.SKY if trying else K.CREAM)
+		row.add_theme_stylebox_override("normal", K.box(bg, 14, 0, Color.TRANSPARENT, 8))
+		row.add_theme_stylebox_override("pressed", K.box(K.LINE, 14, 0, Color.TRANSPARENT, 8))
+		row.add_theme_stylebox_override("hover", K.box(bg, 14, 0, Color.TRANSPARENT, 8))
+		var hb := HBoxContainer.new()
+		hb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		hb.offset_left = 10
+		hb.offset_right = -12
+		hb.add_theme_constant_override("separation", 10)
+		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(hb)
+		if pn != "":
+			hb.add_child(_part_icon(pn, 34))
+		var vb := VBoxContainer.new()
+		vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vb.add_theme_constant_override("separation", -3)
+		vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hb.add_child(vb)
+		var t1 := K.label(Weapons.nice(pn) if pn != "" else "None", 17, K.INK, 650, HORIZONTAL_ALIGNMENT_LEFT)
+		t1.clip_text = true
+		vb.add_child(t1)
+		vb.add_child(K.label(Weapons.describe(pn) if pn != "" else "Leave it bare", 13, K.INK_SOFT, 500, HORIZONTAL_ALIGNMENT_LEFT))
+		var right := ""
+		if on:
+			right = "On"
+		elif owned_p:
+			right = "Owned"
+		elif lv < need:
+			right = "Lv %d" % need
+		else:
+			right = K.money(price)
+		hb.add_child(K.label(right, 16, K.INK if not (lv < need and not owned_p) else K.INK_SOFT, 700))
+		_tap(row, func():
+			var nb: Dictionary = {"base": String(mine.get("base", "")), "parts": (mine.get("parts", {}) as Dictionary).duplicate()}
+			if pn == "":
+				nb["parts"].erase(sk)
+			else:
+				nb["parts"][sk] = pn
+			# (a part's own sockets go if it does: a barrel's muzzle with the barrel)
+			if cur != "" and cur != pn:
+				for s2 in Weapons.part(cur).get("sockets", {}):
+					if not (pn != "" and (Weapons.part(pn).get("sockets", {}) as Dictionary).has(s2)):
+						nb["parts"].erase(s2)
+			if owned_p:
+				g_try = {}
+				_set_build(nb)
+			elif g_try_part != pn or g_try.is_empty():
+				g_try = nb            # (on show first: tap again to buy it)
+				g_try_part = pn
+				_garage_refresh()
+			elif lv < need:
+				toast("Opens up at level %d" % need, "lock", K.PAPER, K.INK, 2.0)
+			else:
+				_buy_build(w, nb))
+		list.add_child(row)
+
+## Put a build on the gun, buying any parts it needs that you haven't got.
+func _buy_build(w: Dictionary, nb: Dictionary) -> void:
+	var s = game.save.data
+	var lv: int = Progress.level(game.save)
+	var cost := 0
+	var buy: Array = []
+	for pv in (nb.get("parts", {}) as Dictionary).values():
+		if not _owns_part(String(pv)):
+			if lv < Weapons.part_level(w, String(pv)):
+				toast("%s opens up at level %d" % [Weapons.nice(String(pv)), Weapons.part_level(w, String(pv))], "lock", K.PAPER, K.INK, 2.0)
+				return
+			cost += Weapons.part_price(w, String(pv))
+			buy.append(String(pv))
+	if int(s["coins"]) < cost:
+		toast("Not enough cash", "coin", Color("ff5c7a"), Color.WHITE)
+		return
+	s["coins"] = int(s["coins"]) - cost
+	var po: Array = s.get("parts_owned", [])
+	po.append_array(buy)
+	s["parts_owned"] = po
+	if cost > 0:
+		game.sfx("purchase", -4.0)
+		game.buzz(40, 0.7)
+	g_try = {}
+	_set_build(nb)
+
+func _set_build(nb: Dictionary) -> void:
+	var s = game.save.data
+	var gb: Dictionary = s.get("gun_builds", {})
+	gb[g_gun] = nb
+	s["gun_builds"] = gb
+	game.save.save()
+	if game.gunplay and String(s.get("gun", "")) == g_gun:
+		game.gunplay.equip()
+	game.sfx("mag_in", -6.0, 1.1)
+	_garage_refresh()
+
+## The gun on the turntable, big, on its own.
+func _show_gun() -> void:
+	for c in g_car.get_children():
+		c.queue_free()
+	g_neon = null
+	var w0: Dictionary = Weapons.by_id(g_gun if g_gun != "" else String(game.save.data.get("gun", "pistol")))
+	var b: Dictionary = g_try if not g_try.is_empty() else Weapons.build_of(game.save, String(w0["id"]))
+	var asm: Dictionary = Weapons.assemble(w0, b)
+	var mi := MeshInstance3D.new()
+	mi.mesh = asm["mesh"]
+	mi.material_override = g_mat
+	var ab: AABB = (asm["mesh"] as Mesh).get_aabb()
+	var k: float = 4.2 / maxf(ab.size.z, 0.2)
+	mi.scale = Vector3.ONE * k
+	mi.position = Vector3(-ab.get_center().x * k, 1.3 - ab.get_center().y * k, -ab.get_center().z * k)
+	g_car.add_child(mi)
+	# (lit up for the showroom: these are dark guns)
+	for lp in [Vector3(2.5, 3.0, 3.5), Vector3(-3.0, 2.0, -2.5)]:
+		var ol := OmniLight3D.new()
+		ol.position = lp
+		ol.omni_range = 9.0
+		ol.light_energy = 1.6
+		g_car.add_child(ol)
 
 func _show_driver(with_gun := false) -> void:
 	for c in g_car.get_children():
@@ -3869,8 +4170,8 @@ func _show_driver(with_gun := false) -> void:
 	av.play("idle")
 	if with_gun and av.skel:
 		var s = game.save.data
-		var w: Dictionary = Weapons.by_id(String(s.get("gun", "pistol")))
-		av.hold(w, int((s.get("gun_look", {}) as Dictionary).get(String(w["id"]), 0)), g_mat)
+		var w: Dictionary = Weapons.loadout(game.save, String(s.get("gun", "pistol")))
+		av.hold(w, g_mat)
 		av.play("holding-both")
 		# a showroom pose: both hands on it, aimed off ahead and to their right (in the character's own space,
 		# so it turns round with them on the turntable)

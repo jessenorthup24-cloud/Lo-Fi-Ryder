@@ -71,11 +71,11 @@ func setup(g: Node) -> void:
 ## The gun you've picked (save: "gun", its look in "gun_look"), in your character's right hand.
 func equip() -> void:
 	var s: Dictionary = game.save.data
-	weapon = Weapons.by_id(String(s.get("gun", "pistol")))
-	if not (weapon["id"] in s.get("guns", ["pistol"])):
-		weapon = Weapons.LIST[0]
-	look = int((s.get("gun_look", {}) as Dictionary).get(String(weapon["id"]), 0))
-	if not ammo.has(weapon["id"]):
+	var gid := String(s.get("gun", "pistol"))
+	if not (gid in s.get("guns", ["pistol"])):
+		gid = "pistol"
+	weapon = Weapons.loadout(game.save, gid)          # (as you've built it: its parts change how it shoots)
+	if not ammo.has(weapon["id"]) or int(ammo[weapon["id"]]) > int(weapon["mag"]):
 		ammo[weapon["id"]] = int(weapon["mag"])
 	reload_t = 0.0
 	gun_node = null
@@ -83,9 +83,9 @@ func equip() -> void:
 	if av == null or av.skel == null:
 		return
 	if holstered:
-		av.hold({}, 0, game.toon)
+		av.hold({}, game.toon)
 		return
-	av.hold(weapon, look, game.toon)
+	av.hold(weapon, game.toon)
 	gun_node = av.gun
 
 ## A gun off the weapon wheel ("": put it away).
@@ -288,20 +288,23 @@ func _fire(you: CharacterBody3D) -> void:
 	ammo[weapon["id"]] = int(ammo[weapon["id"]]) - 1
 	var muzzle: Vector3 = you.global_position + Vector3(0, 0.85 if you.get("crouch") else 1.3, 0)
 	if gun_node and is_instance_valid(gun_node):
-		var ab := gun_node.mesh.get_aabb()
-		muzzle = gun_node.global_transform * Vector3(0, ab.get_center().y + ab.size.y * 0.2, ab.position.z)
+		muzzle = gun_node.global_transform * (gun_node.get_meta("muzzle", Vector3.ZERO) as Vector3)
 	# the shot goes from your chest (clear of your feet and the ground) to the aim point
 	var chest := you.global_position + Vector3(0, 1.25, 0)
 	var aim_dir := (aim_point - chest).normalized()
-	game.sfx(String(weapon["sound"]), -1.0, randf_range(0.95, 1.05))
+	var quiet: bool = weapon.get("quiet", false)
+	# (suppressed: a cough, not a crack, and no flash to speak of)
+	game.sfx(String(weapon["sound"]), -12.0 if quiet else -1.0, randf_range(1.25, 1.35) if quiet else randf_range(0.95, 1.05))
 	flash.global_position = muzzle
-	flash.light_energy = 4.0
-	_muzzle_flash(muzzle, aim_dir)
+	flash.light_energy = 0.6 if quiet else 4.0
+	if not quiet:
+		_muzzle_flash(muzzle, aim_dir)
 	# the kick: a sharp one for the single shots, a small steady one for an automatic (it'd bounce about)
 	var auto: bool = weapon.get("auto", false)
-	_recoil = minf(1.0, _recoil + (0.35 if auto else 1.0))
+	var rk: float = float(weapon.get("recoil", 1.0))      # (a brake, a stock, a foregrip: less kick)
+	_recoil = minf(1.0, _recoil + (0.35 if auto else 1.0) * rk)
 	var punch: float = float(weapon["dmg"]) * float(weapon["pellets"])
-	var kick: float = clampf(punch / 2400.0, 0.004, 0.02) if auto else clampf(punch / 900.0, 0.012, 0.11)
+	var kick: float = (clampf(punch / 2400.0, 0.004, 0.02) if auto else clampf(punch / 900.0, 0.012, 0.11)) * rk
 	game.aim_kick = minf(game.aim_kick + kick, 0.09 if auto else 0.2)
 	game.shake = maxf(game.shake, 0.015 if auto else 0.04 + kick * 0.5)
 	# a buzz in the hands with every shot: a tap for the SMG, a thump for the shotgun and the sniper
@@ -309,7 +312,7 @@ func _fire(you: CharacterBody3D) -> void:
 	var hit_any := false
 	var killed := false
 	for k in int(weapon["pellets"]):
-		var sp: float = weapon["spread"] * (0.5 if lock != null else 1.0)
+		var sp: float = float(weapon["spread"]) * (0.5 if lock != null else 1.0) * (float(weapon.get("hip", 1.0)) if aim_k < 0.5 else 1.0)
 		var d := (aim_dir + Vector3(randf_range(-sp, sp), randf_range(-sp, sp) * 0.6, randf_range(-sp, sp))).normalized()
 		var r: int = _ray(chest, d, float(weapon["range"]), float(weapon["dmg"]) * randf_range(0.85, 1.15), you, muzzle)
 		hit_any = hit_any or r > 0
@@ -317,9 +320,10 @@ func _fire(you: CharacterBody3D) -> void:
 	if hit_any:
 		# (no marker on the screen: the blood and the body tell you)
 		game.sfx("kill_ding" if killed else "hit_tick", -10.0 if killed else -14.0)
-	# shots fired where anyone can hear: people scatter, and the police get a call
-	game.island.people.panic(you.global_position, 40.0)
-	if not game.police.wanted():
+	# shots fired where anyone can hear: people scatter, and the police get a call (suppressed: only those
+	# close by notice, and the police mostly don't hear about it)
+	game.island.people.panic(you.global_position, 12.0 if quiet else 40.0)
+	if not game.police.wanted() and (not quiet or randf() < 0.08):
 		game.police.start(1.0, "Shots fired")
 	else:
 		game.police.heat_pts += 0.02
@@ -819,7 +823,7 @@ func _officer_out(u: Dictionary, k: int) -> void:
 	var av := Avatar.new()
 	n.add_child(av)
 	av.setup("cop", "", game.toon)        # (the police uniform)
-	av.hold(Weapons.LIST[0], 0, game.toon)
+	av.hold(Weapons.LIST[0], game.toon)
 	add_child(n)
 	var p := uc.global_position + side
 	n.global_position = Vector3(p.x, game.island.height_at(p.x, p.z) + 0.1, p.z)

@@ -37,7 +37,10 @@ func _init() -> void:
 	av.setup(String(args.get("who", "male_casual1")), "", mat)
 	var g := String(args.get("gun", ""))
 	if g != "":
-		av.hold(Weapons.by_id(g), 0, mat)
+		var w := Weapons.by_id(g)
+		if args.has("preset"):
+			w = Weapons.with_build(w, Weapons.preset_build(w, String(args["preset"])))
+		av.hold(w, mat)
 	av.crouch = String(args.get("crouch", "0")) == "1"
 	cam = Camera3D.new()
 	cam.fov = 40

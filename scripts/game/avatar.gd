@@ -13,8 +13,6 @@ const DIR := "res://assets/chars/bp/"
 const ANIMS := "res://assets/chars/bp_anims.res"
 const HEIGHT := 1.8            # metres, head to heel
 const SCALE := 1.0
-## each gun's real length, metres (the models are made to all sorts of sizes)
-const GUN_LEN := {"pistol": 0.21, "revolver": 0.28, "smg": 0.5, "shotgun": 1.0, "rifle": 0.88, "sniper": 1.15}
 
 ## [id, name] for the character picker; each wears one of the pack's twelve colour sheets (SKINS). An id
 ## can name the sheet too: "male_casual1@02_B" (the people about the island are dealt them at random).
@@ -482,43 +480,14 @@ func local_point(v: Vector3) -> Vector3:
 func current() -> String:
 	return _now
 
-## The scale to hand Weapons.hand_xf so the gun comes out its real length in this hand.
-func _gun_cs(w: Dictionary, m: Mesh) -> float:
-	var ln := maxf(m.get_aabb().size.z, 0.001)
-	var world := float(GUN_LEN.get(String(w.get("id", "")), 0.3)) / ln
-	return float(w["scale"]) * sk_scale / world
+## The gun's scale in the hand: bone units a unit of the gun's mesh (the pack's guns are near life size).
+func _gun_k() -> float:
+	return Weapons.PACK_M / maxf(sk_scale, 0.0001)
 
-## Where the left hand holds a long gun: along from the muzzle (a fraction of its length) to the handguard,
-## the middle of the fist just under it. In the gun model's own space; INF for a one-handed gun.
-const FORE_AT := {"smg": 0.22, "shotgun": 0.27, "rifle": 0.33, "sniper": 0.46}
-static var _fore_cache := {}
-func _fore_pt(w: Dictionary, m: Mesh) -> Vector3:
-	var id := String(w.get("id", ""))
-	if not FORE_AT.has(id) or m == null:
-		return Vector3.INF
-	if _fore_cache.has(m):
-		return _fore_cache[m]
-	var ab := m.get_aabb()
-	var z := ab.position.z + ab.size.z * float(FORE_AT[id])
-	var half := ab.size.z * 0.03
-	var lo := INF
-	var cx := 0.0
-	var n := 0
-	for si in m.get_surface_count():
-		for v in (m.surface_get_arrays(si)[Mesh.ARRAY_VERTEX] as PackedVector3Array):
-			if absf(v.z - z) < half:
-				lo = minf(lo, v.y)
-				cx += v.x
-				n += 1
-	if n == 0:
-		lo = 0.0
-	var per_m := ab.size.z / float(GUN_LEN.get(id, 0.9))     # (model units a metre)
-	var p := Vector3(cx / maxf(n, 1), lo - 0.03 * per_m, z)
-	_fore_cache[m] = p
-	return p
-
-## A gun in the right fist (both hands on it when aiming). w: weapons.gd entry; {} for none.
-func hold(w: Dictionary, look: int, mat: Material) -> void:
+## A gun in the right fist (both hands on it when aiming, the left on its foregrip or handguard: where the
+## pack marks the hold). w: the gun as you've built it (Weapons.loadout: with its "build"), or a plain entry
+## (as it comes); {} for none.
+func hold(w: Dictionary, mat: Material) -> void:
 	if gun and is_instance_valid(gun):
 		gun.get_parent().queue_free()
 	gun = null
@@ -529,18 +498,21 @@ func hold(w: Dictionary, look: int, mat: Material) -> void:
 	_now = ""                    # (the clips change with what's in your hands)
 	if w.is_empty() or skel == null:
 		return
+	var asm: Dictionary = Weapons.assemble(w, w.get("build", Weapons.default_build(w)))
 	var ba := BoneAttachment3D.new()
 	ba.bone_name = "RightHand"
 	skel.add_child(ba)
 	gun = MeshInstance3D.new()
-	gun.mesh = Weapons.mesh(w, look)
+	gun.mesh = asm["mesh"]
 	gun.material_override = mat
-	gun.transform = Weapons.hand_xf(w, gun.mesh, _gun_cs(w, gun.mesh), hand)
+	gun.transform = Weapons.hand_xf(_gun_k(), hand)
+	gun.set_meta("muzzle", asm["muzzle"])
 	ba.add_child(gun)
 	if aim:
-		aim.fore = float(w.get("fore", 0.0)) * float(GUN_LEN.get(String(w["id"]), 0.3)) / sk_scale
-		aim.shoulder = float(w.get("fore", 0.0)) > 0.0
-		aim.fore_pt = _fore_pt(w, gun.mesh)
+		var sup: Vector3 = asm["support"]
+		aim.fore = (sup.length() * _gun_k()) if sup != Vector3.INF else 0.0
+		aim.shoulder = bool(w.get("both", false))
+		aim.fore_pt = sup
 
 ## Something carried on the back (the drill, the bag): put `n` on the chest bone, `back` metres behind the
 ## middle of the back and `up` metres up from it, at its own size.
@@ -741,7 +713,7 @@ func _process(dt: float) -> void:
 			gb = Basis(low.get_rotation_quaternion().slerp(Basis.looking_at(d.normalized(), Vector3.UP).get_rotation_quaternion(), w))
 	gb = gb * gun_extra
 	var lb := ba.global_transform.basis.orthonormalized().inverse() * gb
-	gun.transform = Weapons.hand_xf(gun_def, gun.mesh, _gun_cs(gun_def, gun.mesh), hand, lb.orthonormalized())
+	gun.transform = Weapons.hand_xf(_gun_k(), hand, lb.orthonormalized())
 	if aim:
 		aim.gun_xf = gun.transform
 	# the kick: gun_nudge.x metres straight back along the barrel (in the bone's own, scaled, space)

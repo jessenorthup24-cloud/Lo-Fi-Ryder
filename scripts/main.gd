@@ -2769,7 +2769,7 @@ func _busted_scene() -> void:
 		foot.down_t = 0.0
 		foot.avatar.recover()
 		foot.avatar.lock_t = 0.0
-		foot.avatar.hold({}, 0, toon)
+		foot.avatar.hold({}, toon)
 		foot.scripted = true
 		foot.avatar.play("kneel", 1.0, 0.4)
 		if foot.avatar.aim:
@@ -2781,7 +2781,7 @@ func _busted_scene() -> void:
 			var cop := preload("res://scripts/game/avatar.gd").new()
 			add_child(cop)
 			cop.setup("cop", "", toon)
-			cop.hold(preload("res://scripts/game/weapons.gd").LIST[0], 0, toon)
+			cop.hold(preload("res://scripts/game/weapons.gd").LIST[0], toon)
 			var at := me + fw * 2.6 + rt * (1.4 if k == 0 else -1.4)
 			at.y = island.height_at(at.x, at.z)
 			cop.global_position = at
@@ -3969,7 +3969,9 @@ func _foot_cam(dt: float) -> void:
 	var look := (head + Vector3(0, 0.1, 0)).lerp(cam.position - back * 30.0, ak)
 	if look.distance_to(cam.position) > 0.01:
 		cam.look_at(look, Vector3.UP)
-	cam.fov = lerpf(cam.fov, lerpf(62.0, 46.0, ak), 1.0 - exp(-dt * 8.0))
+	# aiming: closer in, and through an optic, closer still (its zoom)
+	var zoom: float = float(gunplay.weapon.get("zoom", 1.0)) if not gunplay.weapon.is_empty() else 1.0
+	cam.fov = lerpf(cam.fov, lerpf(62.0, 46.0 / zoom, ak), 1.0 - exp(-dt * 8.0))
 	cam_pos = cam.position
 	_aim_dof(ak)
 
