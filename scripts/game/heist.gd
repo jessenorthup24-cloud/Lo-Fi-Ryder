@@ -26,7 +26,7 @@ const PAY := [7500, 12500]     # what's in a safe
 const OPEN := 1.75             # the door's angle, open (rad)
 
 enum { IDLE, FETCH, RETURN, DEFEND, CRACKED, ESCAPE, DELIVER }
-const STEP_NAMES := ["", "Find the core drill", "Bring the drill to the safe", "Defend the drill", "Grab the money",
+const STEP_NAMES := ["", "Find the tool bag", "Bring the tool bag to the safe", "Defend the drill", "Grab the money",
 	"Lose the police", "Take the money to the safehouse"]
 
 var game: Node
@@ -42,7 +42,7 @@ var drill_bit: Node3D
 var drill_light: OmniLight3D
 var zone_c := Vector3.ZERO     # the middle of the ring on the map
 var zone_mi: MeshInstance3D
-var carrying := ""             # "", "drill", "duffle"
+var carrying := ""             # "", "tool_duffle" (the drill's bag), "duffle" (the money)
 var duffle: Node3D
 var near: Dictionary = {}      # the safe you're stood by (the START HEIST button), {} if none
 var cash: Array = []           # dropped cash: {node, value, t}
@@ -487,11 +487,12 @@ func start() -> void:
 	tipped = false
 	pay = rng.randi_range(PAY[0], PAY[1]) / 50 * 50
 	game.ui.heist_prompt("")
-	# the drill, stashed by a road somewhere; the ring on the map is round it, but not centred on it
-	drill = _prop("drill")
+	# the tool bag (the core drill's in it), stashed by a road somewhere; the ring on the map is round it,
+	# but not centred on it
+	drill = _prop("tool_duffle")
 	add_child(drill)
 	drill.global_transform = Transform3D(Basis(Vector3.UP, rng.randf() * TAU), s["pos"])
-	drill_bit = drill.get_meta("bit")
+	drill_bit = null
 	drill_light = OmniLight3D.new()
 	drill_light.light_color = Color(1.0, 0.3, 0.25)
 	drill_light.omni_range = 5.0
@@ -513,7 +514,7 @@ func start() -> void:
 	zone_mi.global_position = Vector3(zone_c.x, 302.0, zone_c.z)
 	_refresh_dots()
 	game.sfx("mission", -4.0, 1.0)
-	game.ui.toast("Find the core drill: it's in the orange ring on the map", "map", Color("ffb347"), Color.WHITE, 3.2)
+	game.ui.toast("Find the yellow tool bag (the drill's in it): it's in the orange ring on the map", "map", Color("ffb347"), Color.WHITE, 3.2)
 
 func _pick_drill() -> void:
 	state = RETURN
@@ -521,9 +522,9 @@ func _pick_drill() -> void:
 	drill = null
 	zone_mi.queue_free()
 	zone_mi = null
-	carrying = "drill"
+	carrying = "tool_duffle"
 	game.sfx("mag_in", -2.0, 0.6)
-	game.ui.toast("Got the drill: back to the safe", "check", Color("3fd26b"), Color.WHITE, 2.2)
+	game.ui.toast("Got the tool bag: back to the safe", "check", Color("3fd26b"), Color.WHITE, 2.2)
 
 func _mount() -> void:
 	state = DEFEND
@@ -667,10 +668,9 @@ func _carry_tick() -> void:
 	var mi := MeshInstance3D.new()
 	mi.mesh = load(PROP + want + ".res")
 	mi.set_surface_override_material(0, game.toon)
-	# (on the back: the drill upright, the bag slung)
-	mi.transform = Transform3D(Basis(Vector3.UP, PI).scaled(Vector3.ONE * 1.15), Vector3.ZERO) if want == "drill" \
-		else Transform3D(Basis(Vector3.RIGHT, -0.25).scaled(Vector3.ONE * 1.4), Vector3.ZERO)
-	var ba: BoneAttachment3D = av.carry_on_back(mi, 0.32 if want == "drill" else 0.3, 0.05)
+	# (slung across the back, long side across the shoulders: the tool bag, or the cash bag)
+	mi.transform = Transform3D(Basis(Vector3.RIGHT, -0.3).scaled(Vector3.ONE * (1.15 if want == "tool_duffle" else 1.4)), Vector3.ZERO)
+	var ba: BoneAttachment3D = av.carry_on_back(mi, 0.24, 0.0)
 	if ba == null:
 		return
 	ba.set_meta("what", want)

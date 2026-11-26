@@ -5,23 +5,29 @@ extends SceneTree
 ## Flat materials become vertex colours (alpha 0.7: the toon shader draws them as painted); textured ones
 ## (the printed dollar, the strap) keep their UVs as a second surface with their own textured material.
 ##   GLB_DIR=/path/to/glbs godot --headless --path . -s tools/props/bake_props.gd
-## (files: *safe*.glb -> safe, *drill*.glb -> drill, *duffle*.glb -> duffle, *cash*.glb -> cash)
+## (files: *safe*.glb -> safe, *drill*.glb -> drill, *tool*duffle*.glb -> tool_duffle (the drill's bag),
+## *duffle*.glb -> duffle (the cash bag), *cash*.glb -> cash; what's already in props_meta.json is kept)
 
 const OUT := "res://assets/props/"
-const KEYS := {"safe": "safe", "drill": "drill", "duffle": "duffle", "cash": "cash"}
+const KEYS := [["tool", "tool_duffle"], ["safe", "safe"], ["drill", "drill"], ["duffle", "duffle"], ["cash", "cash"]]
 
 var meta := {}
 
 func _init() -> void:
 	var dir := OS.get_environment("GLB_DIR")
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT))
+	if FileAccess.file_exists(OUT + "props_meta.json"):
+		var old = JSON.parse_string(FileAccess.get_file_as_string(OUT + "props_meta.json"))
+		if old is Dictionary:
+			meta = old
 	for f in DirAccess.get_files_at(dir):
 		if not f.ends_with(".glb"):
 			continue
 		var key := ""
 		for k in KEYS:
-			if f.to_lower().contains(k):
-				key = KEYS[k]
+			if f.to_lower().contains(k[0]):
+				key = k[1]
+				break
 		if key == "":
 			continue
 		_bake_file(dir.path_join(f), key)
@@ -79,6 +85,7 @@ func _bake(list: Array) -> ArrayMesh:
 	tex_st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var tex: Texture2D = null
 	var any_tex := false
+	var no_normals := false
 	for e in list:
 		var mi: MeshInstance3D = e[0]
 		var x: Transform3D = e[1]
@@ -89,7 +96,11 @@ func _bake(list: Array) -> ArrayMesh:
 			var t: Texture2D = mat.albedo_texture if mat else null
 			var arr := mesh.surface_get_arrays(si)
 			var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
-			var norms: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+			var norms := PackedVector3Array()
+			if arr[Mesh.ARRAY_NORMAL] != null:
+				norms = arr[Mesh.ARRAY_NORMAL]
+			else:
+				no_normals = true
 			var uvs = arr[Mesh.ARRAY_TEX_UV]
 			var idx = arr[Mesh.ARRAY_INDEX]
 			var order: Array = []
@@ -111,6 +122,12 @@ func _bake(list: Array) -> ArrayMesh:
 					st.set_color(Color(col.r, col.g, col.b, 0.7))
 				st.add_vertex(x * verts[i])
 	var out := flat.commit()
+	if no_normals and out.get_surface_count() > 0:
+		# (a model saved without normals: made from its faces)
+		var st2 := SurfaceTool.new()
+		st2.create_from(out, 0)
+		st2.generate_normals()
+		out = st2.commit()
 	if any_tex:
 		tex_st.commit(out)
 		var tm := StandardMaterial3D.new()
