@@ -7,6 +7,7 @@ extends Node3D
 ## moves (idle, walk, sprint, jump, fall, aim) and gets the right clip for what's in your hands.
 
 const AimMod := preload("res://scripts/game/aim_mod.gd")
+const LegMod := preload("res://scripts/game/leg_mod.gd")
 const RagdollRig := preload("res://scripts/game/ragdoll_rig.gd")
 const Weapons := preload("res://scripts/game/weapons.gd")
 const DIR := "res://assets/chars/bp/"
@@ -38,6 +39,7 @@ var skel: Skeleton3D
 var model: Node3D
 var _now := ""
 var aim: AimMod                # points the gun arm(s) at a target (aim_at)
+var legs: LegMod               # stands them up tall on the clips (leg_mod.gd)
 var _aim_w := 0.0
 var gun: MeshInstance3D        # the gun in the right fist (hold), turned onto what's aimed at
 var gun_def: Dictionary = {}
@@ -107,6 +109,8 @@ func setup(id: String, _acc: String, mat: Material) -> void:
 		sk_scale = _skel_xf().basis.get_scale().x
 		var mid := skel.find_bone("RightHandMiddle1")
 		hand = skel.get_bone_rest(mid).origin * 0.55 if mid >= 0 else Vector3.ZERO
+		legs = LegMod.new()
+		skel.add_child(legs)            # (first: the arms are aimed from where the body ends up)
 		aim = AimMod.new()
 		skel.add_child(aim)
 	play("idle")
@@ -410,6 +414,9 @@ func _anim_tick(dt: float) -> void:
 	_act = move_toward(_act, _act_to, dt * _act_rate)
 	_ab = move_toward(_ab, _ab_to, dt * _ab_rate)
 	anim.set("parameters/mix/blend_amount", smoothstep(0.0, 1.0, _act))
+	if legs:
+		var stand := 0.0 if (crouch or limp != null or _act > 0.5) else 1.0
+		legs.on = move_toward(legs.on, stand, dt * 4.0)
 	anim.set("parameters/ab/blend_amount", smoothstep(0.0, 1.0, _ab))
 	var key := _kind_key()
 	if key != _key:

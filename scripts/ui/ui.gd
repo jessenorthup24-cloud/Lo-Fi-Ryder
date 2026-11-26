@@ -606,6 +606,7 @@ func _build_hud() -> void:
 	ctl["cruise"].visible = false        # (cruise is a tap on the speedo now)
 	# the door: out of the car, or into it (both ways, the same spot)
 	ctl["door"] = _pad("door", Vector2(-528, -470), Vector2(92, 92), false, K.PAPER)       # (above cruise)
+	_place(ctl["door"], Control.PRESET_TOP_RIGHT, Vector2(-404, 80))     # (you start in the car: EXIT up by the phone)
 	# on foot: a stick on the left, jump and sprint on the right
 	ctl["stick"] = _pad("stick", Vector2(60, -300), Vector2(240, 240), true, K.PAPER)
 	ctl["jump"] = _pad("jump", Vector2(-214, -256), Vector2(132, 132), false, K.PAPER)
@@ -3895,6 +3896,7 @@ func _driver_tab() -> void:
 	g_panel.add_child(K.label("Who steps out when you get out of the car", 17, K.INK_SOFT, 500))
 	var sc := ScrollContainer.new()
 	sc.custom_minimum_size = Vector2(0, 250)
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL     # (all the room the panel has: no empty space under it)
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	g_panel.add_child(sc)
 	_drag_scroll(sc)
@@ -3952,6 +3954,8 @@ func _driver_tab() -> void:
 			_garage_refresh())
 		grid.add_child(b)
 	var acc_now := String(s.get("acc", ""))
+	if Avatar.ACCS.size() < 2:
+		return              # (nothing to pick between: no lone "None" button)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	g_panel.add_child(row)
@@ -4141,8 +4145,10 @@ func _gun_slots(list: VBoxContainer, w: Dictionary, b: Dictionary) -> void:
 	# the builds it comes in, as a start
 	var ps: Array = Weapons.presets(w)
 	if ps.size() > 1:
-		var pr := HBoxContainer.new()
-		pr.add_theme_constant_override("separation", 6)
+		# (wrapping onto more rows: a gun with a lot of builds mustn't push the panel off the screen)
+		var pr := HFlowContainer.new()
+		pr.add_theme_constant_override("h_separation", 6)
+		pr.add_theme_constant_override("v_separation", 6)
 		list.add_child(pr)
 		for pn in ps:
 			var pb := Weapons.preset_build(w, String(pn))

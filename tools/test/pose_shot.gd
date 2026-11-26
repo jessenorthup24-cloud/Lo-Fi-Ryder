@@ -65,7 +65,7 @@ func _process(dt: float) -> bool:
 			av.wound(pt, Vector3(0, 0, -1))
 	if args.has("hitnow") and f == 38:
 		av.hit(Vector3(0, 1.65, 0.1), Vector3(0, 0, -1), 1.4)
-	var start := 40
+	var start := int(args.get("start", "40"))
 	var k := (f - start) / 6
 	if f >= start and (f - start) % 6 == 0 and k < shots.size():
 		pass
