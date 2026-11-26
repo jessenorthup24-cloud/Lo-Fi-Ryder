@@ -3140,7 +3140,7 @@ func open_map() -> void:
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", K.box(Color(0.06, 0.055, 0.09, 0.82), 24, 0, Color.TRANSPARENT, 16))
 	panel.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
-	panel.offset_left = -500
+	panel.offset_left = -580
 	panel.offset_right = -20
 	panel.offset_top = 20
 	panel.offset_bottom = -20
@@ -3151,7 +3151,7 @@ func open_map() -> void:
 	var found: int = game.save.data["places"].size()
 	right.add_child(K.label("Places found %d/%d · Hidden cash %d/%d" % [found, island.places.size(), game.save.data["coins_taken"].size(), island.coin_spots.size()], 18, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
 	var sc := ScrollContainer.new()
-	sc.custom_minimum_size = Vector2(440, _vs().y - 210.0)
+	sc.custom_minimum_size = Vector2(528, _vs().y - 210.0)
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	right.add_child(sc)
 	_drag_scroll(sc)
@@ -3238,6 +3238,11 @@ func _chal_row(name: String, info: String, medal: int, col: Color, xf: Transform
 	hb.add_child(vb)
 	vb.add_child(K.label(name, 24, K.INK, 700, HORIZONTAL_ALIGNMENT_LEFT))
 	vb.add_child(K.label(info, 18, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
+	for l in vb.get_children():
+		# (a long name gets cut short with "…" rather than pushing the buttons off the edge)
+		(l as Label).clip_text = true
+		(l as Label).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		(l as Label).custom_minimum_size.x = 60
 	if medal >= 0:
 		var mcol: Color = [K.LINE, Color("b98b62"), Color("b3b8bd"), Color("d4b25c")][medal]
 		hb.add_child(Icon.new("trophy", mcol, 34))

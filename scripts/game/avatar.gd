@@ -488,12 +488,44 @@ func _gun_cs(w: Dictionary, m: Mesh) -> float:
 	var world := float(GUN_LEN.get(String(w.get("id", "")), 0.3)) / ln
 	return float(w["scale"]) * sk_scale / world
 
+## Where the left hand holds a long gun: along from the muzzle (a fraction of its length) to the handguard,
+## the middle of the fist just under it. In the gun model's own space; INF for a one-handed gun.
+const FORE_AT := {"smg": 0.22, "shotgun": 0.27, "rifle": 0.33, "sniper": 0.46}
+static var _fore_cache := {}
+func _fore_pt(w: Dictionary, m: Mesh) -> Vector3:
+	var id := String(w.get("id", ""))
+	if not FORE_AT.has(id) or m == null:
+		return Vector3.INF
+	if _fore_cache.has(m):
+		return _fore_cache[m]
+	var ab := m.get_aabb()
+	var z := ab.position.z + ab.size.z * float(FORE_AT[id])
+	var half := ab.size.z * 0.03
+	var lo := INF
+	var cx := 0.0
+	var n := 0
+	for si in m.get_surface_count():
+		for v in (m.surface_get_arrays(si)[Mesh.ARRAY_VERTEX] as PackedVector3Array):
+			if absf(v.z - z) < half:
+				lo = minf(lo, v.y)
+				cx += v.x
+				n += 1
+	if n == 0:
+		lo = 0.0
+	var per_m := ab.size.z / float(GUN_LEN.get(id, 0.9))     # (model units a metre)
+	var p := Vector3(cx / maxf(n, 1), lo - 0.03 * per_m, z)
+	_fore_cache[m] = p
+	return p
+
 ## A gun in the right fist (both hands on it when aiming). w: weapons.gd entry; {} for none.
 func hold(w: Dictionary, look: int, mat: Material) -> void:
 	if gun and is_instance_valid(gun):
 		gun.get_parent().queue_free()
 	gun = null
 	gun_def = w
+	if aim:
+		aim.fore_pt = Vector3.INF
+		aim.support = 0.0
 	_now = ""                    # (the clips change with what's in your hands)
 	if w.is_empty() or skel == null:
 		return
@@ -508,6 +540,7 @@ func hold(w: Dictionary, look: int, mat: Material) -> void:
 	if aim:
 		aim.fore = float(w.get("fore", 0.0)) * float(GUN_LEN.get(String(w["id"]), 0.3)) / sk_scale
 		aim.shoulder = float(w.get("fore", 0.0)) > 0.0
+		aim.fore_pt = _fore_pt(w, gun.mesh)
 
 ## Something carried on the back (the drill, the bag): put `n` on the chest bone, `back` metres behind the
 ## middle of the back and `up` metres up from it, at its own size.
@@ -599,9 +632,13 @@ func _process(dt: float) -> void:
 	if aim:
 		aim.flinch = move_toward(aim.flinch, 0.0, dt * 3.5)
 	if gun == null or limp != null:
+		if aim:
+			aim.support = 0.0
 		return
 	# (put away while a one-off move plays: getting in or out, a landing)
 	gun.visible = lock_t <= 0.0
+	if aim:
+		aim.support = move_toward(aim.support, 1.0 if gun.visible and aim.fore_pt != Vector3.INF else 0.0, dt * 6.0)
 	# the gun: in the fist, turned to face where the arms point (blended in with them); lowered, it points
 	# ahead and down
 	var ba := gun.get_parent() as Node3D
@@ -620,6 +657,8 @@ func _process(dt: float) -> void:
 	gb = gb * gun_extra
 	var lb := ba.global_transform.basis.orthonormalized().inverse() * gb
 	gun.transform = Weapons.hand_xf(gun_def, gun.mesh, _gun_cs(gun_def, gun.mesh), hand, lb.orthonormalized())
+	if aim:
+		aim.gun_xf = gun.transform
 	# the kick: gun_nudge.x metres straight back along the barrel (in the bone's own, scaled, space)
 	if gun_nudge.x != 0.0:
 		gun.position += ba.global_transform.basis.inverse() * (gb.orthonormalized() * Vector3(0, 0, gun_nudge.x))

@@ -13,6 +13,10 @@ var weight := 0.0              # eased in and out by the avatar
 var fore := 0.0                # how far along the gun the left hand goes (skeleton units; 0: both on the grip)
 var shoulder := false
 var facing := Vector3.INF      # where the character faces (world; the avatar sets it)
+const CURL_SIGN := 1.0
+var support := 0.0             # 0..1: the left hand onto the long gun's fore-end (aimed or not)
+var gun_xf := Transform3D()    # the gun on the right fist's bone (the avatar keeps it up to date)
+var fore_pt := Vector3.INF     # the fore-end grip, in the gun's own model space (INF: no long gun)
 var hands_up := 0.0            # 0..1: both hands up by the head (busted)
 var flinch := 0.0              # 0..1, a hit knocking the upper body back
 var flinch_axis := Vector3.RIGHT
@@ -55,6 +59,8 @@ func _process_modification() -> void:
 		_hands_up(sk)
 	elif weight > 0.001 and t != Vector3.INF:
 		_aim(sk, t)
+	if hands_up <= 0.001 and support > 0.001 and fore_pt != Vector3.INF:
+		_support(sk)
 	if flinch > 0.001:
 		var ax := (sk.global_transform.basis.inverse() * flinch_axis).normalized()
 		for n in [["Torso", 0.7], ["Head", 0.5]]:
@@ -103,7 +109,39 @@ func _aim(sk: Skeleton3D, t: Vector3) -> void:
 		if lat < want:
 			grip += side * (want - lat)
 	_reach(sk, "R", grip, -up + side * 0.6)
-	_reach(sk, "L", grip + dir * maxf(fore, 0.0), -up - side * 0.6)
+	if fore_pt == Vector3.INF or support <= 0.001:
+		_reach(sk, "L", grip + dir * maxf(fore, 0.0), -up - side * 0.6)
+
+## The left hand round the long gun's fore-end, where the gun actually is (the right fist, wherever the clip
+## or the aim put it, and the gun on it): under the handguard, the elbow down and in.
+func _support(sk: Skeleton3D) -> void:
+	var fr := int(_b["Fist.R"])
+	if fr < 0:
+		return
+	var rp := sk.get_bone_global_pose(fr)
+	var p := rp * (gun_xf * fore_pt)
+	var up := _up(sk)
+	var dir := p - rp.origin
+	if dir.length() < 0.0001:
+		return
+	var side := dir.normalized().cross(up).normalized()
+	var w0 := weight
+	weight = support
+	_reach(sk, "L", p, -up - side * 0.5)
+	weight = w0
+	# the fingers curled up round it (the clips' left hand is often open, flat)
+	var ib := sk.find_bone("LeftHandIndex1")
+	var pb := sk.find_bone("LeftHandPinky1")
+	if pb < 0:
+		pb = sk.find_bone("LeftHandRing1")
+	if ib < 0 or pb < 0:
+		return
+	var ax := (sk.get_bone_global_pose(ib).origin - sk.get_bone_global_pose(pb).origin).normalized() * CURL_SIGN
+	for f in ["Index", "Middle", "Ring", "Pinky"]:
+		for j in [1, 2, 3]:
+			var bi := sk.find_bone("LeftHand%s%d" % [f, j])
+			if bi >= 0:
+				_turn_global(sk, bi, Quaternion(ax, 0.55), support)
 
 ## Hands up: each fist up beside the head, elbows out.
 func _hands_up(sk: Skeleton3D) -> void:
