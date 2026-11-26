@@ -7,6 +7,7 @@ const M := preload("res://scripts/core/models.gd")
 const MB := preload("res://scripts/core/mesh_builder.gd")
 const Island := preload("res://scripts/game/island.gd")
 const Car := preload("res://scripts/game/drift_car.gd")
+const Progress := preload("res://scripts/game/progress.gd")
 const Fx := preload("res://scripts/game/fx.gd")
 const Ragdoll := preload("res://scripts/game/ragdoll.gd")
 const Atmos := preload("res://scripts/game/atmos.gd")
@@ -792,14 +793,23 @@ func buzz(ms: int, amp: float) -> void:
 
 func ach_check() -> void:
 	# levelling up (car cards): each new level's a pack
-	var lv: int = Cards.level_of(Cards.xp(save))[0]
+	var lv: int = Progress.level(save)
 	var seen := int(save.data.get("level_seen", 0))
 	if seen == 0:
 		save.data["level_seen"] = lv           # (an old save: no fanfare for the levels it already had)
 	elif lv > seen:
+		# each level you go up: cash, a pack of car cards, and whatever it opens up
+		var cash := 0
+		var unl: Array = []
+		for l in range(seen + 1, lv + 1):
+			cash += Progress.cash_for(l)
+			unl.append_array(Progress.unlocks_at(l))
 		save.data["level_seen"] = lv
-		ui.toast("Level %d!  A new pack of car cards" % lv, "star", Color("ffb020"), Color.WHITE, 3.0)
+		save.data["coins"] = int(save.data["coins"]) + cash
+		ui.level_up(lv, cash, unl)
 		sfx("mission", -2.0, 1.15)
+		buzz(80, 1.0)
+		save.save()
 	var got := Ach.check(save.data)
 	for a in got:
 		ui.toast("Trophy: %s  +%d" % [a["name"], int(a["reward"])], a["icon"], K.SUN)
@@ -1052,6 +1062,9 @@ func _crew_tests() -> void:
 		if on_foot and has_meta("bt") and not has_meta("bt2") and foot.down_t <= 0.0:
 			set_meta("bt2", true)
 			print("BAIL up at t=%.1f limp=%s anim=%s" % [time, foot.avatar.limp != null, foot.avatar.current()])
+	if args.has("lvltest") and time > 4.0 and not has_meta("lv_done"):
+		set_meta("lv_done", true)
+		ui.level_up(int(args["lvltest"]), Progress.cash_for(int(args["lvltest"])), Progress.unlocks_at(int(args["lvltest"])))
 	if args.has("guntest") and state == DRIVE:
 		# a test: out at 3 s with the gun given, shoot at whoever's in front for a while; wanted, officers come
 		if not has_meta("gt_out") and time > 3.0:
@@ -3070,7 +3083,10 @@ func _race_tick(dt: float) -> void:
 
 ## The difficulty races are run at (what you last picked on a race's start card).
 func race_diff() -> int:
-	return clampi(int(save.data["settings"].get("race_diff", 0)), 0, 2)
+	var d := clampi(int(save.data["settings"].get("race_diff", 0)), 0, 2)
+	while d > 0 and not Progress.race_ok(save, d):
+		d -= 1                # (not up to that level yet: the hardest you're allowed)
+	return d
 
 ## Where a race's best time and medal are kept: by its id on easy (as ever), with the difficulty after it
 ## on medium and hard (each has its own).

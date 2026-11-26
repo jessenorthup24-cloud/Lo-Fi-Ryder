@@ -15,6 +15,7 @@ const CARD_SHADER := preload("res://shaders/card.gdshader")
 const SaveData := preload("res://scripts/game/save.gd")
 const CarScript := preload("res://scripts/game/drift_car.gd")
 const Phone := preload("res://scripts/ui/phone.gd")
+const Progress := preload("res://scripts/game/progress.gd")
 
 var game: Node
 var island: Node
@@ -401,6 +402,15 @@ func _build_hud() -> void:
 	coins_pill = K.pill("coin", "0", 28)
 	coins_pill.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	var phb: HBoxContainer = coins_pill.get_child(0)
+	# your level, first in the pill: the number in a ring that fills with XP
+	lvl_badge = Control.new()
+	lvl_badge.custom_minimum_size = Vector2(46, 46)
+	lvl_badge.size = Vector2(46, 46)
+	lvl_badge.pivot_offset = Vector2(23, 23)
+	lvl_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lvl_badge.draw.connect(_draw_lvl_badge)
+	phb.add_child(lvl_badge)
+	phb.move_child(lvl_badge, 0)
 	_clock_dot = K.label("·", 26, Color(K.INK, 0.45), 700)
 	phb.add_child(_clock_dot)
 	clock_lbl = K.label("", 24, K.INK_SOFT, 650, HORIZONTAL_ALIGNMENT_LEFT)
@@ -1787,6 +1797,156 @@ func popup_text(text: String, col := Color.WHITE) -> void:
 	t.parallel().tween_property(l, "modulate:a", 0.0, 0.3).set_delay(0.9)
 	t.tween_callback(l.queue_free)
 
+# ------------------------------------------------------------------ your level
+
+var lvl_badge: Control
+var _lvl := -1                 # the level shown
+var _lvl_k := 0.0              # the ring, eased toward how far into the level you are
+var _lvl_want := 0.0
+var _lvl_xp := -1              # total XP last looked at
+var _lvl_t := 0.0
+var _xp_pending := 0           # XP gained lately, shown as one "+N XP" once it settles
+var _xp_pend_t := 0.0
+
+func _process(dt: float) -> void:
+	if game == null or game.save == null or lvl_badge == null:
+		return
+	_lvl_t -= dt
+	if _lvl_t <= 0.0:
+		_lvl_t = 0.25
+		var pr: Array = Progress.progress(game.save)
+		var x: int = pr[3]
+		if _lvl < 0:
+			_lvl = int(pr[0])
+			_lvl_xp = x
+			_lvl_k = float(pr[1]) / float(pr[2])
+		elif x > _lvl_xp:
+			_xp_pending += x - _lvl_xp
+			_xp_pend_t = 0.6
+			_lvl_xp = x
+		if int(pr[0]) != _lvl:
+			_lvl = int(pr[0])
+			_lvl_k = 0.0
+		_lvl_want = float(pr[1]) / float(pr[2])
+	if _xp_pend_t > 0.0:
+		_xp_pend_t -= dt
+		if _xp_pend_t <= 0.0 and _xp_pending >= 5 and hud.visible:
+			_xp_pop(_xp_pending)
+			_xp_pending = 0
+	var k := move_toward(_lvl_k, _lvl_want, dt * 0.8)
+	if absf(k - _lvl_k) > 0.0005:
+		_lvl_k = k
+		lvl_badge.queue_redraw()
+
+func _draw_lvl_badge() -> void:
+	var c := lvl_badge.size * 0.5
+	var R := 21.0
+	lvl_badge.draw_circle(c, R, Color(0, 0, 0, 0.45))
+	lvl_badge.draw_arc(c, R - 2.5, 0, TAU, 48, Color(1, 1, 1, 0.16), 4.0, true)
+	if _lvl_k > 0.002:
+		lvl_badge.draw_arc(c, R - 2.5, -PI * 0.5, -PI * 0.5 + TAU * clampf(_lvl_k, 0.0, 1.0), 48, Color("ffd34d"), 4.5, true)
+	var f := K.font(800)
+	var txt := str(maxi(_lvl, 1))
+	var fs := 22 if txt.length() < 2 else 19
+	var w := f.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	lvl_badge.draw_string(f, c + Vector2(-w * 0.5, fs * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color.WHITE)
+
+## "+120 XP" floating up off the badge.
+func _xp_pop(n: int) -> void:
+	var l := K.outlined(K.label("+%s XP" % K.fmt(n), 20, Color("ffd34d"), 800, HORIZONTAL_ALIGNMENT_LEFT), K.SHADE, 6)
+	hud.add_child(l)
+	l.global_position = lvl_badge.global_position + Vector2(-4, 46)
+	var tw := l.create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(l, "position:y", l.position.y + 26.0, 1.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(l, "modulate:a", 0.0, 0.5).set_delay(0.9)
+	tw.chain().tween_callback(l.queue_free)
+
+## Level up: a card in the middle of the screen. The level number bursts in, then what you got (the cash,
+## a pack of car cards) and anything that's opened up with it.
+func level_up(lv: int, cash: int, unlocks: Array) -> void:
+	lvl_badge.scale = Vector2.ONE * 1.6
+	var bt := lvl_badge.create_tween()
+	bt.tween_property(lvl_badge, "scale", Vector2.ONE, 0.6).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+	var root := Control.new()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(root)
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", K.box(Color(0.06, 0.055, 0.09, 0.9), 30, 0, Color.TRANSPARENT, 26))
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(card)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	vb.alignment = BoxContainer.ALIGNMENT_CENTER
+	card.add_child(vb)
+	vb.add_child(K.label("LEVEL UP", 22, Color("ffd34d"), 800))
+	var big := K.label(str(lv), 96, Color.WHITE, 800)
+	big.pivot_offset = Vector2(60, 60)
+	vb.add_child(big)
+	var rw := HBoxContainer.new()
+	rw.alignment = BoxContainer.ALIGNMENT_CENTER
+	rw.add_theme_constant_override("separation", 12)
+	vb.add_child(rw)
+	rw.add_child(_reward_chip("coin", "+" + K.money(cash), Color("3fd26b")))
+	rw.add_child(_reward_chip("star", "Card pack", Color("ffb020")))
+	var shown := 0
+	for u in unlocks:
+		if shown >= 4:
+			vb.add_child(K.label("and %d more in the shops" % (unlocks.size() - shown), 17, Color(1, 1, 1, 0.6), 600))
+			break
+		var hb := HBoxContainer.new()
+		hb.alignment = BoxContainer.ALIGNMENT_CENTER
+		hb.add_theme_constant_override("separation", 8)
+		hb.add_child(Icon.new(String(u[0]), Color("ffd34d"), 24))
+		hb.add_child(K.label("Unlocked: " + String(u[1]), 19, Color.WHITE, 650))
+		vb.add_child(hb)
+		shown += 1
+	card.reset_size()
+	var vs := _vs()
+	card.position = Vector2((vs.x - card.size.x) * 0.5, vs.y * 0.18)
+	card.pivot_offset = card.size * 0.5
+	card.scale = Vector2.ONE * 0.6
+	card.modulate.a = 0.0
+	big.pivot_offset = big.size * 0.5
+	var tw := card.create_tween()
+	tw.tween_property(card, "modulate:a", 1.0, 0.18)
+	tw.parallel().tween_property(card, "scale", Vector2.ONE, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(3.2 + 0.4 * shown)
+	tw.tween_property(card, "modulate:a", 0.0, 0.4)
+	tw.tween_callback(root.queue_free)
+	big.scale = Vector2.ONE * 2.2
+	var tb := big.create_tween()
+	tb.tween_property(big, "scale", Vector2.ONE, 0.55).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT).set_delay(0.12)
+	# a burst of confetti behind it
+	for i in 36:
+		var bit := ColorRect.new()
+		bit.color = [Color("ffd34d"), Color("ff5c8a"), Color("5cc8ff"), Color("3fd26b"), Color.WHITE][i % 5]
+		bit.size = Vector2(randf_range(6, 12), randf_range(10, 18))
+		bit.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		root.add_child(bit)
+		root.move_child(bit, 0)
+		var from := Vector2(vs.x * 0.5, vs.y * 0.32)
+		bit.position = from
+		bit.pivot_offset = bit.size * 0.5
+		var a := randf() * TAU
+		var to := from + Vector2(cos(a), sin(a) * 0.7) * randf_range(180, 520) + Vector2(0, 140)
+		var ct := bit.create_tween()
+		ct.set_parallel(true)
+		ct.tween_property(bit, "position", to, randf_range(1.0, 1.6)).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		ct.tween_property(bit, "rotation", randf_range(-8, 8), 1.6)
+		ct.tween_property(bit, "modulate:a", 0.0, 0.6).set_delay(1.0)
+
+func _reward_chip(icon: String, text: String, col: Color) -> Control:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", K.box(Color(col, 0.22), 20, 0, Color.TRANSPARENT, 10))
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 6)
+	p.add_child(hb)
+	hb.add_child(Icon.new(icon, col, 24))
+	hb.add_child(K.label(text, 20, Color.WHITE, 700))
+	return p
+
 func toast(text: String, icon := "", col := K.PAPER, icol := K.INK, hold := 2.2) -> void:
 	# (always a dark glass pill: the toast's own colour goes to its icon and a faint edge)
 	var tinted := col.a > 0.95 and col.get_luminance() > 0.08 and col != K.PAPER
@@ -1940,12 +2100,17 @@ func start_card_show(info: Dictionary, animate := true) -> void:
 		for k in 3:
 			var on: bool = int(info["diff"]) == k
 			var dcol: Color = [Color("6cc28a"), Color("f2b84b"), Color("ef6a55")][k]
-			var chip := K.button(["Easy", "Medium", "Hard"][k], dcol if on else K.CREAM, dcol.darkened(0.3) if on else K.LINE_DK, 19, 104, 46)
+			var open: bool = Progress.race_ok(game.save, k)
+			var need: int = Progress.RACE_LEVEL[k]
+			var chip := K.button(["Easy", "Medium", "Hard"][k] if open else "Lv %d" % need, dcol if on else K.CREAM, dcol.darkened(0.3) if on else K.LINE_DK, 19, 104, 46, "" if open else "lock")
 			if not on:
 				chip.add_theme_color_override("font_color", K.INK_SOFT)
 			var kk := k
 			var setter: Callable = info["set_diff"]
 			_tap(chip, func():
+				if not open:
+					toast("%s races open up at level %d" % [["Easy", "Medium", "Hard"][kk], need], "lock", K.PAPER, K.INK, 2.0)
+					return
 				if kk != int(info["diff"]):
 					game.sfx("select", -8.0, 1.1 + kk * 0.1)
 					setter.call(kk))

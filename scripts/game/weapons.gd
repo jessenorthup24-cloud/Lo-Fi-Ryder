@@ -15,17 +15,17 @@ const DIR := "res://assets/guns/"
 ## Damage is against 100 health (people, officers, you): a pistol takes 4 to 6, a rifle 3 or 4 (each hit
 ## varies a little); a car takes 450 (a rifle: about 15).
 const LIST := [
-	{"id": "pistol", "name": "Pistol", "price": 0, "dmg": 21.0, "rate": 3.2, "mag": 12, "reload": 1.1, "spread": 0.03, "pellets": 1, "range": 60.0,
+	{"id": "pistol", "lvl": 1, "name": "Pistol", "price": 0, "dmg": 21.0, "rate": 3.2, "mag": 12, "reload": 1.1, "spread": 0.03, "pellets": 1, "range": 60.0,
 		"grip": Vector2(-0.12, 0.02), "fore": 0.0, "auto": false, "both": false, "sound": "shot_pistol", "scale": 2.6, "looks": ["Pistol_Duty", "Pistol_Race", "Pistol_Tactical", "Pistol_Carbine", "Pistol_Drum"]},
-	{"id": "revolver", "name": "Revolver", "price": 900, "dmg": 40.0, "rate": 1.4, "mag": 6, "reload": 1.8, "spread": 0.015, "pellets": 1, "range": 75.0,
+	{"id": "revolver", "lvl": 3, "name": "Revolver", "price": 900, "dmg": 40.0, "rate": 1.4, "mag": 6, "reload": 1.8, "spread": 0.015, "pellets": 1, "range": 75.0,
 		"grip": Vector2(-0.15, 0.06), "fore": 0.0, "auto": false, "both": false, "sound": "shot_revolver", "scale": 2.5, "looks": ["Revolver_Service", "Revolver_Snub", "Revolver_Stainless", "Revolver_Hunter", "Revolver_Competition"]},
-	{"id": "smg", "name": "SMG", "price": 1800, "dmg": 12.0, "rate": 11.0, "mag": 30, "reload": 1.4, "spread": 0.06, "pellets": 1, "range": 50.0,
+	{"id": "smg", "lvl": 6, "name": "SMG", "price": 1800, "dmg": 12.0, "rate": 11.0, "mag": 30, "reload": 1.4, "spread": 0.06, "pellets": 1, "range": 50.0,
 		"grip": Vector2(-0.04, -0.14), "fore": 0.24, "auto": true, "both": true, "sound": "shot_smg", "scale": 2.2, "looks": ["SMG_Modern", "SMG_Fixed_Stock", "SMG_Suppressed", "SMG_Raider", "SMG_Drum"]},
-	{"id": "shotgun", "name": "Shotgun", "price": 2400, "dmg": 9.0, "rate": 1.1, "mag": 6, "reload": 2.2, "spread": 0.13, "pellets": 8, "range": 28.0,
+	{"id": "shotgun", "lvl": 8, "name": "Shotgun", "price": 2400, "dmg": 9.0, "rate": 1.1, "mag": 6, "reload": 2.2, "spread": 0.13, "pellets": 8, "range": 28.0,
 		"grip": Vector2(-0.02, -0.03), "fore": 0.32, "auto": false, "both": true, "sound": "shot_shotgun", "scale": 1.9, "looks": ["Shotgun_Field", "Shotgun_Riot", "Shotgun_Tactical", "Shotgun_Entry", "Shotgun_Breacher"]},
-	{"id": "rifle", "name": "Rifle", "price": 4200, "dmg": 30.0, "rate": 7.5, "mag": 30, "reload": 1.8, "spread": 0.035, "pellets": 1, "range": 90.0,
+	{"id": "rifle", "lvl": 11, "name": "Rifle", "price": 4200, "dmg": 30.0, "rate": 7.5, "mag": 30, "reload": 1.8, "spread": 0.035, "pellets": 1, "range": 90.0,
 		"grip": Vector2(0.0, -0.1), "fore": 0.26, "auto": true, "both": true, "sound": "shot_rifle", "scale": 1.75, "looks": ["AK_Classic_Wood", "AK_Classic_Plum", "AK_Modernized", "AK_Modern", "AK_Marksman_Scope"]},
-	{"id": "sniper", "name": "Sniper", "price": 6500, "dmg": 105.0, "rate": 0.8, "mag": 5, "reload": 2.6, "spread": 0.004, "pellets": 1, "range": 220.0,
+	{"id": "sniper", "lvl": 15, "name": "Sniper", "price": 6500, "dmg": 105.0, "rate": 0.8, "mag": 5, "reload": 2.6, "spread": 0.004, "pellets": 1, "range": 220.0,
 		"grip": Vector2(-0.03, -0.05), "fore": 0.27, "auto": false, "both": true, "sound": "shot_sniper", "scale": 1.6, "looks": ["Sniper_Hunter", "Sniper_Tactical", "Sniper_Recon", "Sniper_Integral", "Sniper_Chassis"]},
 ]
 const LOOK_PRICE := 350        # each extra look for a gun you own
@@ -47,6 +47,10 @@ static func grip_of(w: Dictionary, m: Mesh) -> Vector3:
 	var g: Vector2 = w.get("grip", Vector2.ZERO)
 	var len := m.get_aabb().size.z
 	return Vector3(0, g.x * len, g.y * len)
+
+## How many attachments open up at the Armory at this level.
+static func parts_at_level(_lv: int) -> int:
+	return 0
 
 static func by_id(id: String) -> Dictionary:
 	for w in LIST:
