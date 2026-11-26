@@ -17,9 +17,9 @@ const SAFE_SCALE := 3.0        # (the safe a bit bigger: a proper strongbox next
 const SAFES := 25
 const FETCH_T := 90.0
 const DEFEND_T := 120.0
-const ZONE_R := 38.0           # the ring on the map round where the drill is (it's somewhere inside)
-const DRILL_NEAR := (120.0)    # how far away the drill can be...
-const DRILL_FAR := 260.0       # ...and no further
+const ZONE_R := 85.0           # the ring on the map round where the drill is (it's somewhere inside: look)
+const DRILL_NEAR := 300.0      # how far away the drill can be...
+const DRILL_FAR := 550.0       # ...and no further
 const LEAVE_R := 45.0          # further than this from the drill and it stops cutting
 const RESET_S := 1200          # seconds (real) till a cracked safe's full again
 const PAY := [7500, 12500]     # what's in a safe
@@ -53,6 +53,7 @@ var _cash_mesh: Mesh
 var _beacon_mat: StandardMaterial3D
 var _ring_mat: StandardMaterial3D
 var _hint_t := 0.0
+var _road_hash := {}           # 25 m cells -> road points in them (for "how far from a road")
 
 func setup(g: Node) -> void:
 	game = g
@@ -104,29 +105,129 @@ func _roadside(rng: RandomNumberGenerator, near_p: Vector2, r_lo: float, r_hi: f
 		return {"pos": Vector3(at.x, island.height_at(at.x, at.y), at.y), "yaw": yaw}
 	return {}
 
+## Safes are stashed where you'd not see them from the road: round the back of buildings, under the
+## railway viaduct, behind the gas stations.
 func _place_safes() -> void:
+	_build_road_hash()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4242
-	var spots: Array = []
-	var guard := 0
-	while spots.size() < SAFES and guard < 4000:
-		guard += 1
-		var s := _roadside(rng, Vector2.INF, 0, 0, 1, 1.2)
-		if s.is_empty():
+	var cands: Array = []
+	# behind the gas stations
+	for st in island.stations:
+		var c: Vector3 = st["pos"]
+		var sp := _tucked(rng, Vector2(c.x, c.z), 10.0, 26.0, 160, 5.0)
+		if not sp.is_empty():
+			sp["kind"] = "station"
+			cands.append(sp)
+	# under the viaduct
+	if island.rail and (island.rail.pts as PackedVector2Array).size() > 0:
+		var rp: PackedVector2Array = island.rail.pts
+		var n := rp.size()
+		for k in 10:
+			var i := int(float(k) / 10.0 * n + rng.randi_range(0, n / 20)) % n
+			for tries in 30:
+				var j := (i + tries * 3) % n
+				var tg := (rp[(j + 1) % n] - rp[j]).normalized()
+				var off := rng.randf_range(2.5, 6.0) * (1.0 if rng.randf() < 0.5 else -1.0)
+				var at := rp[j] + Vector2(-tg.y, tg.x) * off
+				if _ok_spot(at, 1.0) and _road_dist(at) > 3.0:
+					cands.append({"pos": Vector3(at.x, island.height_at(at.x, at.y), at.y), "yaw": atan2(tg.x, tg.y) + PI * 0.5, "kind": "viaduct"})
+					break
+	# round the back of buildings, about town
+	var places: Array = island.places.duplicate()
+	for k in 60:
+		var pl: Dictionary = places[rng.randi() % places.size()]
+		if pl["name"] == "Stunt Yard":
 			continue
+		var c2: Vector3 = pl["pos"]
+		var sp2 := _tucked(rng, Vector2(c2.x, c2.z), 0.0, float(pl["r"]), 120, 12.0)
+		if not sp2.is_empty():
+			sp2["kind"] = "tucked"
+			cands.append(sp2)
+	# spread out: no two within 70 m (the gas stations and the viaduct first)
+	var spots: Array = []
+	for cd in cands:
+		if spots.size() >= SAFES:
+			break
 		var ok := true
 		for o in spots:
-			if (o["pos"] as Vector3).distance_to(s["pos"]) < (85.0 if guard < 3000 else 40.0):
+			if (o["pos"] as Vector3).distance_to(cd["pos"]) < 70.0:
 				ok = false
 				break
 		if ok:
-			spots.append(s)
+			spots.append(cd)
+	# (short of 25: fill in by the roads)
+	var guard := 0
+	while spots.size() < SAFES and guard < 3000:
+		guard += 1
+		var s2 := _roadside(rng, Vector2.INF, 0, 0, 1, 1.2)
+		if s2.is_empty():
+			continue
+		var ok2 := true
+		for o in spots:
+			if (o["pos"] as Vector3).distance_to(s2["pos"]) < 70.0:
+				ok2 = false
+				break
+		if ok2:
+			spots.append(s2)
+	var kinds := {}
+	for sp4 in spots:
+		kinds[sp4.get("kind", "road")] = int(kinds.get(sp4.get("kind", "road"), 0)) + 1
+	print("HEIST safe spots ", kinds)
 	for i in spots.size():
-		var sp: Dictionary = spots[i]
-		var sf := {"id": "s%d" % i, "pos": sp["pos"], "yaw": sp["yaw"], "open": 0.0}
+		var sp3: Dictionary = spots[i]
+		var sf := {"id": "s%d" % i, "pos": sp3["pos"], "yaw": sp3["yaw"], "open": 0.0}
 		_build_safe(sf)
 		safes.append(sf)
 	_refresh_dots()
+
+## A spot out of sight: off the road (at least `off` metres from one), backed onto a wall (a building's, a
+## fence's), in an annulus round c. Facing out from the wall.
+func _tucked(rng: RandomNumberGenerator, c: Vector2, r_lo: float, r_hi: float, tries: int, off: float) -> Dictionary:
+	for k in tries:
+		var a := rng.randf() * TAU
+		var d := rng.randf_range(r_lo, maxf(r_hi, r_lo + 1.0))
+		var at := c + Vector2(cos(a), sin(a)) * d
+		if not _ok_spot(at, 1.1) or _road_dist(at) < off:
+			continue
+		# a wall close behind it?
+		for w in 8:
+			var wa := TAU * w / 8.0
+			var dir := Vector2(cos(wa), sin(wa))
+			if island.is_blocked(at.x + dir.x * 2.6, at.y + dir.y * 2.6):
+				var front := -dir
+				return {"pos": Vector3(at.x, island.height_at(at.x, at.y), at.y), "yaw": atan2(front.x, front.y)}
+	return {}
+
+func _ok_spot(at: Vector2, clear: float) -> bool:
+	if island.height_at(at.x, at.y) < 0.6 or island.surface_at(at.x, at.y) == 1:
+		return false
+	var stunt: Rect2 = island.stunt.get("rect", Rect2())
+	if stunt.grow(15.0).has_point(at):
+		return false
+	return island.is_free(at, Vector2(clear, clear))
+
+func _build_road_hash() -> void:
+	for r in island.roads:
+		var pts: PackedVector2Array = r["pts"]
+		for i in range(0, pts.size(), 2):
+			var key := Vector2i(floori(pts[i].x / 25.0), floori(pts[i].y / 25.0))
+			if not _road_hash.has(key):
+				_road_hash[key] = PackedVector2Array()
+			(_road_hash[key] as PackedVector2Array).append(pts[i])
+
+## Roughly how far it is to the middle of the nearest road (a road's half its width either side of that).
+func _road_dist(p: Vector2) -> float:
+	var best := 60.0
+	var k0 := Vector2i(floori(p.x / 25.0), floori(p.y / 25.0))
+	for dx in range(-2, 3):
+		for dz in range(-2, 3):
+			var arr = _road_hash.get(k0 + Vector2i(dx, dz))
+			if arr == null:
+				continue
+			for q in (arr as PackedVector2Array):
+				best = minf(best, q.distance_to(p))
+	return maxf(best - 6.0, 0.0)
 
 func _build_safe(sf: Dictionary) -> void:
 	var n := StaticBody3D.new()
@@ -339,6 +440,19 @@ func route() -> Dictionary:
 			return {"pos": safehouse["pos"], "name": "Safehouse", "kind": "heist"}
 	return {}
 
+## The nearest safe that's not been cracked lately ({} if none).
+func nearest_safe(p: Vector3) -> Dictionary:
+	var best := {}
+	var bd := INF
+	for sf in safes:
+		if _cracked(sf):
+			continue
+		var d := (sf["pos"] as Vector3).distance_to(p)
+		if d < bd:
+			bd = d
+			best = sf
+	return best
+
 func active() -> bool:
 	return state != IDLE
 
@@ -351,9 +465,12 @@ func start() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	var sp: Vector3 = near["pos"]
-	var s := _roadside(rng, Vector2(sp.x, sp.z), DRILL_NEAR, DRILL_FAR, 3000, 0.8)
+	# the drill's tucked away too (behind something, off the road), a good way off
+	var s := _tucked(rng, Vector2(sp.x, sp.z), DRILL_NEAR, DRILL_FAR, 1500, 4.0)
 	if s.is_empty():
-		s = _roadside(rng, Vector2(sp.x, sp.z), 60.0, 400.0, 3000, 0.6)
+		s = _roadside(rng, Vector2(sp.x, sp.z), DRILL_NEAR, DRILL_FAR, 3000, 0.8)
+	if s.is_empty():
+		s = _roadside(rng, Vector2(sp.x, sp.z), 150.0, 600.0, 3000, 0.6)
 	if s.is_empty():
 		game.ui.toast("No drill to be had right now", "help")
 		return

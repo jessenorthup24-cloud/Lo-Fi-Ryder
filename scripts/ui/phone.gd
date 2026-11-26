@@ -22,6 +22,7 @@ var hint_lbl: Label
 var _sig := ""
 var _rows := {}          # who -> {dist: Label, state: Label}
 var _t := 0.0
+var radar_btn: Button
 
 func setup(u: Node, g: Node) -> void:
 	ui = u
@@ -60,6 +61,19 @@ func setup(u: Node, g: Node) -> void:
 		game.ui_tap()
 		ui.toggle_phone())
 	bar.add_child(x)
+	# apps: the safe radar (it goes on the HUD: a pulse pointing roughly at the nearest safe)
+	var apps := HBoxContainer.new()
+	apps.add_theme_constant_override("separation", 8)
+	vb.add_child(apps)
+	radar_btn = K.button("Safe radar", Color("2c6e49"), Color("1f5036"), 17, 0, 46, "eye")
+	radar_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	radar_btn.pressed.connect(func():
+		game.ui_tap()
+		ui.radar_on = not ui.radar_on
+		ui.toast("Safe radar on: follow the pulse" if ui.radar_on else "Safe radar off", "eye", Color("3fd26b"), Color.WHITE, 1.8)
+		_radar_label()
+		ui.toggle_phone())
+	apps.add_child(radar_btn)
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	vb.add_child(head)
@@ -81,7 +95,11 @@ func setup(u: Node, g: Node) -> void:
 	hint_lbl.clip_text = true
 	vb.add_child(hint_lbl)
 
+func _radar_label() -> void:
+	radar_btn.text = "Radar: on (tap to stop)" if ui.radar_on else "Safe radar"
+
 func open() -> void:
+	_radar_label()
 	_sig = ""
 	refresh()
 

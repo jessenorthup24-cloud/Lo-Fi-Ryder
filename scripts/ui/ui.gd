@@ -35,6 +35,11 @@ var foot_mode := false
 var hp_bar: ProgressBar      # (unused now: health is hp_g, top right)
 var hp_g: Control
 var phone_layer: Control
+var radar_on := false        # the phone's safe radar: a pulse on the HUD pointing roughly at the nearest safe
+var radar: Control
+var _radar_ang := 0.0
+var _radar_d := 0.0
+var _ping_t := 0.0
 var _clock_dot: Label
 var cruise_lbl: Label
 var heist_btn: Button        # by a safe: START HEIST
@@ -619,6 +624,15 @@ func _build_hud() -> void:
 	reticle.visible = false
 	reticle.draw.connect(_draw_reticle)
 	hud.add_child(reticle)
+	# the safe radar (switched on from the phone): a disc on the left, a wedge pulsing toward the nearest safe
+	radar = Control.new()
+	radar.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	radar.position = Vector2(30, 196)
+	radar.size = Vector2(150, 176)
+	radar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	radar.visible = false
+	radar.draw.connect(_draw_radar)
+	hud.add_child(radar)
 	# heists: the button by a safe, and the panel up top while one's on
 	heist_btn = K.button("START HEIST", Color("ff4f6b"), Color("c23650"), 30, 300, 84, "lock")
 	heist_btn.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
@@ -1035,6 +1049,57 @@ func impact_flash(k: float) -> void:
 	tw.tween_property(_flash, "color:a", 0.0, 0.25)
 
 ## Busted: the picture drains of colour, BUSTED across it, the fine under it; then it all fades back.
+func _radar_tick(dt: float) -> void:
+	var on: bool = radar_on and hud.visible and game.state == game.DRIVE and not game.heist.active()
+	radar.visible = on
+	if not on:
+		return
+	var yp: Vector3 = game.you().global_position
+	var sf: Dictionary = game.heist.nearest_safe(yp)
+	if sf.is_empty():
+		radar.visible = false
+		return
+	var to: Vector3 = (sf["pos"] as Vector3) - yp
+	_radar_d = Vector2(to.x, to.z).length()
+	# its bearing, from the way the camera's looking (up on the disc: straight ahead)
+	var cb: Basis = game.cam.global_transform.basis
+	var f := Vector3(-cb.z.x, 0, -cb.z.z).normalized()
+	var r := Vector3(cb.x.x, 0, cb.x.z).normalized()
+	_radar_ang = lerp_angle(_radar_ang, atan2(to.dot(r), to.dot(f)), 1.0 - exp(-dt * 6.0))
+	# a ping: slow when it's far, quick when it's close
+	_ping_t -= dt
+	if _ping_t <= 0.0:
+		_ping_t = clampf(_radar_d / 160.0, 0.35, 2.4)
+		radar.set_meta("ping", Time.get_ticks_msec() / 1000.0)
+		game.sfx("hit_tick", -14.0 + clampf(1.0 - _radar_d / 300.0, 0.0, 1.0) * 6.0, 0.7)
+	radar.queue_redraw()
+
+func _draw_radar() -> void:
+	var c := Vector2(75, 75)
+	var R := 68.0
+	radar.draw_circle(c, R, Color(0.06, 0.055, 0.09, 0.6))
+	radar.draw_arc(c, R, 0, TAU, 48, Color(0.4, 1.0, 0.55, 0.35), 2.0, true)
+	radar.draw_arc(c, R * 0.55, 0, TAU, 40, Color(0.4, 1.0, 0.55, 0.15), 1.5, true)
+	# the pulse: a ring going out from the middle each ping
+	var since: float = Time.get_ticks_msec() / 1000.0 - float(radar.get_meta("ping", 0.0))
+	if since < 1.0:
+		radar.draw_arc(c, R * since, 0, TAU, 40, Color(0.4, 1.0, 0.55, 0.6 * (1.0 - since)), 3.0, true)
+	# the wedge: roughly that way (wide: it's a hint, not a pointer), brighter as you get closer
+	var a := _radar_ang - PI * 0.5
+	var spread := deg_to_rad(lerpf(32.0, 55.0, clampf(_radar_d / 400.0, 0.0, 1.0)))
+	var k := clampf(1.0 - _radar_d / 400.0, 0.25, 1.0)
+	var pts := PackedVector2Array([c])
+	for i in 13:
+		var t := a - spread + spread * 2.0 * i / 12.0
+		pts.append(c + Vector2(cos(t), sin(t)) * R * 0.95)
+	radar.draw_colored_polygon(pts, Color(0.4, 1.0, 0.55, (0.35 + 0.35 * maxf(1.0 - since, 0.0)) * k))
+	radar.draw_circle(c, 5, Color.WHITE)
+	var word := "Close" if _radar_d < 40.0 else ("Near" if _radar_d < 150.0 else "Far")
+	var f := K.font(700)
+	var tw := f.get_string_size("SAFE · " + word, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
+	radar.draw_string_outline(f, Vector2(75 - tw * 0.5, 168), "SAFE · " + word, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, 5, Color(0, 0, 0, 0.5))
+	radar.draw_string(f, Vector2(75 - tw * 0.5, 168), "SAFE · " + word, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color("8ff0a4"))
+
 ## By a safe: the START HEIST button ("" hides it).
 func heist_prompt(text: String) -> void:
 	heist_btn.visible = text != "" and not overlay.visible
@@ -2047,6 +2112,7 @@ func toggle_phone() -> void:
 func tick(dt: float) -> void:
 	if phone and phone.visible:
 		phone.tick(dt)
+	_radar_tick(dt)
 	if group_btn and hud.visible and game.crew:
 		group_btn.visible = game.crew.crew_count() > 0 or game.group_cam
 		group_btn.modulate = Color(0.75, 1.0, 0.82) if game.group_cam else Color.WHITE
