@@ -89,7 +89,7 @@ static func xp(save) -> int:
 
 ## XP to get from level n to n+1.
 static func step(n: int) -> int:
-	return 800 + 200 * n
+	return 600 + 150 * n          # (level 10 about an hour and a half in, level 30 about ten hours)
 
 ## [level, xp into it, xp it takes]
 static func level_of(x: int) -> Array:
