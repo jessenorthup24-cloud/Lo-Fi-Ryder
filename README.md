@@ -210,8 +210,13 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   the camera comes in over your right shoulder and narrows, a reticle sits mid-screen, and it locks on to
   the person or officer nearest it (red brackets round them; the view drifts onto them); with nobody near,
   shots go wherever the reticle points. Hits show an X on the reticle (red, with a ding, for a kill), with
-  blood, sparks and bullet holes; the gun kicks and the camera with it. People and officers drop as
-  ragdolls. Cars take hits: they smoke, catch fire (going up a few seconds later on their own) and blow
+  blood, sparks and bullet holes; the gun kicks and the camera with it (a sharp kick for single shots, a
+  small steady one for automatics). Holding FIRE with a pistol, revolver, shotgun or sniper keeps firing,
+  a little slower than tapping. Everyone has 100 health: a pistol takes 4 to 6 hits, a rifle 3 or 4 (hits
+  vary a little), a sniper round one. Hit people bleed and run; officers flinch. People drop as ragdolls,
+  and officers (and you) go limp: a ragdoll of the rigged character itself (scripts/game/ragdoll_rig.gd).
+  Taking hits, you bleed and flinch; out of health, you fall, the camera watches, then WASTED. Cars take
+  about 15 rifle hits: they smoke, catch fire at about 11 (going up a few seconds later on their own) and blow
   up, knocking down people and officers near them, throwing other cars about (and setting them off) and
   leaving a burnt-out shell. RELOAD (under the swap pill, or X) lowers and tips the gun while the magazine
   swaps; an empty gun clicks and reloads itself. The swap pill (left of FIRE, or Tab) changes gun. Shots fired
@@ -383,6 +388,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
 | `scripts/game/avatar.gd` | A playable character: the baked Kenney mini character, its animations, an accessory on its head |
 | `tools/chars/bake_chars.gd` | Bakes the Kenney Mini Characters 2.0 (CC0) to `assets/chars/`: rig, animations, colours in the vertices |
 | `scripts/game/gunplay.gd` | Guns on foot: aim and lock-on, firing, hits and effects, reloads, cars burning and blowing up, your health, officers on foot, WASTED |
+| `scripts/game/ragdoll_rig.gd` | A rigged character gone limp: rigid bodies for its parts, driving its skeleton (you and officers) |
 | `scripts/game/aim_mod.gd` | Points a character's arms (both hands on the gun) and upper body at what they're aiming at, over the animation |
 | `scripts/game/weapons.gd` | The six guns: stats, looks, models (or blocky stand-ins without the licensed pack) |
 | `tools/guns/bake_guns.gd` | Bakes PIXEL ARSENAL presets to game meshes (run against the private pack; output goes to the private repo) |
@@ -424,6 +430,7 @@ godot --path . -- --drive --foottest             # out of the car, walk, run, ju
 godot --path . -- --drive --guntest=rifle --at=square   # out with a gun, shooting; police come (logged)
 godot --path . -- --drive --guntest=smg --guncar          # shoot the nearest car till it blows (logged)
 godot --path . -- --drive --guntest=rifle --gunhold       # out and aiming, holding still (the pose, the reticle)
+godot --path . -- --drive --guntest=rifle --gundie        # shot dead: the ragdoll, WASTED
 godot --path . -- --garage=guns --gun=shotgun --look=1    # the Guns tab, holding this gun
 godot --path . -- --drive --stealtest=k_car_taxi # out, take the nearest taxi, drive it, back to your own car (logged)
 godot --path . -- --garage=driver --avatar=robot --acc=glasses   # the Driver tab, as this character

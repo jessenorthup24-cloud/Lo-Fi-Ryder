@@ -10,17 +10,14 @@ const Weapons := preload("res://scripts/game/weapons.gd")
 const Avatar := preload("res://scripts/game/avatar.gd")
 const MAX_HP := 100.0
 const REGEN := 2.0              # health back a second, out of a fight
-const OFFICER_HP := 60.0
+const OFFICER_HP := 100.0
+const PERSON_HP := 100.0
 const OFFICER_SHOT := 9.0       # what one of their bullets does to you
 const OFFICERS_MAX := 6
 const OFFICER_V := 7            # the police officer, in the people's characters (models.gd CHARS)
-const CAR_HP := 220.0           # damage to blow a car up (a rifle: a second or so of fire)
+const CAR_HP := 450.0           # damage to blow a car up (a rifle: about 15 shots)
 const LOCK_ANG := 0.32          # how far off the reticle a target can be and still lock (rad)
 const BLAST_R := 8.0
-# (the Kenney rig's arms are straight out sideways at rest, the right one along its bone's -X, and posed by
-# turning at the shoulder: the fist is at the far end, the barrel carries on the way the arm points)
-const HAND_AT := Vector3(-0.29, -0.01, 0.0)
-const HAND_YAW := PI * 0.5
 
 var game: Node
 var hp := MAX_HP
@@ -47,6 +44,7 @@ var _trace_mat: StandardMaterial3D
 var _burnt_mat: StandardMaterial3D
 var _recoil := 0.0
 var _mag_swapped := false
+var dying := false              # you're down (a ragdoll), WASTED on its way
 
 func setup(g: Node) -> void:
 	game = g
@@ -78,25 +76,12 @@ func equip() -> void:
 	if not ammo.has(weapon["id"]):
 		ammo[weapon["id"]] = int(weapon["mag"])
 	reload_t = 0.0
-	if gun_node and is_instance_valid(gun_node):
-		gun_node.get_parent().queue_free()
 	gun_node = null
 	var av: Avatar = game.foot.avatar if game.foot else null
 	if av == null or av.skel == null:
 		return
-	var ba := BoneAttachment3D.new()
-	ba.bone_name = "arm-right"
-	av.skel.add_child(ba)
-	gun_node = MeshInstance3D.new()
-	gun_node.mesh = Weapons.mesh(weapon, look)
-	gun_node.material_override = game.toon
-	gun_node.transform = hand_xf(weapon)
-	ba.add_child(gun_node)
-
-## Where a gun sits on the right arm bone (in the model's own units: the avatar's scaled 2.3x).
-static func hand_xf(w: Dictionary) -> Transform3D:
-	var k: float = float(w["scale"]) / Avatar.SCALE
-	return Transform3D(Basis(Vector3.UP, HAND_YAW).scaled(Vector3.ONE * k), HAND_AT)
+	av.hold(weapon, look, game.toon)
+	gun_node = av.gun
 
 ## Next gun you own (the swap button).
 func cycle() -> void:
@@ -121,14 +106,20 @@ func ammo_text() -> String:
 
 # ------------------------------------------------------------------ every frame
 
-## fire: the trigger's pulled this frame (held for an automatic, a tap for the rest); fire_held: the
-## button's down; aim_on: the AIM toggle; reload: the reload key.
-func tick(dt: float, fire: bool, fire_held: bool, aim_on: bool, reload: bool) -> void:
+## fire_tap: the trigger's just pulled this frame; fire_held: it's down (an automatic fires as fast as it
+## goes; the rest fire on each tap, or held, a bit slower); aim_on: the AIM toggle; reload: the reload key.
+func tick(dt: float, fire_tap: bool, fire_held: bool, aim_on: bool, reload: bool) -> void:
 	var you: CharacterBody3D = game.foot
+	if dying:
+		aim_k = move_toward(aim_k, 0.0, dt * 4.0)      # (the camera pulls back to watch you fall)
+		lock_pos = Vector3.INF
+		return
+	var semi_wait: float = 0.55 / float(weapon["rate"])
+	var fire: bool = fire_held if bool(weapon.get("auto", false)) else (fire_tap or (fire_held and cool <= -semi_wait))
 	cool -= dt
 	hurt_t += dt
 	flash.light_energy = maxf(0.0, flash.light_energy - dt * 30.0)
-	_recoil = move_toward(_recoil, 0.0, dt * 6.0)
+	_recoil = move_toward(_recoil, 0.0, dt * (9.0 if bool(weapon.get("auto", false)) else 5.0))
 	if hurt_t > 5.0:
 		hp = minf(MAX_HP, hp + REGEN * dt)
 	aiming = aim_on or fire_held or cool > -0.5
@@ -185,32 +176,16 @@ func _pose(you: CharacterBody3D, dt: float) -> void:
 		you.facing = lerp_angle(you.facing, atan2(-to.x, -to.z), 1.0 - exp(-dt * 20.0))
 		you.aiming = 0.3
 		at = aim_point
-		extra = Basis(Vector3.RIGHT, _recoil * 0.45)
-	elif not moving or Vector3(you.velocity.x, 0, you.velocity.z).length() < 5.0:
-		# the low ready: pointing at the ground a few metres ahead
+		extra = Basis(Vector3.RIGHT, _recoil * (0.18 if bool(weapon.get("auto", false)) else 0.4))
+	else:
+		# the low ready: pointing at the ground a few metres ahead (walking or running too)
 		at = you.global_position + ahead * 3.0 + Vector3(0, 0.2, 0)
 	av.aim_at(at, true, dt)
 	if not moving:
 		av.play("holding-both", 1.0, 0.15)
-	if gun_node == null:
-		return
-	# the gun: in the right fist, turned to face where the arms point (blended in with the arms)
-	aim_gun(gun_node, weapon, at, extra, av.aim.weight if av.aim else 0.0, Vector3(_recoil * 0.05, 0, 0))
-
-## Turn a gun in the right fist to face `at` (world), blended by w with how it sits in the hand at rest.
-static func aim_gun(gun: MeshInstance3D, wpn: Dictionary, at: Vector3, extra := Basis(), w := 1.0, nudge := Vector3.ZERO) -> void:
-	var base := hand_xf(wpn)
-	var ba := gun.get_parent() as Node3D
-	if at != Vector3.INF and w > 0.01 and ba and ba.is_inside_tree():
-		var d := at - ba.global_transform * base.origin
-		if d.length() > 0.05:
-			var gb := Basis.looking_at(d.normalized(), Vector3.UP) * extra
-			var lb := ba.global_transform.basis.orthonormalized().inverse() * gb
-			var k: float = float(wpn["scale"]) / Avatar.SCALE
-			var q := base.basis.get_rotation_quaternion().slerp(lb.get_rotation_quaternion(), w)
-			gun.transform = Transform3D(Basis(q).scaled(Vector3.ONE * k), base.origin + nudge)
-			return
-	gun.transform = base
+	# (the avatar turns the gun onto where the arms point; this is on top: the kick, the reload's tip)
+	av.gun_extra = extra
+	av.gun_nudge = Vector3(_recoil * 0.06, 0, 0)
 
 ## Where you're aiming: locked on to whoever's nearest the reticle (and in sight), or wherever the reticle's
 ## ray from the camera lands.
@@ -260,7 +235,10 @@ func _clear(a: Vector3, b: Vector3) -> bool:
 func _fire(you: CharacterBody3D) -> void:
 	cool = 1.0 / float(weapon["rate"])
 	ammo[weapon["id"]] = int(ammo[weapon["id"]]) - 1
-	var muzzle: Vector3 = gun_node.global_transform * Vector3(0, 0.03, -0.32) if gun_node else you.global_position + Vector3(0, 1.3, 0)
+	var muzzle: Vector3 = you.global_position + Vector3(0, 1.3, 0)
+	if gun_node and is_instance_valid(gun_node):
+		var ab := gun_node.mesh.get_aabb()
+		muzzle = gun_node.global_transform * Vector3(0, ab.get_center().y + ab.size.y * 0.2, ab.position.z)
 	# the shot goes from your chest (clear of your feet and the ground) to the aim point
 	var chest := you.global_position + Vector3(0, 1.25, 0)
 	var aim_dir := (aim_point - chest).normalized()
@@ -268,17 +246,19 @@ func _fire(you: CharacterBody3D) -> void:
 	flash.global_position = muzzle
 	flash.light_energy = 4.0
 	_muzzle_flash(muzzle, aim_dir)
-	_recoil = 1.0
-	# the camera kicks up a little (more for the big ones)
-	var kick: float = clampf(float(weapon["dmg"]) * float(weapon["pellets"]) / 400.0, 0.01, 0.12)
-	game.aim_kick += kick
-	game.shake = maxf(game.shake, 0.05 + kick * 0.6)
+	# the kick: a sharp one for the single shots, a small steady one for an automatic (it'd bounce about)
+	var auto: bool = weapon.get("auto", false)
+	_recoil = minf(1.0, _recoil + (0.35 if auto else 1.0))
+	var punch: float = float(weapon["dmg"]) * float(weapon["pellets"])
+	var kick: float = clampf(punch / 2400.0, 0.004, 0.02) if auto else clampf(punch / 900.0, 0.012, 0.11)
+	game.aim_kick = minf(game.aim_kick + kick, 0.09 if auto else 0.2)
+	game.shake = maxf(game.shake, 0.015 if auto else 0.04 + kick * 0.5)
 	var hit_any := false
 	var killed := false
 	for k in int(weapon["pellets"]):
 		var sp: float = weapon["spread"] * (0.5 if lock != null else 1.0)
 		var d := (aim_dir + Vector3(randf_range(-sp, sp), randf_range(-sp, sp) * 0.6, randf_range(-sp, sp))).normalized()
-		var r: int = _ray(chest, d, float(weapon["range"]), float(weapon["dmg"]), you, muzzle)
+		var r: int = _ray(chest, d, float(weapon["range"]), float(weapon["dmg"]) * randf_range(0.85, 1.15), you, muzzle)
 		hit_any = hit_any or r > 0
 		killed = killed or r > 1
 	if hit_any:
@@ -313,8 +293,7 @@ func _ray(from: Vector3, d: Vector3, rng: float, dmg: float, you: Node3D, muzzle
 			best_pr = pr
 	if not best_pr.is_empty():
 		_tracer(muzzle, from + d * best_t)
-		_kill_person(best_pr, d, dmg)
-		return 2
+		return _hit_person(best_pr, d, dmg, from + d * best_t)
 	_tracer(muzzle, end)
 	if hit.is_empty():
 		return 0
@@ -385,6 +364,18 @@ func _tracer(a: Vector3, b: Vector3) -> void:
 
 # ------------------------------------------------------------------ people and officers
 
+## A person shot: blood, and they run; out of health, they go down.
+func _hit_person(pr: Dictionary, d: Vector3, dmg: float, at: Vector3) -> int:
+	pr["hp"] = float(pr.get("hp", PERSON_HP)) - dmg
+	if float(pr["hp"]) <= 0.0:
+		_kill_person(pr, d, dmg)
+		return 2
+	game.fx.blood(at, d, 12, 4.0)
+	game.sfx("body_hit_%d" % randi_range(1, 3), -8.0, randf_range(1.0, 1.15))
+	game.island.people.panic(pr["pos"], 3.0)
+	game.police.heat_pts += 0.1
+	return 1
+
 ## A person goes down: a ragdoll knocked the way the bullet went.
 func _kill_person(pr: Dictionary, d: Vector3, dmg: float) -> void:
 	var info: Dictionary = game.island.people.knock_down(pr)
@@ -406,50 +397,67 @@ func _blood(p: Vector3, d: Vector3) -> void:
 func _hit_officer(o: Dictionary, dmg: float, d: Vector3, at: Vector3) -> int:
 	o["hp"] = float(o["hp"]) - dmg
 	var n: CharacterBody3D = o["node"]
-	game.fx.blood(at, d, 10, 3.5)
+	game.fx.blood(at, d, 12, 4.0)
 	game.sfx("body_hit_%d" % randi_range(1, 3), -8.0, randf_range(1.0, 1.15))
 	if float(o["hp"]) > 0.0:
-		n.velocity += d * 3.0           # (a flinch: knocked back a step)
+		n.velocity += d * 2.5           # (a flinch: knocked back a step, the body jolting)
+		(o["av"] as Avatar).flinch(d)
+		o["cool"] = maxf(float(o["cool"]), 0.5)
 		return 1
-	_officer_down(o, d * clampf(dmg * 0.12, 3.0, 9.0))
+	_officer_down(o, d * clampf(dmg * 0.06, 1.8, 5.0) + Vector3(0, 0.5, 0))
 	game.save.add_stat("cops_down", 1)
 	kills["police"] += 1
 	game.police.heat_pts += 0.6
 	return 2
 
-## An officer goes down: a ragdoll (the police officer character), their body gone from the fight.
+## An officer goes down: limp (a ragdoll of their own character), thrown the way the shot went; cleared
+## away after a while.
 func _officer_down(o: Dictionary, push: Vector3) -> void:
 	o["dead"] = true
 	var n: CharacterBody3D = o["node"]
 	if not is_instance_valid(n):
 		return
-	var xf := Transform3D(Basis(Vector3.UP, (o["av"] as Avatar).rotation.y + PI), n.global_position)
-	var sh: Dictionary = game.island.people.shoulders
-	var key := "%d_stand" % OFFICER_V
 	_blood(n.global_position + Vector3(0, 1.0, 0), push.normalized())
-	if sh.has(key):
-		game.ragdolls.spawn(OFFICER_V, xf, sh[key], push, game.foot)
-		n.queue_free()
-		return
-	# (no ragdoll for them here: they fall where they stand, and go after a while)
 	n.collision_layer = 0
-	(o["av"] as Avatar).aim_at(Vector3.INF, true, 1.0)
-	(o["av"] as Avatar).play("die", 1.0, 0.05)
-	get_tree().create_timer(8.0).timeout.connect(func():
+	n.collision_mask = 0
+	n.set_meta("down", true)
+	(o["av"] as Avatar).go_limp(self, n.velocity * 0.5, push)
+	get_tree().create_timer(14.0).timeout.connect(func():
 		if is_instance_valid(n):
 			n.queue_free())
 
-## You take a hit.
-func hurt(dmg: float, _from: Vector3) -> void:
-	if hp <= 0.0:
+## You take a hit (from a point: the way it knocks you). Blood, a flinch, the screen flashes; out of
+## health, you go limp (a ragdoll) and it's WASTED.
+func hurt(dmg: float, from: Vector3) -> void:
+	if hp <= 0.0 or game.foot == null:
 		return
 	hp -= dmg
 	hurt_t = 0.0
+	var you: CharacterBody3D = game.foot
+	var chest := you.global_position + Vector3(0, 1.1, 0)
+	var d := (chest - from)
+	d.y = 0.0
+	d = d.normalized() if d.length() > 0.01 else Vector3.FORWARD
+	game.fx.blood(chest, d, 14, 4.0)
+	game.sfx("body_hit_%d" % randi_range(1, 3), -5.0, randf_range(0.9, 1.0))
+	(you.avatar as Avatar).flinch(d)
 	game.ui.impact_flash(0.35)
 	game.shake = maxf(game.shake, 0.18)
 	if hp <= 0.0:
 		hp = 0.0
+		dying = true
+		aiming = false
+		reload_t = 0.0
+		(you.avatar as Avatar).go_limp(self, you.velocity, d * clampf(dmg * 0.04, 1.5, 4.0) + Vector3(0, 0.6, 0))
+		game.fx.splat(Vector3(chest.x, game.island.height_at(chest.x, chest.z), chest.z) + d * 0.8, 0.7)
 		game.wasted()
+
+## Where the camera looks while you're down: your body.
+func dead_focus() -> Vector3:
+	if game.foot == null:
+		return Vector3.INF
+	var av: Avatar = game.foot.avatar
+	return av.limp.torso_pos() if av.limp else Vector3.INF
 
 # ------------------------------------------------------------------ cars
 
@@ -692,15 +700,7 @@ func _officer_out(u: Dictionary, k: int) -> void:
 	var av := Avatar.new()
 	n.add_child(av)
 	av.setup("male-c", "", game.toon)        # (the one in the police uniform)
-	if av.skel:
-		var ba := BoneAttachment3D.new()
-		ba.bone_name = "arm-right"
-		av.skel.add_child(ba)
-		var g := MeshInstance3D.new()
-		g.mesh = Weapons.mesh(Weapons.LIST[0], 0)
-		g.material_override = game.toon
-		g.transform = hand_xf(Weapons.LIST[0])
-		ba.add_child(g)
+	av.hold(Weapons.LIST[0], 0, game.toon)
 	add_child(n)
 	var p := uc.global_position + side
 	n.global_position = Vector3(p.x, game.island.height_at(p.x, p.z) + 0.1, p.z)

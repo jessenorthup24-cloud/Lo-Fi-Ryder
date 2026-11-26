@@ -986,6 +986,10 @@ func _crew_tests() -> void:
 			save.data["guns"] = ["pistol", g]
 			save.data["gun"] = g
 			toggle_foot()
+		if on_foot and args.has("gundie") and time > 4.2 and not has_meta("gd_done"):
+			# (shot dead: the ragdoll, WASTED)
+			set_meta("gd_done", true)
+			gunplay.hurt(150.0, foot.global_position + Vector3(4, 1, 1))
 		if on_foot and args.has("gunhold"):
 			# (aim and hold still: to look at the pose and the reticle)
 			aim_toggle = true
@@ -2501,9 +2505,12 @@ func wasted() -> void:
 	sfx("body_land", -2.0, 0.8)
 	slowmo(0.35, 1.3)
 	police.clear()
-	get_tree().create_timer(1.6, true, false, true).timeout.connect(func():
+	# (down on foot: long enough to watch yourself fall, in game time so the slow motion stretches it)
+	var dead: bool = gunplay.dying
+	get_tree().create_timer(2.2 if dead else 1.6, true, false, not dead).timeout.connect(func():
 		_back_in()
 		gunplay.hp = gunplay.MAX_HP
+		gunplay.dying = false
 		_save_now())
 
 ## Lost them: the stars fade, and the bounty.
@@ -3463,13 +3470,15 @@ func _foot_tick(dt: float) -> void:
 	var ky := (1.0 if held.get("gas", false) else 0.0) - (1.0 if held.get("brake", false) else 0.0)
 	if kx != 0.0 or ky != 0.0:
 		mv = Vector2(kx, ky).normalized()
+	if gunplay.dying:
+		mv = Vector2.ZERO          # (you're down)
 	foot.move = mv
 	foot.cam_yaw = foot_yaw + look_yaw
 	foot.sprint = held.get("sprint", false) or keys.get("sprint", false)
 	if _pressed("jump") or (keys.get("jump", false) and not foot.get_meta("jk", false)):
 		foot.jump_req = true
 	foot.set_meta("jk", keys.get("jump", false))
-	if _pressed("door"):
+	if _pressed("door") and not gunplay.dying:
 		ui_tap()
 		toggle_foot()
 		return
@@ -3484,7 +3493,7 @@ func _foot_tick(dt: float) -> void:
 		ui_tap()
 	foot.set_meta("ak", keys.get("aim", false))
 	var reload_now: bool = _pressed("reload") or keys.get("reload", false)
-	gunplay.tick(dt, fire_now if bool(gunplay.weapon.get("auto", false)) else fire_edge, fire_now, aim_toggle, reload_now)
+	gunplay.tick(dt, fire_edge, fire_now, aim_toggle, reload_now)
 	if not on_foot:
 		return
 	_foot_cam(dt)
@@ -3515,10 +3524,16 @@ func _foot_cam(dt: float) -> void:
 		foot_pitch = lerpf(foot_pitch, 0.32, 1.0 - exp(-dt * 1.5))
 	else:
 		foot_pitch = lerpf(foot_pitch, 0.14, 1.0 - exp(-dt * 3.0 * ak))     # (aiming: level, out at them)
+	var body: Vector3 = gunplay.dead_focus() if gunplay.dying else Vector3.INF
+	if body != Vector3.INF:
+		ak = gunplay.aim_k
+		foot_pitch = lerpf(foot_pitch, 0.7, 1.0 - exp(-dt * 2.0))
 	var yaw := foot_yaw + look_yaw
 	var pitch := clampf(foot_pitch + look_pitch * 0.6 - aim_kick, lerpf(-0.1, -0.45, ak), 1.1)
 	var dist := lerpf(4.6 * cam_zoom, 4.1, ak)
 	var head := foot.get_global_transform_interpolated().origin + Vector3(0, lerpf(1.55, 2.15, ak), 0)
+	if body != Vector3.INF:
+		head = body + Vector3(0, 0.6, 0)      # (down: the camera up and back, on your body as it falls)
 	var back := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
 	var side := Vector3(cos(yaw), 0, -sin(yaw))       # (to your right, looking the way the camera does)
 	var want := head + back * dist + side * lerpf(0.45, 1.6, ak)

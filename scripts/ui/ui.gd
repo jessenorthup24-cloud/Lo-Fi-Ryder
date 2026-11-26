@@ -2754,7 +2754,7 @@ func _guns_tab() -> void:
 	var t := K.label(String(w["name"]), 30, K.INK, 500)
 	t.add_theme_font_override("font", K.font_spaced(500, 3))
 	g_panel.add_child(t)
-	g_panel.add_child(K.label("%d damage · %s · %d rounds" % [int(w["dmg"]) * int(w["pellets"]), "automatic" if w["auto"] else "one a tap", int(w["mag"])], 17, K.INK_SOFT, 500))
+	g_panel.add_child(K.label("%d damage · %s · %d rounds" % [int(w["dmg"]) * int(w["pellets"]), "automatic" if w["auto"] else "semi-auto", int(w["mag"])], 17, K.INK_SOFT, 500))
 	var grid := GridContainer.new()
 	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 8)
@@ -2827,27 +2827,13 @@ func _show_driver(with_gun := false) -> void:
 	if with_gun and av.skel:
 		var s = game.save.data
 		var w: Dictionary = Weapons.by_id(String(s.get("gun", "pistol")))
-		var ba := BoneAttachment3D.new()
-		ba.bone_name = "arm-right"
-		av.skel.add_child(ba)
-		var gm := MeshInstance3D.new()
-		gm.mesh = Weapons.mesh(w, int((s.get("gun_look", {}) as Dictionary).get(String(w["id"]), 0)))
-		gm.material_override = g_mat
-		gm.transform = Gunplay.hand_xf(w)
-		ba.add_child(gm)
-		av.play("holding-both" if w["both"] else "holding-right")
-		# aiming off to the side, gun up (a showroom pose)
+		av.hold(w, int((s.get("gun_look", {}) as Dictionary).get(String(w["id"]), 0)), g_mat)
+		av.play("holding-both")
+		# a showroom pose: both hands on it, aimed off ahead and to their right (in the character's own space,
+		# so it turns round with them on the turntable)
 		if av.aim:
-			av.aim.target = av.global_transform * Vector3(4.0, 1.4, 6.0) if av.is_inside_tree() else Vector3(4, 2, 6)
-			av.aim.both = true
+			av.aim.target_local = Vector3(-0.55, 0.3, 1.4)
 			av.aim.weight = 1.0
-			av.play("holding-both")
-			# (the gun turned onto the same point, once the arms are up)
-			var tw := av.create_tween()
-			tw.tween_interval(0.12)
-			tw.tween_callback(func():
-				if is_instance_valid(gm) and av.aim:
-					Gunplay.aim_gun(gm, w, av.aim.target))
 
 func _show_car(d: Dictionary) -> void:
 	for c in g_car.get_children():
