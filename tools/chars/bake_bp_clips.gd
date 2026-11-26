@@ -52,6 +52,7 @@ func _init() -> void:
 				if w in nm.trim_prefix(pre + "_"):
 					loops = false
 			a.loop_mode = Animation.LOOP_LINEAR if loops else Animation.LOOP_NONE
+			a.optimize(0.01, 0.01, 3)       # (keys that change nothing you'd see: gone; the download's half the size)
 			if lib.has_animation(nm):
 				nm += "_b"
 			lib.add_animation(nm, a)
