@@ -1029,6 +1029,18 @@ func _crew_tests() -> void:
 		keys.sort_custom(func(a, b): return int(groups[a][1]) > int(groups[b][1]))
 		for k in keys.slice(0, 30):
 			print("PERF %-34s nodes %5d  tris %9d  range %.0f" % [k, groups[k][0], groups[k][1], groups[k][2]])
+	if args.has("bailtest") and state == DRIVE:
+		# (floor it, jump out at speed, see you thrown and back up)
+		if not on_foot and not has_meta("bt"):
+			held["gas"] = time > 2.5
+			if absf(car.speed) > 14.0:
+				set_meta("bt", true)
+				held["gas"] = false
+				toggle_foot()
+				print("BAIL out at %.0f kmh on_foot=%s limp=%s hp=%.0f" % [car.speed * 3.6, on_foot, foot.avatar.limp != null if foot else false, gunplay.hp])
+		if on_foot and has_meta("bt") and not has_meta("bt2") and foot.down_t <= 0.0:
+			set_meta("bt2", true)
+			print("BAIL up at t=%.1f limp=%s anim=%s" % [time, foot.avatar.limp != null, foot.avatar.current()])
 	if args.has("guntest") and state == DRIVE:
 		# a test: out at 3 s with the gun given, shoot at whoever's in front for a while; wanted, officers come
 		if not has_meta("gt_out") and time > 3.0:
@@ -1051,7 +1063,7 @@ func _crew_tests() -> void:
 			set_meta("et", true)
 			toggle_foot()
 			print("ENTER started on_foot=", on_foot)
-		if args.has("entertest") and time > 5.5 and not has_meta("et2"):
+		if args.has("entertest") and time > 9.0 and not has_meta("et2"):
 			set_meta("et2", true)
 			print("ENTER after on_foot=", on_foot, " state=", state)
 		if on_foot and args.has("gunidle"):
@@ -3491,9 +3503,9 @@ func _exit_car() -> void:
 	if challenge_on():
 		ui.toast("Not in the middle of a challenge", "car")
 		return
-	if absf(car.speed) > 4.0:
-		ui.toast("Slow down to get out", "car")
-		return
+	# moving: you bail out, thrown down at the car's speed (and hurt by it); it rolls on without you
+	var bail_v := absf(car.speed)
+	var bail := bail_v > 4.0
 	var xf := car.global_transform
 	var side := -xf.basis.x          # (the driver's side: the car's left)
 	side.y = 0.0
@@ -3518,41 +3530,107 @@ func _exit_car() -> void:
 	aim_toggle = false
 	ui.set_foot(true)
 	sfx("door", -6.0) if sound._stream("door") else sfx("bump", -10.0, 1.4)
-	foot.avatar.play_once("exit_car", 2.4, 1.6, 1.2)      # (up out of the seat and a step away)
+	if bail:
+		car.handbrake = 0.0
+		var thrown: Vector3 = car.linear_velocity * 0.85 + side * 3.0 + Vector3.UP * 2.5
+		foot.knock_down(self, thrown, clampf(1.8 + bail_v * 0.03, 1.8, 3.2))
+		var dmg := clampf((bail_v - 9.0) * 1.6, 0.0, 85.0)
+		if dmg > 0.0:
+			gunplay.hurt(dmg, foot.global_position - thrown.normalized())
+		buzz(60, 1.0)
+		shake = maxf(shake, 0.3)
+	else:
+		foot.avatar.play_once("exit_car", 1.8, 2.3, 1.35)      # (up out of the seat and a step away)
 
 ## In again: the car you got out of, a parked one, or one off the road (you take it: its driver runs).
-## First a moment at the door (turned to it, the door opening), then you're in.
-var _enter_wait := 0.0
-var _enter_t := {}
+## Not straight in: you walk round to the driver's door, turn to it, open it and climb in (the clip, while
+## you're eased into the seat), and then you're driving. Push the stick to call it off.
+var _enter := {}               # {t (the target), car (its body), phase: walk/door, time}
 func _enter_car() -> void:
-	if foot == null or _enter_wait > 0.0:
+	if foot == null or not _enter.is_empty() or foot.down_t > 0.0:
 		return
 	var t := _enter_target()
 	if t.is_empty():
 		ui.toast("Walk up to a car to get in", "car")
 		return
-	var at: Vector3 = car.global_position
+	var body: Node3D = car
 	if String(t["kind"]) == "parked":
-		at = (t["pk"]["node"] as Node3D).global_position
+		body = t["pk"]["node"]
 	elif String(t["kind"]) == "traffic":
-		at = (t["c"]["body"] as Node3D).global_position
-	var to := at - foot.global_position
-	if Vector2(to.x, to.z).length() > 0.3:
-		foot.facing = atan2(-to.x, -to.z)
-		foot.avatar.rotation.y = foot.facing + PI
-	foot.avatar.play_once("enter_car", 0.6, 0.75, 1.4)
-	foot.velocity = Vector3.ZERO
-	_enter_t = t
-	_enter_wait = 0.55
+		body = t["c"]["body"]
+		t["c"]["v"] = 0.0           # (it waits for you)
+		t["c"]["wait"] = 99.0
+	_enter = {"t": t, "car": body, "phase": "walk", "time": 0.0}
 
-func _enter_tick(dt: float) -> bool:
-	if _enter_wait <= 0.0:
-		return false
-	_enter_wait -= dt
+func _enter_door(body: Node3D, w: float) -> Array:
+	var xf := body.global_transform
+	var left := -xf.basis.x
+	left.y = 0.0
+	left = left.normalized()
+	var fwd := -xf.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	var door := xf.origin + left * (w * 0.5 + 0.55) + fwd * 0.35
+	var seat := xf.origin + left * (w * 0.18) + fwd * 0.2
+	door.y = island.height_at(door.x, door.z)
+	return [door, seat, atan2(left.x, left.z)]       # (facing: toward the car, from its left)
+
+func _enter_tick(dt: float) -> void:
+	if _enter.is_empty() or foot == null:
+		return
+	var body: Node3D = _enter["car"]
+	if not is_instance_valid(body):
+		_enter_cancel()
+		return
+	_enter["time"] = float(_enter["time"]) + dt
+	var w: float = car.info["width"] if body == car else 1.9
+	var dd: Array = _enter_door(body, w)
+	var door: Vector3 = dd[0]
+	if String(_enter["phase"]) == "walk":
+		if stick.length() > 0.5 and float(_enter["time"]) > 0.2:
+			_enter_cancel()
+			return
+		var to := door - foot.global_position
+		to.y = 0.0
+		if to.length() < 0.35 or float(_enter["time"]) > 4.0:
+			# at the door: turn to the car and open up
+			_enter["phase"] = "door"
+			_enter["time"] = 0.0
+			_enter["from"] = foot.global_position
+			foot.scripted = true
+			foot.facing = float(dd[2]) + PI
+			foot.avatar.play_once("enter_car", 0.2, 2.2, 1.35)
+			var tt: Dictionary = _enter["t"]
+			if String(tt["kind"]) == "traffic" and not tt["c"].get("driver_out", false):
+				_driver_out(tt["c"])
+			return
+		# walk there (the stick's own frame: forward is where the camera looks)
+		var fwd := Vector3(-sin(foot.cam_yaw), 0, -cos(foot.cam_yaw))
+		var rgt := Vector3(cos(foot.cam_yaw), 0, -sin(foot.cam_yaw))
+		var dn := to.normalized() * clampf(to.length() * 1.5, 0.35, 0.75)
+		foot.move = Vector2(dn.dot(rgt), dn.dot(fwd))
+		return
+	# the door: the clip plays; over its second half you're eased in onto the seat
 	foot.move = Vector2.ZERO
-	if _enter_wait <= 0.0:
-		_enter_car_now(_enter_t)
-	return true
+	var k := clampf((float(_enter["time"]) - 1.0) / 1.1, 0.0, 1.0)
+	var seat: Vector3 = dd[1]
+	foot.global_position = (_enter["from"] as Vector3).lerp(Vector3(seat.x, door.y + 0.35 * k, seat.z), k * k)
+	if float(_enter["time"]) >= 2.2:
+		var t: Dictionary = _enter["t"]
+		_enter = {}
+		if foot:
+			foot.scripted = false
+		_enter_car_now(t)
+
+func _enter_cancel() -> void:
+	if not _enter.is_empty():
+		var t: Dictionary = _enter["t"]
+		if String(t["kind"]) == "traffic":
+			t["c"]["wait"] = 0.5
+	_enter = {}
+	if foot:
+		foot.scripted = false
+		foot.avatar.lock_t = 0.0
 
 func _enter_car_now(t: Dictionary) -> void:
 	if foot == null or t.is_empty():
@@ -3627,11 +3705,10 @@ func _traffic_def(model: String) -> Dictionary:
 		"engine": "truck" if heavy else "small", "pitch": 0.8 if heavy else 1.0}
 
 ## You take a car off the road: its driver jumps out and runs, it's yours; the one you had stays parked.
-func _take_traffic(c: Dictionary) -> void:
-	var b: Node3D = c["body"]
-	var xf := b.global_transform
-	var model := String(c["model"])
-	# the driver bails out of the far side and legs it
+## A car's being taken: its driver climbs out of the far side (the clip), then legs it.
+func _driver_out(c: Dictionary) -> void:
+	c["driver_out"] = true
+	var xf := (c["body"] as Node3D).global_transform
 	var side := xf.basis.x
 	side.y = 0.0
 	var dp := xf.origin + side.normalized() * (float(c["w"]) * 0.5 + 0.8)
@@ -3643,6 +3720,17 @@ func _take_traffic(c: Dictionary) -> void:
 	if not pr.is_empty():
 		pr["d"] = 0.0
 		pr["wdir"] = 1.0
+		pr["exit_t"] = 1.6
+		pr["flee"] = 6.0
+		pr["face"] = atan2(side.x, side.z)
+		island.people.make_live(pr)
+
+func _take_traffic(c: Dictionary) -> void:
+	var b: Node3D = c["body"]
+	var xf := b.global_transform
+	var model := String(c["model"])
+	if not c.get("driver_out", false):
+		_driver_out(c)
 	traffic.take(c, foot.global_position, -cam.global_transform.basis.z)
 	_swap_into(_traffic_def(model), 0, xf, {})
 	save.add_stat("cars_taken", 1)
@@ -3718,8 +3806,10 @@ func _foot_tick(dt: float) -> void:
 		mv = Vector2(kx, ky).normalized()
 	if gunplay.dying:
 		mv = Vector2.ZERO          # (you're down)
+	if foot.down_t > 0.0 or foot.scripted:
+		mv = Vector2.ZERO
 	foot.move = mv
-	_enter_tick(dt)          # (at a car's door: stood still a moment, then in)
+	_enter_tick(dt)          # (walking round to a car's door and climbing in)
 	if not on_foot or foot == null:
 		return
 	foot.cam_yaw = foot_yaw + look_yaw
@@ -3737,8 +3827,9 @@ func _foot_tick(dt: float) -> void:
 	if keys.get("swap", false) and not foot.get_meta("sk", false):
 		gunplay.cycle()
 	foot.set_meta("sk", keys.get("swap", false))
-	var fire_now: bool = held.get("fire", false) or keys.get("fire", false)
-	var fire_edge: bool = _pressed("fire") or (keys.get("fire", false) and not foot.get_meta("fk", false))
+	var busy: bool = foot.down_t > 0.0 or foot.scripted or not _enter.is_empty()
+	var fire_now: bool = (held.get("fire", false) or keys.get("fire", false)) and not busy
+	var fire_edge: bool = (_pressed("fire") or (keys.get("fire", false) and not foot.get_meta("fk", false))) and not busy
 	foot.set_meta("fk", keys.get("fire", false))
 	if _pressed("aim") or (keys.get("aim", false) and not foot.get_meta("ak", false)):
 		aim_toggle = not aim_toggle

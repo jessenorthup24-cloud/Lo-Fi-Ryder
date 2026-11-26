@@ -40,7 +40,17 @@ func setup(isl: Node, id: String, acc: String, mat: Material) -> void:
 	add_child(avatar)
 	avatar.setup(id, acc, mat)
 
+var scripted := false          # the game's moving you (climbing into a car): no walking, no physics
+var down_t := 0.0              # knocked flat (bailed out of a moving car): ragdolling, then up again
+
 func _physics_process(dt: float) -> void:
+	if scripted:
+		velocity = Vector3.ZERO
+		avatar.rotation.y = facing + PI
+		return
+	if down_t > 0.0:
+		_down_tick(dt)
+		return
 	var m := move.limit_length(1.0)
 	var fwd := Vector3(-sin(cam_yaw), 0, -cos(cam_yaw))
 	var rgt := Vector3(cos(cam_yaw), 0, -sin(cam_yaw))
@@ -115,3 +125,31 @@ func place(p: Vector3, yaw: float) -> void:
 	velocity = Vector3.ZERO
 	facing = yaw
 	avatar.rotation.y = facing + PI
+
+## Thrown down (out of a moving car): the ragdoll takes over, moving `vel`; a couple of seconds later you get
+## up where the body ended up.
+func knock_down(world: Node3D, vel: Vector3, t := 2.4) -> void:
+	down_t = t
+	velocity = Vector3.ZERO
+	avatar.go_limp(world, vel, Vector3(0, 1.0, 0))
+
+func _down_tick(dt: float) -> void:
+	down_t -= dt
+	var tp: Vector3 = avatar.limp.torso_pos() if avatar.limp else Vector3.INF
+	if down_t > 0.0 or tp == Vector3.INF:
+		if tp != Vector3.INF:
+			# (the capsule follows the body along the ground, so the camera does too)
+			var at := Vector3(tp.x, island.height_at(tp.x, tp.z), tp.z)
+			global_position = Vector3(at.x, maxf(at.y, global_position.y - 0.5), at.z)
+		if down_t <= 0.0:
+			_get_up(global_position)
+		return
+	_get_up(Vector3(tp.x, island.height_at(tp.x, tp.z) + 0.05, tp.z))
+
+func _get_up(p: Vector3) -> void:
+	down_t = 0.0
+	global_position = p
+	velocity = Vector3.ZERO
+	avatar.recover()
+	avatar.rotation.y = facing + PI
+	avatar.play_once("get_up", 0.0, 1.1, 1.2)

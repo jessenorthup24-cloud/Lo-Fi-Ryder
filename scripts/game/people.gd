@@ -181,6 +181,15 @@ func _live_tick(dt: float, you: Vector3) -> void:
 			break
 		_make_live(e[1])
 
+## Make this one the real character now (near or not: a driver climbing out of a car you're taking).
+func make_live(pr: Dictionary) -> void:
+	if pr.is_empty() or pr.has("live"):
+		return
+	if _live.size() >= LIVE_N:
+		_unlive(_live[0])
+	_make_live(pr)
+	pr["act"] = "idle"
+
 func _make_live(pr: Dictionary) -> void:
 	var av := Avatar.new()
 	add_child(av)
@@ -211,6 +220,11 @@ func _place_live(pr: Dictionary, base: Vector3, _t: float) -> void:
 	av.rotation.y = float(pr["face"])
 	if float(pr.get("flinch", 0.0)) > 0.9 and pr.has("flinch_ax"):
 		av.flinch(Vector3(pr["flinch_ax"]).cross(Vector3.UP))
+	if float(pr.get("exit_t", 0.0)) > 0.0:
+		if not pr.get("exit_played", false):
+			pr["exit_played"] = true
+			av.play_once("exit_car", 1.8, 1.6, 1.4)
+		return
 	if float(pr.get("flee", 0.0)) > 0.0:
 		av.play("sprint" if pr.has("path") else "terrified")
 	elif pr.has("path"):
@@ -241,7 +255,9 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 			_place(pr, t)
 			continue
 		var walking: bool = pr.has("path")
-		if walking and pr["y"] == 0.0:
+		if float(pr.get("exit_t", 0.0)) > 0.0:
+			pr["exit_t"] = float(pr["exit_t"]) - dt      # (climbing out of a car: going nowhere yet)
+		elif walking and pr["y"] == 0.0:
 			_walk(pr, dt)
 		var d: Vector3 = car_pos - pr["pos"]
 		d.y = 0

@@ -206,6 +206,10 @@ func _reload() -> void:
 ## and the magazine swapped while reloading; carried at the low ready otherwise.
 func _pose(you: CharacterBody3D, dt: float) -> void:
 	var av: Avatar = you.avatar
+	if av.lock_t > 0.0 or you.get("down_t") > 0.0 or you.get("scripted"):
+		# (a one-off move playing, or knocked flat: the arms are the animation's)
+		av.aim_at(Vector3.INF, true, dt * 4.0)
+		return
 	var moving := Vector3(you.velocity.x, 0, you.velocity.z).length() > 0.5
 	var y: float = you.facing
 	var ahead := Vector3(-sin(y), 0, -cos(y))
@@ -750,6 +754,10 @@ func _officers_tick(dt: float, you: CharacterBody3D) -> void:
 		var to := yp - n.global_position
 		to.y = 0.0
 		var d := to.length()
+		if av.lock_t > 0.0:
+			# (still climbing out of the car)
+			av.aim_at(Vector3.INF, true, dt)
+			continue
 		var want := Vector3.ZERO
 		if d > 11.0:
 			want = to.normalized() * 4.6
@@ -799,7 +807,10 @@ func _officer_out(u: Dictionary, k: int) -> void:
 	add_child(n)
 	var p := uc.global_position + side
 	n.global_position = Vector3(p.x, game.island.height_at(p.x, p.z) + 0.1, p.z)
-	officers.append({"node": n, "av": av, "hp": OFFICER_HP, "cool": randf_range(0.8, 1.6), "unit": u, "dead": false})
+	# out of the car first (facing away from it), then into it
+	av.rotation.y = atan2(side.x, side.z)
+	av.play_once("exit_car", 1.8, 1.7, 1.4)
+	officers.append({"node": n, "av": av, "hp": OFFICER_HP, "cool": randf_range(0.8, 1.6) + 1.7, "unit": u, "dead": false})
 
 ## Officers gone (you're back in a car, or it's over); the cars they came in pick up the chase again.
 func clear_officers() -> void:

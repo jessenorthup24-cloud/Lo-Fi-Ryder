@@ -204,7 +204,7 @@ func _clip(n: String) -> String:
 		"": {"idle": "q_idle", "walk": "loco_walking", "sprint": "loco_running", "jump": "loco_jump", "fall": "act_falling_idle",
 			"land": "act_hard_landing", "holding-both": "q_idle", "punch": "q_punch", "hit": "q_recievehit", "die": "q_death",
 			"sit": "x_sitting_idle", "drive": "x_driving", "enter_car": "x_entering_car", "exit_car": "x_exiting_car",
-			"terrified": "x_terrified", "wave": "x_waving", "talk": "x_talking", "text": "x_texting_while_standing",
+			"terrified": "x_terrified", "get_up": "q_standup", "wave": "x_waving", "talk": "x_talking", "text": "x_texting_while_standing",
 			"phone": "x_talking_phone_pacing", "lean": "x_leaning", "dance": "x_samba_dancing", "dance2": "x_gangnam_style",
 			"hurt_idle": "hurt_injured_idle", "hurt_walk": "hurt_injured_walk", "hurt_run": "hurt_injured_run"},
 		"pistol": {"idle": "x_pistol_idle", "walk": "pistol_walk", "sprint": "pistol_run", "jump": "pistol_jump",
@@ -326,12 +326,24 @@ func go_limp(world: Node3D, vel: Vector3, push: Vector3) -> void:
 	if gun:
 		gun.visible = false
 
+## Back from limp (knocked down, not dead): the ragdoll gone, the bones back to the animation, the gun back.
+func recover() -> void:
+	if limp == null:
+		return
+	limp.queue_free()          # (its bodies go with it)
+	limp = null
+	if gun:
+		gun.visible = true
+	_now = ""
+
 func _process(dt: float) -> void:
 	lock_t = maxf(0.0, lock_t - dt)
 	if aim:
 		aim.flinch = move_toward(aim.flinch, 0.0, dt * 3.5)
 	if gun == null or limp != null:
 		return
+	# (put away while a one-off move plays: getting in or out, a landing)
+	gun.visible = lock_t <= 0.0
 	# the gun: in the fist, turned to face where the arms point (blended in with them); lowered, it points
 	# ahead and down
 	var ba := gun.get_parent() as Node3D
