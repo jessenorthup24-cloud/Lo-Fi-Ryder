@@ -5,6 +5,7 @@ extends Node
 const P := preload("res://scripts/core/palette.gd")
 
 const DAY_LENGTH := 840.0     # seconds for 24 hours
+const FOG := 0.0019             # the haze: a smoggy depth to the far end of town
 const SUN_STEPS := 60.0        # the sun's direction changes this many times a game hour
 # time of day keys: hour, sky top, horizon, sun colour, sun energy, ambient colour, ambient energy
 const KEYS := [
@@ -22,7 +23,8 @@ const KEYS := [
 
 var env: Environment
 var sun: DirectionalLight3D
-var sky_mat: ProceduralSkyMaterial
+var sky_mat: ProceduralSkyMaterial   # (not drawn: holds the colours the time of day and weather work out)
+var sky_sm: ShaderMaterial           # the sky that's drawn (shaders/sky.gdshader): sun, moon, stars, clouds
 var hour := 9.5
 var running := true
 var season := 1
@@ -38,14 +40,17 @@ func setup(parent: Node, toon: ShaderMaterial) -> void:
 	sky_mat = ProceduralSkyMaterial.new()
 	sky_mat.sun_angle_max = 18.0
 	sky_mat.sky_curve = 0.12
-	sky.sky_material = sky_mat
+	sky_sm = ShaderMaterial.new()
+	sky_sm.shader = load("res://shaders/sky.gdshader")
+	sky.sky_material = sky_sm
 	sky.radiance_size = Sky.RADIANCE_SIZE_32
+	sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL     # (the clouds drift: the light from the sky updates a bit at a time)
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.fog_enabled = true
-	env.fog_density = 0.00105
-	env.fog_sky_affect = 0.0
-	env.fog_aerial_perspective = 0.0
+	env.fog_density = FOG
+	env.fog_sky_affect = 0.15
+	env.fog_aerial_perspective = 0.25        # (the far end of town goes soft and hazy: depth)
 	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 	# bloom: bright things (lit windows, lamps, the sun on white walls, neon) bleed a soft glow
 	env.glow_enabled = true
@@ -255,14 +260,17 @@ func _apply() -> void:
 		az = lerpf(-60.0, 240.0, nt)
 	sun.rotation_degrees = Vector3(-elev, az, 0)
 	# (at night the light is the moon's: the sky doesn't draw a disc for it, which came out as a dark blot)
-	sun.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_AND_SKY if day else DirectionalLight3D.SKY_MODE_LIGHT_ONLY
+	sun.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_AND_SKY      # (the sky shader draws the sun, or the moon)
 	# with the sun (or the moon) low, shadows are long and grazing, and that's when they turn speckled and
 	# patchy: they fade back as it gets low, rather than glitch
 	sun.shadow_opacity = clampf((elev - 6.0) / 16.0, 0.35, 1.0)
 	sun.light_color = k[2]
 	sun.light_energy = k[3]
 	night = clampf(1.0 - smoothstep(0.2, 0.55, float(k[3])), 0.0, 1.0)
-	env.fog_density = 0.00105
+	env.fog_density = FOG
+	# smog: a warm grey-brown haze in the day, blue-grey at night
+	env.fog_light_color = env.fog_light_color.lerp(Color(0.72, 0.66, 0.58).lerp(Color(0.16, 0.18, 0.24), night), 0.35)
+	var cloud := 0.3
 	if weather:
 		# cloud: a grey sky, a dimmer sun with fainter shadows, flatter light; fog and rain thicken the air;
 		# lightning flashes the lot
@@ -276,8 +284,16 @@ func _apply() -> void:
 		sun.light_energy *= 1.0 - 0.6 * cl
 		sun.shadow_opacity *= 1.0 - 0.7 * cl
 		env.ambient_light_energy = env.ambient_light_energy * (1.0 + 0.3 * cl) + fl * 1.4
-		env.fog_density = 0.00105 + fg * 0.014 + float(weather.rain) * 0.0035
+		env.fog_density = FOG + fg * 0.014 + float(weather.rain) * 0.0035
+		cloud = clampf(0.3 + cl * 0.7, 0.0, 1.0)
 		env.fog_light_color = env.fog_light_color.lerp(grey.lightened(0.15), maxf(cl, fg) * 0.8)
+	sky_sm.set_shader_parameter("top_color", sky_mat.sky_top_color)
+	sky_sm.set_shader_parameter("horizon_color", sky_mat.sky_horizon_color)
+	sky_sm.set_shader_parameter("ground_color", sky_mat.ground_bottom_color)
+	sky_sm.set_shader_parameter("night", night)
+	sky_sm.set_shader_parameter("cloud_cover", cloud)
+	sky_sm.set_shader_parameter("sun_tint", (k[2] as Color).lerp(Color.WHITE, 0.3))
+	sky_sm.set_shader_parameter("cloud_color", Color(1, 1, 1).lerp((k[1] as Color), 0.35).lerp(Color(0.16, 0.17, 0.22), night * 0.85))
 	for m in mats:
 		m.set_shader_parameter("night", night)
 		m.set_shader_parameter("rim_color", (k[1] as Color).lerp(Color.WHITE, 0.3))
