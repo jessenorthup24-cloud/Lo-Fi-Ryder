@@ -394,6 +394,7 @@ func _build_hud() -> void:
 	tl.add_theme_constant_override("separation", 14)
 	hud.add_child(tl)
 	var pb := K.round_button("pause", K.PAPER, K.LINE, 72)
+	pb.size_flags_vertical = Control.SIZE_SHRINK_BEGIN      # (a circle: not stretched down beside the goal lines)
 	_tap(pb, func(): game.pause())
 	tl.add_child(pb)
 	var info := VBoxContainer.new()
@@ -2105,6 +2106,10 @@ func intro_card(title_txt: String, sub: String) -> void:
 	tw.chain().tween_callback(root.queue_free)
 
 func toast(text: String, icon := "", col := K.PAPER, icol := K.INK, hold := 2.2) -> void:
+	# (the same one already up: not stacked twice)
+	for c in toasts.get_children():
+		if c.get_meta("text", "") == text and not c.is_queued_for_deletion():
+			return
 	# (always a dark glass pill: the toast's own colour goes to its icon and a faint edge)
 	var tinted := col.a > 0.95 and col.get_luminance() > 0.08 and col != K.PAPER
 	var p := PanelContainer.new()
@@ -2124,12 +2129,18 @@ func toast(text: String, icon := "", col := K.PAPER, icol := K.INK, hold := 2.2)
 	if icon != "":
 		hb.add_child(Icon.new(icon, icol, 34))
 	hb.add_child(K.label(text, 24, K.INK, 600))
+	p.set_meta("text", text)
 	toasts.add_child(p)
 	p.modulate.a = 0.0
-	var t := create_tween()
-	t.tween_property(p, "modulate:a", 1.0, 0.25)
+	p.scale = Vector2(0.86, 0.86)
+	# (a little pop in from its middle, a fade and a shrink away)
+	p.resized.connect(func(): p.pivot_offset = p.size * 0.5)
+	var t := p.create_tween()
+	t.tween_property(p, "modulate:a", 1.0, 0.18)
+	t.parallel().tween_property(p, "scale", Vector2.ONE, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	t.tween_interval(hold)
-	t.tween_property(p, "modulate:a", 0.0, 0.4)
+	t.tween_property(p, "modulate:a", 0.0, 0.3)
+	t.parallel().tween_property(p, "scale", Vector2(0.94, 0.94), 0.3).set_ease(Tween.EASE_IN)
 	t.tween_callback(p.queue_free)
 
 func discovered(name: String) -> void:
@@ -2827,7 +2838,7 @@ func open_cards(from_pause := false) -> void:
 	lvb.add_child(bar)
 	lvb.add_child(K.label("%s / %s XP to the next level (a new pack): drift, race, explore, pull heists" % [K.fmt(int(lv[1])), K.fmt(int(lv[2]))], 16, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
 	var n: int = Cards.packs(sv)
-	var ob := K.button(("Open pack  (%d)" % n) if n > 0 else "No packs: level up", Color("ffb020") if n > 0 else K.PAPER, Color("c98500") if n > 0 else K.LINE, 26, 300, 76, "star")
+	var ob := K.button(("Open pack  (%d)" % n) if n > 0 else "No packs: level up", K.CORAL if n > 0 else K.PAPER, K.CORAL_DK if n > 0 else K.LINE, 26, 300, 76, "star")
 	ob.disabled = n <= 0
 	_tap(ob, func():
 		if Cards.packs(game.save) > 0:

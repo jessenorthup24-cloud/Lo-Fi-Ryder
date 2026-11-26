@@ -1140,6 +1140,21 @@ func _crew_tests() -> void:
 		keys.sort_custom(func(a, b): return int(groups[a][1]) > int(groups[b][1]))
 		for k in keys.slice(0, 30):
 			print("PERF %-34s nodes %5d  tris %9d  range %.0f" % [k, groups[k][0], groups[k][1], groups[k][2]])
+	if args.has("uitest") and state == DRIVE and time > 3.5 and not has_meta("ui_done"):
+		# a test: a screen opened and photographed (uitest=pause|settings|cards|trophies), then quit
+		set_meta("ui_done", true)
+		var which := String(args["uitest"])
+		pause()
+		match which:
+			"settings":
+				ui.open_settings(true)
+			"cards":
+				ui.open_cards(true)
+			"trophies":
+				ui.open_achievements(true)
+		get_tree().create_timer(1.5).timeout.connect(func():
+			get_viewport().get_texture().get_image().save_png("/tmp/audit2/ui_%s.png" % which)
+			get_tree().quit())
 	if args.has("busttest") and state == DRIVE:
 		if time > 4.0 and not has_meta("bu"):
 			set_meta("bu", true)
