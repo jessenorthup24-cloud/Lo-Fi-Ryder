@@ -28,6 +28,7 @@ const OnFoot := preload("res://scripts/game/onfoot.gd")
 const Gunplay := preload("res://scripts/game/gunplay.gd")
 const Heist := preload("res://scripts/game/heist.gd")
 const Property := preload("res://scripts/game/property.gd")
+const CarDoor := preload("res://scripts/game/car_door.gd")
 const Cards := preload("res://scripts/game/cards.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
@@ -673,6 +674,8 @@ func car_changed() -> void:
 
 ## Straight back in the car, wherever you are (the title, a reset, a challenge starting).
 func _back_in() -> void:
+	CarDoor.close(_door)
+	_exit_seq = {}
 	if gunplay:
 		gunplay.clear_officers()
 	if foot != null:
@@ -1068,11 +1071,11 @@ func _crew_tests() -> void:
 			var sk: Skeleton3D = av.skel
 			print("DIE limp=", av.limp != null, " bodies=", av.limp.bodies.size() if av.limp else -1, " torso=", av.limp.torso_pos() if av.limp else Vector3.INF,
 				" hips=", (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Hips"))).origin, " you=", foot.global_position, " vis=", av.is_visible_in_tree(), " anim=", av.current(), " playing=", av.anim.is_playing(), " ts=", Engine.time_scale, " t=", time)
-		if args.has("entertest") and time > 4.5 and not has_meta("et"):
+		if args.has("entertest") and time > 6.0 and not has_meta("et"):
 			set_meta("et", true)
 			toggle_foot()
 			print("ENTER started on_foot=", on_foot)
-		if args.has("entertest") and time > 9.0 and not has_meta("et2"):
+		if args.has("entertest") and time > 10.5 and not has_meta("et2"):
 			set_meta("et2", true)
 			print("ENTER after on_foot=", on_foot, " state=", state)
 		if on_foot and args.has("gunidle"):
@@ -3612,6 +3615,7 @@ func _exit_car() -> void:
 		# out of the seat: the clip from the start, eased from the seat to the door
 		var seat: Vector3 = car.global_transform * Vector3(-car.info["width"] * 0.18, 0.0, -0.2)
 		_exit_seq = {"from": Vector3(seat.x, foot.global_position.y, seat.z), "to": foot.global_position, "time": 0.0}
+		_door_open(car)
 		foot.scripted = true
 		foot.global_position = _exit_seq["from"]
 		foot.avatar.play_once("exit_car", 0.5, 2.4, 1.45)
@@ -3671,6 +3675,7 @@ func _enter_tick(dt: float) -> void:
 			_enter["phase"] = "door"
 			_enter["time"] = 0.0
 			_enter["from"] = foot.global_position
+			_door_open(body)
 			foot.scripted = true
 			foot.facing = float(dd[2])           # (looking at the car: onfoot faces its avatar to facing + PI)
 			foot.avatar.play_once("enter_car", 0.2, 2.2, 1.35)
@@ -3684,14 +3689,17 @@ func _enter_tick(dt: float) -> void:
 		var dn := to.normalized() * clampf(to.length() * 1.5, 0.35, 0.75)
 		foot.move = Vector2(dn.dot(rgt), dn.dot(fwd))
 		return
-	# the door: the clip plays; over its second half you're eased in onto the seat
+	# the door: the clip plays (the door swung open as the hand reaches it); over its second half you're
+	# eased in onto the seat
 	foot.move = Vector2.ZERO
+	CarDoor.swing(_door, (float(_enter["time"]) - 0.25) / 0.5)
 	var k := clampf((float(_enter["time"]) - 1.0) / 1.1, 0.0, 1.0)
 	var seat: Vector3 = dd[1]
 	foot.global_position = (_enter["from"] as Vector3).lerp(Vector3(seat.x, door.y + 0.35 * k, seat.z), k * k)
 	if float(_enter["time"]) >= 2.2:
 		var t: Dictionary = _enter["t"]
 		_enter = {}
+		CarDoor.close(_door)
 		if foot:
 			foot.scripted = false
 		_enter_car_now(t)
@@ -3701,14 +3709,33 @@ func _exit_tick(dt: float) -> void:
 	if _exit_seq.is_empty() or foot == null:
 		return
 	_exit_seq["time"] = float(_exit_seq["time"]) + dt
-	var k := clampf(float(_exit_seq["time"]) / 1.6, 0.0, 1.0)
+	var et := float(_exit_seq["time"])
+	CarDoor.swing(_door, minf(et / 0.4, (2.3 - et) / 0.5))       # (open, then shut behind you)
+	var k := clampf(et / 1.6, 0.0, 1.0)
 	foot.global_position = (_exit_seq["from"] as Vector3).lerp(_exit_seq["to"], 1.0 - (1.0 - k) * (1.0 - k))
 	if float(_exit_seq["time"]) >= 2.4 or (stick.length() > 0.5 and k >= 1.0):
 		_exit_seq = {}
+		CarDoor.close(_door)
 		foot.scripted = false
 		foot.avatar.lock_t = 0.0
 
+## The car door that's open (car_door.gd), and opening one on a car (its body: the biggest mesh on it).
+var _door := {}
+func _door_open(body: Node3D) -> void:
+	CarDoor.close(_door)
+	var mi: MeshInstance3D = car.body_node if body == car else null
+	if mi == null:
+		var best := 0.0
+		for m in body.find_children("*", "MeshInstance3D", true, false):
+			var sz: float = (m as MeshInstance3D).get_aabb().size.length() if (m as MeshInstance3D).mesh else 0.0
+			if sz > best:
+				best = sz
+				mi = m
+	if mi:
+		_door = CarDoor.open(mi, mi.material_override)
+
 func _enter_cancel() -> void:
+	CarDoor.close(_door)
 	if not _enter.is_empty():
 		var t: Dictionary = _enter["t"]
 		if String(t["kind"]) == "traffic":
