@@ -114,6 +114,10 @@ func _place(pr: Dictionary, t: float) -> void:
 				Transform3D(lb * Basis(Vector3.BACK, sg * 0.25), lo + lb * (sh[i] as Vector3)))
 		return
 	var b := Basis(Vector3.UP, pr["face"])
+	# shot: a flinch, the body jerked back away from it for a moment
+	var fl: float = pr.get("flinch", 0.0)
+	if fl > 0.0:
+		b = Basis(pr["flinch_ax"], fl * 0.55) * b
 	var bob := Vector3(0, sin(t * 2.0 + pr["phase"]) * 0.008, 0)
 	var swing := 0.0
 	if pr.has("path"):
@@ -128,7 +132,7 @@ func _place(pr: Dictionary, t: float) -> void:
 	for i in 2:
 		var sg := signf((sh[i] as Vector3).x)
 		# arms hang at rest; the right arm waves (both when cheering)
-		var lift: float = pr.get("arms", 0.0)
+		var lift: float = pr.get("arms", 0.0) + fl * 2.2         # (hands up, flinching)
 		if sg > 0.0 or (cheer_t > 0.0 and pr.get("cheering", false)):
 			lift = lerpf(lift, 2.5 + sin(t * 12.0 + pr["phase"] + i) * 0.4, w)
 		var ab := bb * Basis(Vector3.BACK, sg * lift)
@@ -143,6 +147,8 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 	for pr in list:
 		if pr["gone"]:
 			continue
+		if pr.get("flinch", 0.0) > 0.0:
+			pr["flinch"] = maxf(0.0, float(pr["flinch"]) - dt * 3.0)
 		if pr.get("down", false):
 			# knocked down: back on their feet where they were, a good while later, once you're well away
 			pr["down_t"] = float(pr["down_t"]) + dt
@@ -265,6 +271,14 @@ func _stand_up(pr: Dictionary, t: float) -> void:
 	pr["flee"] = 0.0
 	pr["pos"] = pr["home"]
 	_place(pr, t)
+
+## Shot (not down): a flinch away from the bullet's direction d.
+func flinch(pr: Dictionary, d: Vector3) -> void:
+	var ax := Vector3.UP.cross(Vector3(d.x, 0, d.z).normalized())
+	if ax.length() < 0.01:
+		return
+	pr["flinch_ax"] = ax.normalized()
+	pr["flinch"] = 1.0
 
 ## Something awful just happened at `at`: everyone within r runs off (walkers hurry away along their way;
 ## people standing about run a few metres away from it).

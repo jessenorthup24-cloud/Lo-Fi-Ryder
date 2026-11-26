@@ -228,7 +228,7 @@ on cars and upgrades. The day runs in real time on the island and the season fol
   about 15 rifle hits: they smoke, catch fire at about 11 (going up a few seconds later on their own) and blow
   up, knocking down people and officers near them, throwing other cars about (and setting them off) and
   leaving a burnt-out shell. RELOAD (under the swap pill, or X) lowers and tips the gun while the magazine
-  swaps; an empty gun clicks and reloads itself. The swap pill (left of FIRE, or Tab) changes gun. Shots fired
+  swaps; an empty gun clicks and reloads itself. The swap pill (left of FIRE, or Tab) changes gun, and after your last one puts it away (FIRE or AIM draws it again). Drag the finger that's holding FIRE to steer your aim while you shoot. Long guns are shouldered, the body side-on. Shots fired
   bring the police; shooting people and officers brings more. When you're wanted and on foot, police
   cars that reach you stop and the officers get out and come at you with pistols. Your health's the red
   bar under the minimap (it comes back once you're out of a fight). Run out and you're WASTED: a

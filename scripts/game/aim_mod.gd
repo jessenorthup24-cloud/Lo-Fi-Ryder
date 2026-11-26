@@ -12,6 +12,8 @@ var target := Vector3.INF      # world position to aim at (INF: not aiming)
 var target_local := Vector3.INF  # or a point in the skeleton's own space (follows the body round: the garage)
 var weight := 0.0              # eased in and out by the avatar
 var fore := 0.0                # how far along the gun the left hand goes (rig units; 0: both on the grip)
+var shoulder := false          # a long gun, shouldered: the right fist out from the right shoulder (the stock
+                               # back at the shoulder), the body side-on (the holder turns it), the left hand forward
 var flinch := 0.0              # 0..1, a hit knocking the upper body back
 var flinch_axis := Vector3.RIGHT
 
@@ -33,7 +35,10 @@ func _process_modification() -> void:
 		var ti := sk.find_bone("torso")
 		if ti >= 0:
 			var q0 := sk.get_bone_pose_rotation(ti)
-			sk.set_bone_pose_rotation(ti, Quaternion(flinch_axis, flinch * 0.45) * q0)
+			sk.set_bone_pose_rotation(ti, Quaternion(flinch_axis, flinch * 0.7) * q0)
+		var hi := sk.find_bone("head")
+		if hi >= 0:
+			sk.set_bone_pose_rotation(hi, Quaternion(flinch_axis, flinch * 0.5) * sk.get_bone_pose_rotation(hi))
 
 func _aim(sk: Skeleton3D, t: Vector3) -> void:
 	# the torso turns (about the vertical only) toward it, up to a point
@@ -43,7 +48,7 @@ func _aim(sk: Skeleton3D, t: Vector3) -> void:
 		var to := t - tg.origin
 		var yaw := clampf(atan2(to.x, to.z), -1.0, 1.0)
 		var q0 := sk.get_bone_pose_rotation(ti)
-		sk.set_bone_pose_rotation(ti, q0.slerp(Quaternion(Vector3.UP, yaw) * q0, weight * 0.75))
+		sk.set_bone_pose_rotation(ti, q0.slerp(Quaternion(Vector3.UP, yaw) * q0, weight * (0.2 if shoulder else 0.75)))
 	var ri := sk.find_bone("arm-right")
 	var li := sk.find_bone("arm-left")
 	if ri < 0 or li < 0:
@@ -52,6 +57,13 @@ func _aim(sk: Skeleton3D, t: Vector3) -> void:
 	var ls := sk.get_bone_global_pose(li).origin
 	var mid := (rs + ls) * 0.5
 	var half := rs.distance_to(ls) * 0.5
+	if shoulder:
+		# the right arm straight at the target from its shoulder (the stock comes back to the shoulder),
+		# the left reaching to the fore-end
+		var d2 := (t - rs).normalized()
+		_point(sk, ri, Vector3(-1, 0, 0), t)
+		_point(sk, li, Vector3(1, 0, 0), rs + d2 * (ARM + fore))
+		return
 	var dir := (t - mid).normalized()
 	# the grip: out along the aim line from between the shoulders, where the right fist can reach
 	var reach := sqrt(maxf(ARM * ARM - half * half, 0.0)) if ARM > half else 0.05

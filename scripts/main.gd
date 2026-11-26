@@ -3616,7 +3616,7 @@ func _foot_cam(dt: float) -> void:
 	look_pitch = lerpf(look_pitch, look_pitch_t, 1.0 - exp(-dt * 16.0))
 	aim_kick = lerpf(aim_kick, 0.0, 1.0 - exp(-dt * 9.0))
 	# locked on: the view drifts onto them (the reticle settles on the one you're shooting)
-	if gunplay.lock_pos != Vector3.INF and ak > 0.3:
+	if gunplay.lock_pos != Vector3.INF and ak > 0.3 and gunplay.manual_t <= 0.0:
 		var d: Vector3 = gunplay.lock_pos - cam.global_position
 		var want_yaw := atan2(-d.x, -d.z) - look_yaw
 		foot_yaw = lerp_angle(foot_yaw, want_yaw, 1.0 - exp(-dt * 7.0))
@@ -3771,6 +3771,12 @@ func _unhandled_input(e: InputEvent) -> void:
 			wheel_angle = clampf(wrapf(ui.wheel_angle_at(e.position) - wheel_grab, -PI, PI), -WHEEL_MAX, WHEEL_MAX)
 		elif e.index == stick_idx:
 			stick = ui.stick_vec(e.position)
+		# the finger holding FIRE (on foot): dragging it steers the aim, so you can fire and turn at once
+		elif on_foot and touches.get(e.index, "") == "fire":
+			look_yaw_t = wrapf(look_yaw_t - e.relative.x * 0.0045, -PI, PI)
+			look_pitch_t = clampf(look_pitch_t + e.relative.y * 0.0035, -0.25, 1.0)
+			gunplay.manual_t = 0.35
+			look_t = 0.0
 		# slide a thumb from one button to its neighbour
 		elif touches.has(e.index):
 			var c2 := ui.control_at(e.position)

@@ -50,8 +50,12 @@ func _physics_process(dt: float) -> void:
 		spd = SPRINT if sprint else lerpf(WALK, RUN, clampf((m.length() - 0.5) / 0.5, 0.0, 1.0))
 	var want := dir.normalized() * spd if spd > 0.0 else Vector3.ZERO
 	var grounded := is_on_floor()
-	var acc := 30.0 if grounded else 6.0
-	var hv := Vector3(velocity.x, 0, velocity.z).move_toward(want, acc * dt)
+	# a bit of weight: it takes a moment to get going and to stop (stopping's a little quicker)
+	var cur := Vector3(velocity.x, 0, velocity.z)
+	var acc := (9.0 if want.length() > cur.length() else 13.0) if grounded else 4.0
+	if want.length() > 0.1 and cur.length() > 0.5 and want.normalized().dot(cur.normalized()) < 0.3:
+		acc = 16.0       # (a hard change of direction digs in)
+	var hv := cur.move_toward(want, acc * dt)
 	velocity.x = hv.x
 	velocity.z = hv.z
 	if grounded:
@@ -66,7 +70,7 @@ func _physics_process(dt: float) -> void:
 	# face where you're going (quickly, but not snapping)
 	aiming = maxf(0.0, aiming - dt)
 	if hv.length() > 0.4 and aiming <= 0.0:
-		facing = lerp_angle(facing, atan2(-hv.x, -hv.z), 1.0 - exp(-dt * 12.0))
+		facing = lerp_angle(facing, atan2(-hv.x, -hv.z), 1.0 - exp(-dt * 7.5))
 	avatar.rotation.y = facing + PI          # (the Kenney characters face +Z)
 	# below the sea or fallen off the world: back up on land
 	if global_position.y < -6.0:

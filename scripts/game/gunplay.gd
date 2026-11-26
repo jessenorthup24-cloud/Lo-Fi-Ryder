@@ -45,6 +45,8 @@ var _burnt_mat: StandardMaterial3D
 var _recoil := 0.0
 var _mag_swapped := false
 var dying := false              # you're down (a ragdoll), WASTED on its way
+var holstered := false          # the gun's put away (the swap button cycles to it; FIRE or AIM draws again)
+var manual_t := 0.0             # you're steering the aim with the FIRE finger: lock-on doesn't drag the view
 
 func setup(g: Node) -> void:
 	game = g
@@ -80,6 +82,9 @@ func equip() -> void:
 	var av: Avatar = game.foot.avatar if game.foot else null
 	if av == null or av.skel == null:
 		return
+	if holstered:
+		av.hold({}, 0, game.toon)
+		return
 	av.hold(weapon, look, game.toon)
 	gun_node = av.gun
 
@@ -92,14 +97,24 @@ func cycle() -> void:
 		if w["id"] in owned:
 			ids.append(w["id"])
 	var i := ids.find(String(weapon.get("id", "pistol")))
-	s["gun"] = ids[(i + 1) % ids.size()]
+	# your guns in turn, then put away, then the first again
+	if holstered:
+		holstered = false
+		s["gun"] = ids[0]
+	elif i >= ids.size() - 1:
+		holstered = true
+	else:
+		s["gun"] = ids[i + 1]
+	reload_t = 0.0
 	equip()
-	game.ui.popup_text(String(weapon["name"]))
-	game.sfx("mag_in", -8.0, 1.2)
+	game.ui.popup_text("Holstered" if holstered else String(weapon["name"]))
+	game.sfx("mag_in", -8.0, 1.2 if not holstered else 0.8)
 
 func ammo_text() -> String:
 	if weapon.is_empty():
 		return ""
+	if holstered:
+		return "put away"
 	if reload_t > 0.0:
 		return "reloading"
 	return "%d / %d" % [int(ammo.get(weapon["id"], 0)), int(weapon["mag"])]
@@ -114,6 +129,22 @@ func tick(dt: float, fire_tap: bool, fire_held: bool, aim_on: bool, reload: bool
 		aim_k = move_toward(aim_k, 0.0, dt * 4.0)      # (the camera pulls back to watch you fall)
 		lock_pos = Vector3.INF
 		return
+	manual_t = maxf(0.0, manual_t - dt)
+	if holstered:
+		# put away: hands free, walking about like anyone. FIRE or AIM draws it (a moment before it'll fire)
+		aiming = false
+		aim_k = move_toward(aim_k, 0.0, dt * 6.0)
+		lock_pos = Vector3.INF
+		if fire_tap or (aim_on and not aiming):
+			holstered = false
+			equip()
+			cool = 0.3
+			game.sfx("mag_in", -6.0, 1.3)
+		else:
+			(you.avatar as Avatar).aim_at(Vector3.INF, true, dt)
+			_officers_tick(dt, you)
+			_burn_tick(dt)
+			return
 	var semi_wait: float = 0.55 / float(weapon["rate"])
 	var fire: bool = fire_held if bool(weapon.get("auto", false)) else (fire_tap or (fire_held and cool <= -semi_wait))
 	cool -= dt
@@ -173,16 +204,19 @@ func _pose(you: CharacterBody3D, dt: float) -> void:
 		extra = Basis(Vector3.FORWARD, tip * 1.2) * Basis(Vector3.RIGHT, -tip * 0.3)
 	elif aiming and aim_point != Vector3.INF:
 		var to := aim_point - you.global_position
-		you.facing = lerp_angle(you.facing, atan2(-to.x, -to.z), 1.0 - exp(-dt * 20.0))
+		# a long gun's shouldered: the body side-on (left shoulder toward them), the stock at the right shoulder
+		var blade := -0.6 if float(weapon.get("fore", 0.0)) > 0.0 else 0.0
+		you.facing = lerp_angle(you.facing, atan2(-to.x, -to.z) + blade, 1.0 - exp(-dt * 20.0))
 		you.aiming = 0.3
 		at = aim_point
 		extra = Basis(Vector3.RIGHT, _recoil * (0.18 if bool(weapon.get("auto", false)) else 0.4))
-	else:
-		# the low ready: pointing at the ground a few metres ahead (walking or running too)
-		at = you.global_position + ahead * 3.0 + Vector3(0, 0.2, 0)
+	elif moving or float(weapon.get("fore", 0.0)) > 0.0:
+		# the low ready: pointing at the ground a few metres ahead (walking or running; a long gun stood still)
+		at = you.global_position + ahead * (3.0 if moving else 2.2) + Vector3(0, 0.2, 0)
+	# (stood still, a pistol just hangs at your side: at stays INF, the arms go back to the animation)
 	av.aim_at(at, true, dt)
 	if not moving:
-		av.play("holding-both", 1.0, 0.15)
+		av.play("holding-both" if aiming else "idle", 1.0, 0.2)
 	# (the avatar turns the gun onto where the arms point; this is on top: the kick, the reload's tip)
 	av.gun_extra = extra
 	av.gun_nudge = Vector3(_recoil * 0.06, 0, 0)
@@ -372,6 +406,7 @@ func _hit_person(pr: Dictionary, d: Vector3, dmg: float, at: Vector3) -> int:
 		return 2
 	game.fx.blood(at, d, 12, 4.0)
 	game.sfx("body_hit_%d" % randi_range(1, 3), -8.0, randf_range(1.0, 1.15))
+	game.island.people.flinch(pr, d)
 	game.island.people.panic(pr["pos"], 3.0)
 	game.police.heat_pts += 0.1
 	return 1

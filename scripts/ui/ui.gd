@@ -3031,7 +3031,8 @@ func _show_driver(with_gun := false) -> void:
 		# a showroom pose: both hands on it, aimed off ahead and to their right (in the character's own space,
 		# so it turns round with them on the turntable)
 		if av.aim:
-			av.aim.target_local = Vector3(-0.55, 0.3, 1.4)
+			# (a long gun shouldered, the body side-on to it: the target's off to their left)
+			av.aim.target_local = Vector3(0.75, 0.42, 1.2) if float(w.get("fore", 0.0)) > 0.0 else Vector3(-0.55, 0.3, 1.4)
 			av.aim.weight = 1.0
 
 func _show_car(d: Dictionary) -> void:

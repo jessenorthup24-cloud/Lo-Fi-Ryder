@@ -109,6 +109,7 @@ func hold(w: Dictionary, look: int, mat: Material) -> void:
 	ba.add_child(gun)
 	if aim:
 		aim.fore = float(w.get("fore", 0.0)) * gun.mesh.get_aabb().size.z * float(w["scale"]) / SCALE
+		aim.shoulder = float(w.get("fore", 0.0)) > 0.0
 
 ## Knocked by a hit from direction d (world): the upper body jolts back.
 func flinch(d: Vector3) -> void:
@@ -140,7 +141,7 @@ func go_limp(world: Node3D, vel: Vector3, push: Vector3) -> void:
 
 func _process(dt: float) -> void:
 	if aim:
-		aim.flinch = move_toward(aim.flinch, 0.0, dt * 6.0)
+		aim.flinch = move_toward(aim.flinch, 0.0, dt * 3.5)
 	if gun == null or limp != null:
 		return
 	# the gun: in the fist, turned to face where the arms point (blended in with them)
