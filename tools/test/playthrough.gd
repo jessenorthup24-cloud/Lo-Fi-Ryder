@@ -80,6 +80,8 @@ func _run() -> void:
 			await _heister()
 		"builder":
 			await _builder()
+		"tutor":
+			await _tutor()
 		"ram":
 			await _ram()
 		"ram2":
@@ -743,3 +745,85 @@ func _ram2() -> void:
 		game.police.clear()
 		game.car.place(xf)
 		await wait(1.5)
+
+# ------------------------------------------------------------------ the first ride's coach
+
+func _coach_title() -> String:
+	var c = game.ui.coach_ui
+	return c.title.text if c != null and c.box.visible else ""
+
+func _tutor() -> void:
+	await wait(2.0)
+	game.start_drive()
+	await wait(4.5)
+	await snap("tut_car")
+	check(game.tutorial.active and game.tutorial.step_id() == "car", "coach on: get in the car (%s)" % _coach_title())
+	check(not game.route.is_empty(), "the GPS points at Jay's car")
+	check(game.ui.goal_lbl == null or not game.ui.goal_lbl.visible, "no goal line under the coach")
+	game.foot.global_position = game.car.global_position + game.car.global_transform.basis.x * 2.2
+	await wait(0.5)
+	game.toggle_foot()
+	await wait(1.6)
+	await snap("tut_gas")
+	check(game.tutorial.step_id() == "gas", "coach: gas (%s)" % _coach_title())
+	game.held["gas"] = true
+	await wait_until(func(): return game.tutorial.step_id() == "steer", 10.0)
+	await wait(0.8)
+	await snap("tut_steer")
+	check(game.tutorial.step_id() == "steer", "coach: steer")
+	game.held["left"] = true
+	await wait_until(func(): return game.tutorial.step_id() == "drift", 10.0)
+	game.held["left"] = false
+	await wait(0.8)
+	await snap("tut_drift")
+	check(game.tutorial.step_id() == "drift", "coach: drift")
+	game.held["right"] = true
+	game.held["hand"] = true
+	await wait_until(func(): return game.tutorial.step_id() == "go_race", 28.0)
+	game.held["right"] = false
+	game.held["hand"] = false
+	game.held["gas"] = false
+	await wait(1.0)
+	await snap("tut_go_race")
+	check(game.tutorial.step_id() == "go_race" and game.route.get("kind", "") == "tut", "coach: off to the first race, GPS on it")
+	# (driving there takes a while: put the car at the beacon; and no police along for it)
+	if game.police.wanted():
+		await wait(1.0)
+		await snap("tut_police")
+		check(game.ui.coach_ui.title.text.begins_with("Lose the police"), "coach: lose the police first (%s)" % game.ui.coach_ui.title.text)
+		game.police.clear()
+
+	var m: Dictionary = game.tutorial._race_marker()
+	game.car.place(game.on_ground(Transform3D(Basis(), (m["pos"] as Vector3) + Vector3(0, 0.5, 0))))
+	await wait_until(func(): return game.tutorial.step_id() == "start", 6.0)
+	await wait(0.8)
+	await snap("tut_start")
+	check(game.tutorial.step_id() == "start", "coach: tap START (step %s, in %s, wanted %s, dist %.1f, intro %s)" % [game.tutorial.step_id(), game.in_marker.get("kind", "-"), game.police.wanted(), game.car.global_position.distance_to(m["pos"]), not game.intro.is_empty()])
+	game.args["raceauto"] = true
+	game.start_challenge_now("race", String(game.in_marker["id"]))
+	await wait(1.0)
+	check(game.tutorial.step_id() == "racing" and not game.ui.coach_ui.box.visible, "coach quiet during the race")
+	await wait_until(func(): return game.race != null and game.race.state == 2, 420.0)
+	game.args.erase("raceauto")
+	await wait_until(func(): return game.race == null, 30.0)
+	await wait_until(func(): return game.tutorial.step_id() == "shop", 15.0)
+	await wait(1.0)
+	await snap("tut_shop")
+	check(game.tutorial.step_id() == "shop", "coach: to Lo-Fi Customs (step %s)" % game.tutorial.step_id())
+	check(game.story.step >= 2 and game.ui._msgs.is_empty() and not game.ui._msg_busy, "story moved on quietly, no texts (step %d)" % game.story.step)
+	game.police.clear()
+	game.open_shop("customs")
+	await wait(1.5)
+	game.close_garage(game.DRIVE)
+	await wait(2.0)
+	await snap("tut_phone")
+	check(game.tutorial.step_id() == "phone", "coach: your phone (step %s, state %d, shop_in '%s')" % [game.tutorial.step_id(), game.state, game._shop_in])
+	game.ui.toggle_phone()
+	await wait(1.0)
+	game.ui.toggle_phone()
+	await wait(1.2)
+	await snap("tut_done")
+	check(game.tutorial.step_id() == "done", "coach: you're set")
+	await wait(5.0)
+	check(not game.tutorial.active and bool(game.save.data.get("tut", false)), "tutorial over and saved")
+	check(game.ui.goal_lbl != null and game.ui.goal_lbl.visible, "Jay's goal line back (%s)" % game.story.goal())

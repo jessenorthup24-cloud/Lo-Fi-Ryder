@@ -31,6 +31,7 @@ var game: Node
 var step := 0
 var _t := 0.0
 var _flag_shop := false
+var _seen_foot := false       # (you start stood by the car: getting in counts once you've been out of it)
 
 func setup(g: Node) -> void:
 	game = g
@@ -62,7 +63,7 @@ func _done(k: int) -> bool:
 	var lv: int = Progress.level(s)
 	match k:
 		0:
-			return not game.on_foot and game.time > 3.0
+			return _seen_foot and not game.on_foot
 		1:
 			return s.stat("races") > 0 or not (s.data.get("medals", {}) as Dictionary).is_empty()
 		2:
@@ -80,6 +81,8 @@ func _done(k: int) -> bool:
 	return false
 
 func tick(dt: float) -> void:
+	if game.on_foot:
+		_seen_foot = true
 	_t -= dt
 	if _t > 0.0 or game.state != game.DRIVE or game.challenge_on():
 		return
@@ -90,8 +93,15 @@ func tick(dt: float) -> void:
 		step += 1
 		game.save.data["story"] = step
 		game.save.save()
+		if game.tutorial.active:
+			return              # (the first ride's coach is talking: Jay's texts wait till it's over)
 		_texts(step)
 		game.ui.story_goal(goal())
+
+## The first ride's coach is done (or skipped): Jay picks it up from wherever you've got to.
+func tutorial_over() -> void:
+	_texts(step)
+	game.ui.story_goal(goal())
 
 ## Jay's texts for a step, one after another.
 func _texts(k: int) -> void:
@@ -102,12 +112,18 @@ func _texts(k: int) -> void:
 		get_tree().create_timer(d, false).timeout.connect(func(): game.ui.text_msg(FRIEND, ll))
 		d += 3.4
 
-## The very start: the title card, then Jay's first texts (you're stood by the car).
+## The very start: the title card, then the first ride's coach (you're stood by the car).
 func intro() -> void:
 	game.ui.intro_card("LO-FI LIFE", "New in town")
-	get_tree().create_timer(3.6, false).timeout.connect(func():
+	if not bool(game.save.data.get("tut", false)):
+		if not game.tutorial.active:
+			game.tutorial.start()        # (its first card comes once the title card's gone)
+		return
+	get_tree().create_timer(3.0, false).timeout.connect(func():
 		_texts(0)
 		game.ui.story_goal(goal()))
 
 func begin() -> void:
+	if game.tutorial.active:
+		return
 	game.ui.story_goal(goal())

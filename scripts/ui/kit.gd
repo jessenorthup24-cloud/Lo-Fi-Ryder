@@ -195,8 +195,21 @@ static func button(text: String, bg := CORAL, dk := CORAL_DK, size := 38, min_w 
 		b.add_child(hb)
 		b.text = ""
 		b.set_meta("label", l)
+		# (a safety net: text set straight on the button moves into its label, never drawn twice over)
+		b.draw.connect(func() -> void:
+			if b.text != "":
+				l.text = b.text
+				b.text = "")
 	squishy(b)
 	return b
+
+## Change a button's words (icon buttons keep theirs in a label beside the icon).
+static func set_text(b: Button, t: String) -> void:
+	var l = b.get_meta("label") if b.has_meta("label") else null
+	if l is Label:
+		(l as Label).text = t
+	else:
+		b.text = t
 
 ## A glass pill: the colour, a hairline round it; the accent ones glow softly.
 static func _glass(bg: Color, radius: int, accent: bool) -> StyleBoxFlat:

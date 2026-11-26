@@ -110,7 +110,7 @@ func setup(u: Node, g: Node) -> void:
 	vb.add_child(hint_lbl)
 
 func _radar_label() -> void:
-	radar_btn.text = "Radar: on (tap to stop)" if ui.radar_on else "Safe radar"
+	K.set_text(radar_btn, "Radar: on" if ui.radar_on else "Safe radar")
 
 func open() -> void:
 	_mode = "contacts"

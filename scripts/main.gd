@@ -32,6 +32,7 @@ const Property := preload("res://scripts/game/property.gd")
 const Shops := preload("res://scripts/game/shops.gd")
 const Allies := preload("res://scripts/game/allies.gd")
 const Story := preload("res://scripts/game/story.gd")
+const Tutorial := preload("res://scripts/game/tutorial.gd")
 const Cards := preload("res://scripts/game/cards.gd")
 
 enum { LOADING, TITLE, DRIVE, PAUSED, GARAGE }
@@ -165,6 +166,7 @@ var property: Node3D        # the mansion and the garage you build up (property.
 var shops: Node3D           # Lo-Fi Customs, the Armory, Lo-Fi Threads (shops.gd)
 var allies: Node3D          # your crew on foot, fighting beside you (allies.gd)
 var story: Node             # Jay's texts and your goal on the HUD (story.gd)
+var tutorial: Node          # the first ride's coach (tutorial.gd)
 var on_foot := false
 var stick := Vector2.ZERO    # the on-foot stick: x right, y forward
 var stick_idx := -1          # the finger on it
@@ -342,6 +344,10 @@ func _build_world() -> void:
 	story.name = "Story"
 	add_child(story)
 	story.setup(self)
+	tutorial = Tutorial.new()
+	tutorial.name = "Tutorial"
+	add_child(tutorial)
+	tutorial.setup(self)
 	crew = Crew.new()
 	crew.name = "Crew"
 	add_child(crew)
@@ -552,8 +558,9 @@ func start_drive() -> void:
 	ui.show_hud()
 	car.freeze = false
 	if story.step == 0 and not args.has("drive") and not autopilot:
-		# the very start: you're stood by Jay's old car, and the story begins
+		# the very start: you're stood by Jay's old car, and the story begins (the first ride's coach with it)
 		save.data["seen_help"] = true
+		tutorial.start()
 		get_tree().create_timer(0.3, false).timeout.connect(func():
 			if not on_foot:
 				toggle_foot()
@@ -909,6 +916,8 @@ func ach_check() -> void:
 func _process(dt: float) -> void:
 	frames += 1
 	_slow_tick()
+	if tutorial:
+		tutorial.tick(dt)
 	if args.has("interp") and state == DRIVE and time > 4.0 and time < 4.2:
 		# testing: is the car drawn smoothly between physics steps? (run with --fixed-fps 120)
 		var xi := car.get_global_transform_interpolated().origin
@@ -3257,6 +3266,9 @@ func _route_target() -> Dictionary:
 	var ht: Dictionary = heist.route()
 	if not ht.is_empty() or heist.active():
 		return ht
+	var tt: Dictionary = tutorial.route()
+	if not tt.is_empty():
+		return tt
 	if not trial.is_empty():
 		var gates: Array = trial["gates"]
 		if trial_gate < gates.size():

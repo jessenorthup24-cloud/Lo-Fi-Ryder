@@ -1975,6 +1975,26 @@ var _msgs: Array = []          # texts waiting their turn
 var _msg_busy := false
 
 ## What you're meant to be doing: a line under where you are, top left.
+# ------------------------------------------------------------------ the first ride's coach (tutorial.gd)
+
+var coach_ui: Control
+
+func coach(t: String, how: String, target: Variant, k: int, n: int, final := false) -> void:
+	if coach_ui == null:
+		coach_ui = preload("res://scripts/ui/coach.gd").new(self)
+		add_child(coach_ui)
+	if goal_lbl != null:
+		goal_lbl.visible = false        # (the coach says what to do: no goal line as well)
+	coach_ui.show_step(t, how, target, k, n, final)
+
+func coach_done() -> void:
+	if coach_ui != null:
+		coach_ui.done_flash()
+
+func coach_hide() -> void:
+	if coach_ui != null:
+		coach_ui.hide_all()
+
 func story_goal(text: String) -> void:
 	if goal_lbl == null:
 		goal_lbl = K.outlined(K.label("", 18, Color("ffd34d"), 700, HORIZONTAL_ALIGNMENT_LEFT), K.SHADE, 6)
@@ -2541,11 +2561,15 @@ func _sheet(title_text: String, icon: String, col: Color, width := 640.0) -> VBo
 	for c in overlay.get_children():
 		c.queue_free()
 	overlay.visible = true
+	if _hud_tw and _hud_tw.is_valid():
+		_hud_tw.kill()
 	hud.modulate.a = 0.0            # (the controls hide behind a menu: no pedals poking out round it)
 	var dim := ColorRect.new()
 	dim.color = K.DIM
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(dim)
+	dim.modulate.a = 0.0
+	dim.create_tween().tween_property(dim, "modulate:a", 1.0, 0.2)
 	var card := K.card()
 	card.custom_minimum_size = Vector2(width, 0)
 	overlay.add_child(card)
@@ -2569,10 +2593,21 @@ func _sheet(title_text: String, icon: String, col: Color, width := 640.0) -> VBo
 	await get_tree().process_frame
 	card.position = (_vs() - card.size) * 0.5
 	card.pivot_offset = card.size * 0.5
-	card.scale = Vector2(0.9, 0.9)
-	var t := create_tween()
-	t.tween_property(card, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.parallel().tween_property(card, "modulate:a", 1.0, 0.18)
+	card.scale = Vector2(0.92, 0.92)
+	var t := card.create_tween()
+	t.tween_property(card, "scale", Vector2.ONE, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(card, "modulate:a", 1.0, 0.2)
+	# (its rows, added as it opens, come in one after another, a beat apart)
+	var born := Time.get_ticks_msec()
+	var cnt := [0]
+	vb.child_entered_tree.connect(func(row: Node):
+		if not (row is Control) or Time.get_ticks_msec() - born > 300:
+			return
+		(row as Control).modulate.a = 0.0
+		var rt := (row as Control).create_tween()
+		rt.tween_interval(0.05 + 0.04 * mini(cnt[0], 8))
+		rt.tween_property(row, "modulate:a", 1.0, 0.18)
+		cnt[0] += 1)
 	return vb
 
 ## The 3D map sees the whole town from up high: the buildings stay drawn however far off while it's open.
@@ -2584,9 +2619,30 @@ func close_sheet() -> void:
 	_map_restore()
 	_map_ranges(false)
 	overlay.visible = false
-	hud.modulate.a = 1.0
-	for c in overlay.get_children():
-		c.queue_free()
+	var kids := overlay.get_children()
+	if kids.is_empty():
+		hud.modulate.a = 1.0
+		return
+	# (it goes at once as far as the game's concerned; on screen it fades and sinks away, the HUD fading back)
+	var ghost := Control.new()
+	ghost.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(ghost)
+	move_child(ghost, overlay.get_index() + 1)
+	for c in kids:
+		c.reparent(ghost, false)
+		if c is Control:
+			(c as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tw := ghost.create_tween().set_parallel(true)
+	tw.tween_property(ghost, "modulate:a", 0.0, 0.18)
+	tw.tween_property(ghost, "position:y", 14.0, 0.18).set_ease(Tween.EASE_IN)
+	tw.chain().tween_callback(ghost.queue_free)
+	if _hud_tw and _hud_tw.is_valid():
+		_hud_tw.kill()
+	_hud_tw = create_tween()
+	_hud_tw.tween_property(hud, "modulate:a", 1.0, 0.22)
+
+var _hud_tw: Tween
 
 func _row_buttons(vb: VBoxContainer, items: Array) -> void:
 	var grid := GridContainer.new()
