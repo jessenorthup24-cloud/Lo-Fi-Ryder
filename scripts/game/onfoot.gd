@@ -117,7 +117,7 @@ func _animate(v: float, grounded: bool) -> void:
 	elif _gait == 1:
 		avatar.play("walk", clampf(v / 1.5, 0.7, 1.6), 0.3)
 	else:
-		avatar.play("sprint", clampf(v / 5.5, 0.8, 1.35), 0.3)
+		avatar.play("sprint", clampf(v / 4.4, 0.85, 1.6), 0.3)
 
 ## Put down here, facing this way, stood still.
 func place(p: Vector3, yaw: float) -> void:

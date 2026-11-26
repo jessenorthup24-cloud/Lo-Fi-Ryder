@@ -23,6 +23,8 @@ const PARK := Vector2(-50, 150)
 const PLOTS := {
 	"garage": {"c": Vector2(20, 250), "yaw": PI, "hs": Vector2(22.5, 47.5), "back": 22.0},
 	"mansion": {"c": Vector2(135, 283), "yaw": 1.72, "hs": Vector2(24.5, 21.5), "back": 22.0},
+	# (not one to build: the police station's yard, where you're let go after you're busted)
+	"police_hq": {"c": Vector2(286, 83), "yaw": 3.22, "hs": Vector2(16.0, 12.0), "back": 18.0, "surf": "concrete"},
 }
 const CITY_X := [-260.0, -200.0, -140.0, -80.0, -20.0, 40.0, 100.0]
 const CITY_Z := [-60.0, 0.0, 60.0, 120.0, 180.0]
@@ -66,8 +68,8 @@ static func plan(I) -> void:
 		var c: Vector2 = pl["c"]
 		var hs: Vector2 = pl["hs"]
 		var f := Vector2(sin(float(pl["yaw"])), cos(float(pl["yaw"])))
-		I.add_lot(c, hs + Vector2(1, 1), I.S_GRASS, float(pl["yaw"]))
-		I.add_road(String(id).capitalize() + " Drive", [c + f * (hs.y - 3.0), c + f * (hs.y + float(pl["back"]) * 0.5), c + f * (hs.y + float(pl["back"]) + 7.0)], "yard")
+		I.add_lot(c, hs + Vector2(1, 1), I.S_CONCRETE if pl.get("surf", "") == "concrete" else I.S_GRASS, float(pl["yaw"]))
+		I.add_road("Station Drive" if id == "police_hq" else String(id).capitalize() + " Drive", [c + f * (hs.y - 3.0), c + f * (hs.y + float(pl["back"]) * 0.5), c + f * (hs.y + float(pl["back"]) + 7.0)], "yard")
 	I.flats.append([Vector2(300, 90), Vector2(95, 165), 55.0])       # farms
 	I.flats.append([Vector2(-60, 310), Vector2(230, 60), 40.0])      # beach front
 	I.flats.append([Vector2(-55, -132), Vector2(26, 22), 25.0])      # gas station

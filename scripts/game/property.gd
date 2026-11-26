@@ -64,6 +64,90 @@ func build(g: Node) -> void:
 		wrap.call("restore_investment", saved)
 		props[d["id"]] = {"def": d, "node": wrap, "plot": plot}
 	_build_panel()
+	_build_hq()
+
+## The police station (Districts.PLOTS police_hq): a plain two-storey block at the back of its yard, a
+## POLICE sign out front, two patrol cars parked. Busted, you're let go on its drive (hq_spot).
+func _build_hq() -> void:
+	var Districts = preload("res://scripts/game/districts.gd")
+	var pl: Dictionary = Districts.PLOTS["police_hq"]
+	var c: Vector2 = pl["c"]
+	var hs: Vector2 = pl["hs"]
+	var yaw: float = pl["yaw"]
+	var root := Node3D.new()
+	root.name = "PoliceHQ"
+	add_child(root)
+	root.global_transform = Transform3D(Basis(Vector3.UP, yaw), Vector3(c.x, game.island.height_at(c.x, c.y), c.y))
+	var body := StaticBody3D.new()
+	body.collision_layer = 1
+	root.add_child(body)
+	var size := Vector3(hs.x * 1.6, 7.0, hs.y * 0.8)
+	var at := Vector3(0, size.y * 0.5, -hs.y + size.z * 0.5 + 0.5)
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color("2c3e66")
+	mat.roughness = 0.9
+	mi.material_override = mat
+	mi.position = at
+	root.add_child(mi)
+	# a pale band of windows along the front
+	var band := MeshInstance3D.new()
+	var bb := BoxMesh.new()
+	bb.size = Vector3(size.x * 0.9, 1.2, 0.1)
+	band.mesh = bb
+	var wm := StandardMaterial3D.new()
+	wm.albedo_color = Color("a8c8ff")
+	wm.emission_enabled = true
+	wm.emission = Color("4a6fb0")
+	band.material_override = wm
+	band.position = at + Vector3(0, 1.2, size.z * 0.5 + 0.05)
+	root.add_child(band)
+	var cs := CollisionShape3D.new()
+	var bx := BoxShape3D.new()
+	bx.size = size
+	cs.shape = bx
+	cs.position = at
+	body.add_child(cs)
+	var sign := Label3D.new()
+	sign.text = "POLICE"
+	sign.font_size = 160
+	sign.outline_size = 24
+	sign.modulate = Color.WHITE
+	sign.outline_modulate = Color("1a2a55")
+	sign.position = at + Vector3(0, size.y * 0.5 + 1.0, size.z * 0.5)
+	sign.pixel_size = 0.012
+	root.add_child(sign)
+	# two patrol cars, nosed in by the building
+	var pdef: Dictionary = CARS.by_id("police")
+	var info: Dictionary = Models.car(pdef)
+	for k in 2:
+		var cr := Node3D.new()
+		root.add_child(cr)
+		cr.position = Vector3(-6.0 + k * 4.0, 0.0, at.z + size.z * 0.5 + 4.5)
+		cr.rotation.y = 0.0
+		var b := MeshInstance3D.new()
+		b.mesh = info["body"]
+		b.material_override = game.toon
+		cr.add_child(b)
+		var ws: Array = info["wheels"]
+		for i in ws.size():
+			var w := MeshInstance3D.new()
+			w.mesh = info["wheel_f" if i % 2 == 0 else "wheel_fr"]
+			w.material_override = game.toon
+			w.position = ws[i]
+			cr.add_child(w)
+
+## Where you're let go after being busted: on the station's drive, facing the road.
+func hq_spot() -> Transform3D:
+	var Districts = preload("res://scripts/game/districts.gd")
+	var pl: Dictionary = Districts.PLOTS["police_hq"]
+	var c: Vector2 = pl["c"]
+	var f := Vector2(sin(float(pl["yaw"])), cos(float(pl["yaw"])))
+	var p := c + f * (Vector2(pl["hs"]).y + float(pl["back"]) * 0.45)
+	return Transform3D(Basis(Vector3.UP, atan2(-f.x, -f.y)), Vector3(p.x, game.island.height_at(p.x, p.y) + 0.6, p.y))
 
 func invested(id: String) -> int:
 	return int(props[id]["node"].get("invested")) if props.has(id) else 0

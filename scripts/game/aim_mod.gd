@@ -12,6 +12,7 @@ var target_local := Vector3.INF  # or a point in the skeleton's own space (follo
 var weight := 0.0              # eased in and out by the avatar
 var fore := 0.0                # how far along the gun the left hand goes (skeleton units; 0: both on the grip)
 var shoulder := false
+var hands_up := 0.0            # 0..1: both hands up by the head (busted)
 var flinch := 0.0              # 0..1, a hit knocking the upper body back
 var flinch_axis := Vector3.RIGHT
 
@@ -45,7 +46,9 @@ func _process_modification() -> void:
 	if sk == null or _b.is_empty():
 		return
 	var t := aim_point_local(sk)
-	if weight > 0.001 and t != Vector3.INF:
+	if hands_up > 0.001:
+		_hands_up(sk)
+	elif weight > 0.001 and t != Vector3.INF:
 		_aim(sk, t)
 	if flinch > 0.001:
 		var ax := (sk.global_transform.basis.inverse() * flinch_axis).normalized()
@@ -85,6 +88,19 @@ func _aim(sk: Skeleton3D, t: Vector3) -> void:
 	var side := dir.cross(up).normalized()          # (to the right, along the aim)
 	_reach(sk, "R", grip, -up + side * 0.6)
 	_reach(sk, "L", grip + dir * maxf(fore, 0.0), -up - side * 0.6)
+
+## Hands up: each fist up beside the head, elbows out.
+func _hands_up(sk: Skeleton3D) -> void:
+	var up := _up(sk)
+	var rs := sk.get_bone_global_pose(int(_b["UpperArm.R"])).origin
+	var ls := sk.get_bone_global_pose(int(_b["UpperArm.L"])).origin
+	var out := (rs - ls).normalized()
+	var reach := (_up_len + _lo_len)
+	var w0 := weight
+	weight = hands_up
+	_reach(sk, "R", rs + up * reach * 0.75 + out * reach * 0.25, out - up * 0.2)
+	_reach(sk, "L", ls + up * reach * 0.75 - out * reach * 0.25, -out - up * 0.2)
+	weight = w0
 
 ## A two-bone reach: the upper arm and forearm bent so the fist's middle lands on goal, the elbow toward pole.
 func _reach(sk: Skeleton3D, s: String, goal: Vector3, pole: Vector3) -> void:

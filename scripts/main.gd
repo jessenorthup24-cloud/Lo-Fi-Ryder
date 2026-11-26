@@ -1029,6 +1029,15 @@ func _crew_tests() -> void:
 		keys.sort_custom(func(a, b): return int(groups[a][1]) > int(groups[b][1]))
 		for k in keys.slice(0, 30):
 			print("PERF %-34s nodes %5d  tris %9d  range %.0f" % [k, groups[k][0], groups[k][1], groups[k][2]])
+	if args.has("busttest") and state == DRIVE:
+		if time > 4.0 and not has_meta("bu"):
+			set_meta("bu", true)
+			police.start(1.0, "Test")
+			police._busted()
+			print("BUST on_foot=%s kneel=%s cops=%d" % [on_foot, foot.avatar.current() if foot else "-", _busted_cops.size()])
+		if time > 11.0 and has_meta("bu") and not has_meta("bu2"):
+			set_meta("bu2", true)
+			print("BUST after on_foot=%s car=%s hq=%s wanted=%s" % [on_foot, car.global_position.snappedf(0.1), property.hq_spot().origin.snappedf(0.1), police.wanted()])
 	if args.has("bailtest") and state == DRIVE:
 		# (floor it, jump out at speed, see you thrown and back up)
 		if not on_foot and not has_meta("bt"):
@@ -2679,11 +2688,71 @@ func police_busted(fine: int) -> void:
 	if args.has("shot_busted"):
 		get_tree().create_timer(1.9, true, false, true).timeout.connect(func():
 			get_viewport().get_texture().get_image().save_png(String(args["shot_busted"])))
-	slowmo(0.35, 1.3)
+	slowmo(0.5, 1.0)
 	if race != null and race.state == 1:
 		# busted in a race: you're out of it
 		race.state = 2
 		race_end_t = 3.0
+	_save_now()
+	_busted_scene()
+
+## Busted, played out: pulled from the car, down on your knees with your hands up, two officers standing
+## over you with their guns on you, the camera slowly round the scene. Then the picture fades and you're let
+## go outside the police station (property.gd hq_spot), in your car.
+var busted_t := 0.0
+var _busted_cops: Array = []
+func _busted_scene() -> void:
+	busted_t = 5.0
+	ui.hud.modulate.a = 0.0        # (a cut scene: no buttons over it)
+	_enter_cancel()
+	if not on_foot:
+		car.linear_velocity = Vector3.ZERO
+		car.angular_velocity = Vector3.ZERO
+		car.speed = 0.0            # (pulled out, not bailing)
+		_exit_car()
+	if on_foot and foot:
+		foot.down_t = 0.0
+		foot.avatar.recover()
+		foot.avatar.lock_t = 0.0
+		foot.avatar.hold({}, 0, toon)
+		foot.scripted = true
+		foot.avatar.play("kneel", 1.0, 0.4)
+		if foot.avatar.aim:
+			foot.avatar.aim.hands_up = 1.0
+		var me: Vector3 = foot.global_position
+		var fw := Vector3(-sin(foot.facing), 0, -cos(foot.facing))
+		var rt := Vector3(cos(foot.facing), 0, -sin(foot.facing))
+		for k in 2:
+			var cop := preload("res://scripts/game/avatar.gd").new()
+			add_child(cop)
+			cop.setup("cop", "", toon)
+			cop.hold(preload("res://scripts/game/weapons.gd").LIST[0], 0, toon)
+			var at := me + fw * 2.6 + rt * (1.4 if k == 0 else -1.4)
+			at.y = island.height_at(at.x, at.z)
+			cop.global_position = at
+			var to := me - at
+			cop.rotation.y = atan2(to.x, to.z)
+			cop.play("holding-both")
+			cop.aim.target = me + Vector3(0, 0.9, 0)
+			cop.aim.weight = 1.0
+			_busted_cops.append(cop)
+	get_tree().create_timer(4.4, true, false, false).timeout.connect(func():
+		ui.transition(func(): _busted_release()))
+
+func _busted_release() -> void:
+	for c in _busted_cops:
+		if is_instance_valid(c):
+			c.queue_free()
+	_busted_cops.clear()
+	busted_t = 0.0
+	ui.hud.modulate.a = 1.0
+	police.clear()
+	_back_in()
+	car.place(property.hq_spot())
+	car.linear_velocity = Vector3.ZERO
+	car.angular_velocity = Vector3.ZERO
+	_snap_cam()
+	ui.toast("Let go from the station", "star", Color(0.12, 0.13, 0.16, 0.85), Color.WHITE, 2.6)
 	_save_now()
 
 ## Shot down on foot: WASTED. The picture drains, you lose a bit of your coins and any wanted level, and
@@ -3547,7 +3616,7 @@ func _exit_car() -> void:
 ## you're eased into the seat), and then you're driving. Push the stick to call it off.
 var _enter := {}               # {t (the target), car (its body), phase: walk/door, time}
 func _enter_car() -> void:
-	if foot == null or not _enter.is_empty() or foot.down_t > 0.0:
+	if foot == null or not _enter.is_empty() or foot.down_t > 0.0 or foot.scripted or busted_t > 0.0:
 		return
 	var t := _enter_target()
 	if t.is_empty():
@@ -3847,6 +3916,17 @@ func _foot_tick(dt: float) -> void:
 ## you as you walk. Aiming, it comes in close over your right shoulder, narrows, and looks straight down the
 ## reticle; locked on to someone, it drifts round onto them.
 func _foot_cam(dt: float) -> void:
+	if busted_t > 0.0 and foot:
+		# busted: slowly round you, low down, the officers in shot
+		busted_t = maxf(0.0, busted_t - get_process_delta_time() / maxf(Engine.time_scale, 0.05))
+		var me: Vector3 = foot.global_position + Vector3(0, 0.8, 0)
+		var a := foot.facing + 0.9 + (5.0 - busted_t) * 0.35
+		var want := me + Vector3(sin(a) * 5.2, 1.6, cos(a) * 5.2)
+		cam.position = cam.position.lerp(want, 1.0 - exp(-dt * 3.0))
+		cam.look_at(me, Vector3.UP)
+		cam.fov = lerpf(cam.fov, 50.0, 1.0 - exp(-dt * 3.0))
+		cam_pos = cam.position
+		return
 	var v := foot.velocity
 	v.y = 0.0
 	var ak: float = gunplay.aim_k

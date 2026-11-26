@@ -204,7 +204,7 @@ func _clip(n: String) -> String:
 		"": {"idle": "q_idle", "walk": "loco_walking", "sprint": "loco_running", "jump": "loco_jump", "fall": "act_falling_idle",
 			"land": "act_hard_landing", "holding-both": "q_idle", "punch": "q_punch", "hit": "q_recievehit", "die": "q_death",
 			"sit": "x_sitting_idle", "drive": "x_driving", "enter_car": "x_entering_car", "exit_car": "x_exiting_car",
-			"terrified": "x_terrified", "get_up": "q_standup", "wave": "x_waving", "talk": "x_talking", "text": "x_texting_while_standing",
+			"terrified": "x_terrified", "get_up": "q_standup", "kneel": "pistol_kneeling_idle", "wave": "x_waving", "talk": "x_talking", "text": "x_texting_while_standing",
 			"phone": "x_talking_phone_pacing", "lean": "x_leaning", "dance": "x_samba_dancing", "dance2": "x_gangnam_style",
 			"hurt_idle": "hurt_injured_idle", "hurt_walk": "hurt_injured_walk", "hurt_run": "hurt_injured_run"},
 		"pistol": {"idle": "x_pistol_idle", "walk": "pistol_walk", "sprint": "pistol_run", "jump": "pistol_jump",
