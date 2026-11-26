@@ -3973,13 +3973,14 @@ func _foot_cam(dt: float) -> void:
 	var yaw := foot_yaw + look_yaw
 	# (aiming, the drag tilts the view fully: up at a balcony, down at someone at your feet)
 	var pitch := clampf(foot_pitch + look_pitch * lerpf(0.6, 1.0, ak) - aim_kick, lerpf(-0.45, -1.05, ak), lerpf(1.1, 1.2, ak))
-	var dist := lerpf(4.6 * cam_zoom, 4.1, ak)
-	var head := foot.get_global_transform_interpolated().origin + Vector3(0, lerpf(1.55, 2.15, ak), 0)
+	# (aiming: close over the right shoulder, at eye height, for the full-size characters)
+	var dist := lerpf(4.6 * cam_zoom, 2.4, ak)
+	var head := foot.get_global_transform_interpolated().origin + Vector3(0, lerpf(1.55, 1.72, ak), 0)
 	if body != Vector3.INF:
 		head = body + Vector3(0, 0.6, 0)      # (down: the camera up and back, on your body as it falls)
 	var back := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
 	var side := Vector3(cos(yaw), 0, -sin(yaw))       # (to your right, looking the way the camera does)
-	var want := head + back * dist + side * lerpf(0.45, 1.6, ak)
+	var want := head + back * dist + side * lerpf(0.45, 0.65, ak)
 	# not through walls or the ground
 	var q := PhysicsRayQueryParameters3D.create(head, want, 1 | 2 | 4)
 	q.exclude = [foot.get_rid()]

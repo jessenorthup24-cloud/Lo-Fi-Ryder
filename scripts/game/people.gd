@@ -55,7 +55,7 @@ func spawn(v: int, pose: String, pos: Vector3, yaw: float, s: int) -> Dictionary
 			pos.y += SIT_LIFT
 		var pr := {"v": vv, "pose": pose, "key": key, "slot": slot, "al": pools[key + "_al"].alloc(), "ar": pools[key + "_ar"].alloc(),
 			"pos": pos, "home": pos, "yaw": yaw, "face": yaw, "y": 0.0, "vy": 0.0, "wave": 0.0, "hop": Vector3.ZERO, "s": s,
-			"phase": randf() * TAU, "gone": false}
+			"phase": randf() * TAU, "gone": false, "friendly": randf() < 0.25}
 		list.append(pr)
 		_place(pr, 0.0)
 		return pr
@@ -150,9 +150,9 @@ func _place(pr: Dictionary, t: float) -> void:
 # phone, texting, talking, leaning, waving, dancing by the sea; walking, running from trouble, sitting.
 # Further off they're the still pieces again (cheap: dozens of them).
 const Avatar := preload("res://scripts/game/avatar.gd")
-const LIVE_N := 5
-const LIVE_R := 24.0
-const ACTS := ["talk", "text", "phone", "lean", "idle", "wave", "talk"]
+const LIVE_N := 10
+const LIVE_R := 32.0
+const ACTS := ["text", "phone", "lean", "idle", "idle2", "idle3", "idle4", "idle5", "shrug"]
 var _live_t := 0.0
 var _live: Array = []
 
@@ -196,7 +196,22 @@ func _make_live(pr: Dictionary) -> void:
 	av.setup(String(M.CHARS[int(pr["v"]) % M.CHARS.size()]), "", mat)
 	pr["live"] = av
 	var p: Vector3 = pr["pos"]
-	pr["act"] = "sit" if pr["pose"] == "sit" else ("dance" if p.z > 300.0 and randf() < 0.35 else ACTS[randi() % ACTS.size()])
+	if pr["pose"] == "sit":
+		pr["act"] = "sit"
+	elif pr.has("path"):
+		pr["act"] = "text_walk" if randf() < 0.25 else "walk"
+	elif p.z > 300.0 and randf() < 0.3:
+		pr["act"] = "dance"
+	else:
+		pr["act"] = ACTS[randi() % ACTS.size()]
+		# someone stood near: the two of them talking, face to face
+		for o in list:
+			if o != pr and not o["gone"] and o["pose"] == "stand" and not o.has("path") and (o["pos"] as Vector3).distance_to(p) < 3.0:
+				pr["act"] = "talk"
+				var d: Vector3 = (o["pos"] as Vector3) - p
+				pr["face"] = atan2(-d.x, -d.z)
+				pr["talk_to"] = true
+				break
 	_live.append(pr)
 	# the still pieces out of sight
 	var hide := Transform3D(Basis().scaled(Vector3.ONE * 0.001), p + Vector3(0, -60, 0))
@@ -216,23 +231,37 @@ func _place_live(pr: Dictionary, base: Vector3, _t: float) -> void:
 	if not is_instance_valid(av):
 		pr.erase("live")
 		return
-	av.global_position = base - Vector3(0, SIT_LIFT if pr["pose"] == "sit" else 0.0, 0)
+	var sitting: bool = pr["pose"] == "sit"
+	# (a sitter's origin is the seat; the character's is its feet)
+	av.global_position = base - Vector3(0, (SIT_LIFT + _seat()) if sitting else 0.0, 0)
 	av.rotation.y = float(pr["face"]) + PI
 	if float(pr.get("flinch", 0.0)) > 0.9 and pr.has("flinch_ax"):
 		av.flinch(Vector3(pr["flinch_ax"]).cross(Vector3.UP))
 	if float(pr.get("exit_t", 0.0)) > 0.0:
 		if not pr.get("exit_played", false):
 			pr["exit_played"] = true
-			av.play_once("exit_car", 1.8, 1.6, 1.4)
+			av.play_once("exit_car", 0.5, 1.6, 1.4)
 		return
-	if float(pr.get("flee", 0.0)) > 0.0:
-		av.play("sprint" if pr.has("path") else "terrified")
+	if sitting:
+		av.play("cheer_sit" if (cheer_t > 0.0 and pr.get("cheering", false)) else "sit")
+		return
+	if float(pr.get("dodge_t", 0.0)) > 0.0:
+		av.play("sprint", 1.2, 0.15)       # (a quick jog out of the way)
+	elif float(pr.get("flee", 0.0)) > 0.0:
+		av.play("sprint" if pr.has("path") or float(pr["flee"]) > 1.0 else "terrified")
 	elif pr.has("path"):
-		av.play("walk", 0.9)
-	elif float(pr["wave"]) > 0.4 or (cheer_t > 0.0 and pr.get("cheering", false)):
+		av.play(String(pr.get("act", "walk")) if String(pr.get("act", "")).contains("walk") else "walk", 0.95)
+	elif float(pr["wave"]) > 0.4 and pr.get("friendly", false):
 		av.play("wave")
 	else:
 		av.play(String(pr.get("act", "idle")))
+
+var _seat_y := -1.0
+func _seat() -> float:
+	if _seat_y < 0.0:
+		var m = JSON.parse_string(FileAccess.get_file_as_string("res://assets/chars/qp_meta.json"))
+		_seat_y = float(m.get("seat", 0.4)) if m is Dictionary else 0.4
+	return _seat_y
 
 ## Returns true when someone near the road starts waving (the car can honk back).
 func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
@@ -268,9 +297,9 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 			continue
 		if pr["pose"] != "lie":
 			# watch the car go by
-			if dist < 26.0 and not walking:
+			if dist < 26.0 and not walking and not pr.get("talk_to", false) and pr["pose"] != "sit":
 				pr["face"] = lerp_angle(pr["face"], atan2(-d.x, -d.z), 1.0 - exp(-dt * 4.0))
-			var want_wave := 1.0 if dist < 18.0 else 0.0
+			var want_wave := 1.0 if dist < 18.0 and pr.get("friendly", false) else 0.0
 			if cheer_t > 0.0 and cheer_pos.distance_to(pr["pos"]) < 30.0:
 				want_wave = 1.0
 				pr["cheering"] = true
@@ -291,18 +320,26 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 			if not pr.has("quick") or randf() < dt * 0.15:
 				pr["quick"] = randf() < 0.3
 			var can_dodge: bool = v2.length() < 8.0 or pr["quick"]
-			if can_dodge and miss.length() < 3.2 and pr["y"] == 0.0 and (dist < 4.0 or v2.length() > 3.0):
-				pr["vy"] = 5.5
+			if can_dodge and miss.length() < 3.2 and pr["y"] == 0.0 and float(pr.get("dodge_t", 0.0)) <= 0.0 and pr["pose"] != "sit" and (dist < 4.0 or v2.length() > 3.0):
+				# a quick jog sideways out of its path (not a leap)
 				var side := Vector3(v2.z, 0, -v2.x).normalized() if v2.length() > 0.5 else -d.normalized()
 				if side.dot(miss) < 0.0:
 					side = -side
-				pr["hop"] = side * 4.5
+				pr["hop"] = side * 5.5
+				pr["dodge_t"] = 0.6
 		if float(pr.get("flee", 0.0)) > 0.0:
 			pr["flee"] = float(pr["flee"]) - dt
 			if not walking and pr["pose"] == "stand":
 				var fv: Vector3 = pr["flee_v"]
 				pr["pos"] += fv * dt * clampf(float(pr["flee"]), 0.0, 1.0)
 				pr["face"] = lerp_angle(pr["face"], atan2(-fv.x, -fv.z), 1.0 - exp(-dt * 8.0))
+		if float(pr.get("dodge_t", 0.0)) > 0.0:
+			pr["dodge_t"] = float(pr["dodge_t"]) - dt
+			pr["pos"] += (pr["hop"] as Vector3) * dt
+			var hv: Vector3 = pr["hop"]
+			pr["face"] = lerp_angle(pr["face"], atan2(-hv.x, -hv.z), 1.0 - exp(-dt * 12.0))
+			if float(pr["dodge_t"]) <= 0.0:
+				pr["hop"] = Vector3.ZERO
 		if pr["vy"] != 0.0 or pr["y"] > 0.0:
 			pr["vy"] -= 14.0 * dt
 			pr["y"] += pr["vy"] * dt

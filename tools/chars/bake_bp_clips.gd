@@ -42,15 +42,19 @@ func _init() -> void:
 				a.track_set_path(t, NodePath("Skeleton3D:" + bone))
 				if bone == "Hips" and a.track_get_type(t) == Animation.TYPE_POSITION_3D and a.track_get_key_count(t) > 0:
 					var v0: Vector3 = a.track_get_key_value(t, 0)
+					var jump := "jump" in f.to_lower()
 					for k in a.track_get_key_count(t):
 						var v: Vector3 = a.track_get_key_value(t, k)
-						a.track_set_key_value(t, k, Vector3(v0.x, v.y, v0.z))
+						# (a jump's rise is the game's to do: only its crouch kept)
+						a.track_set_key_value(t, k, Vector3(v0.x, minf(v.y, v0.y) if jump else v.y, v0.z))
 			var nm := _clean(f.get_basename())
 			nm = nm if nm.begins_with(pre + "_") else pre + "_" + nm
 			var loops := true
 			for w in ONCE:
 				if w in nm.trim_prefix(pre + "_"):
 					loops = false
+			if nm.ends_with("jump_loop") or nm.ends_with("falling_idle"):
+				loops = true      # (held in the air)
 			a.loop_mode = Animation.LOOP_LINEAR if loops else Animation.LOOP_NONE
 			a.optimize(0.01, 0.01, 3)       # (keys that change nothing you'd see: gone; the download's half the size)
 			if lib.has_animation(nm):

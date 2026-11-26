@@ -109,10 +109,19 @@ func _bake(v: int, pose: String) -> void:
 				(arr[0] as Array).append(pv[vi])
 				(arr[1] as Array).append(pn[vi])
 				(arr[2] as Array).append(cc[vi])
+	# sitting: moved down so the seat (just under the hips) is at y = 0 (people.gd puts a sitter's origin on
+	# the seat); standing: the feet are
+	var drop := Vector3.ZERO
+	if pose == "sit":
+		drop = Vector3(0, (to_me * sk.get_bone_global_pose(sk.find_bone("Hips"))).origin.y - 0.1, 0)
+		for k in parts:
+			for i in (parts[k][0] as Array).size():
+				parts[k][0][i] = (parts[k][0][i] as Vector3) - drop
+		meta["seat"] = drop.y
 	# the shoulders: where each arm turns
 	var sh := []
 	for s in ["Left", "Right"]:
-		sh.append((to_me * sk.get_bone_global_pose(sk.find_bone(s + "Arm"))).origin)
+		sh.append((to_me * sk.get_bone_global_pose(sk.find_bone(s + "Arm"))).origin - drop)
 	meta["%d_%s" % [v, pose]] = [sh[0].x, sh[0].y, sh[0].z, sh[1].x, sh[1].y, sh[1].z]
 	for k in parts:
 		var arr: Array = parts[k]

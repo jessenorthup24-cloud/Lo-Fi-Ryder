@@ -230,10 +230,7 @@ func _pose(you: CharacterBody3D, dt: float) -> void:
 		you.aiming = 0.3
 		at = aim_point
 		extra = Basis(Vector3.RIGHT, _recoil * (0.18 if bool(weapon.get("auto", false)) else 0.4))
-	elif not moving:
-		# stood still: the low ready, both hands on it, pointing at the ground a few metres ahead
-		at = you.global_position + ahead * 2.4 + Vector3(0, 0.2, 0)
-	# (on the move, not aiming: the run and walk clips carry the gun themselves; the arms are theirs)
+	# (not aiming, stood or moving: the clips carry the gun themselves; the arms are theirs)
 	av.aim_at(at, true, dt)
 	if not moving:
 		av.play("holding-both" if aiming else "idle", 1.0, 0.2)

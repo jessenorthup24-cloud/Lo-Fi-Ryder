@@ -69,12 +69,23 @@ func _physics_process(dt: float) -> void:
 	velocity.x = hv.x
 	velocity.z = hv.z
 	if grounded:
-		# down hard after a long drop: a heavy landing (move to shrug it off)
+		# down hard after a long drop: a heavy landing (move to shrug it off); a long gun lands from any jump
 		if _air > 0.75:
 			avatar.play_once("land", 0.35, 0.9)
+		elif _air > 0.25 and float(avatar.gun_def.get("fore", 0.0)) > 0.0:
+			avatar.play_once("land", 0.3, 0.35)
 		_air = 0.0
 		if jump_req:
 			velocity.y = JUMP_V
+			# up: the jump from its push-off (the clip for what's in your hands), held through the rise
+			var kind := "" if avatar.gun_def.is_empty() else ("rifle" if float(avatar.gun_def.get("fore", 0.0)) > 0.0 else "pistol")
+			match kind:
+				"rifle":
+					avatar.play_once("jump", 0.15, 0.38, 1.0, true)
+				"pistol":
+					avatar.play_once("jump", 0.0, 0.7, 1.15, true)
+				_:
+					avatar.play_once("jump", 0.0, 0.23, 1.0, true)
 	else:
 		_air += dt
 		velocity.y -= GRAV * dt
@@ -96,8 +107,8 @@ var _gait := 0      # 0 stood, 1 walking, 2 running
 
 func _animate(v: float, grounded: bool) -> void:
 	if avatar.lock_t > 0.0:
-		# a one-off move playing (out of the car, a landing): pushing the stick cuts it short
-		if move.length() > 0.35 and avatar.lock_t < 10.0:
+		# a one-off move playing (out of the car, a landing): pushing the stick cuts it short (not a jump)
+		if move.length() > 0.35 and avatar.lock_t < 10.0 and not avatar.lock_hard:
 			avatar.lock_t = 0.0
 		else:
 			return
@@ -110,8 +121,8 @@ func _animate(v: float, grounded: bool) -> void:
 		_gait = 1
 	elif _gait == 2 and v < 3.0:
 		_gait = 1
-	if not grounded and _air > 0.18:
-		avatar.play("jump" if velocity.y > 0.5 else "fall", 1.0, 0.2)
+	if not grounded and _air > 0.12:
+		avatar.play("fall", 1.0, 0.2)      # (in the air: held; the jump's own clip played at the push-off)
 	elif _gait == 0:
 		avatar.play("idle", 1.0, 0.3)
 	elif _gait == 1:

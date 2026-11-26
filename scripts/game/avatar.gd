@@ -13,7 +13,8 @@ const DIR := "res://assets/chars/bp/"
 const ANIMS := "res://assets/chars/bp_anims.res"
 const HEIGHT := 1.8            # metres, head to heel
 const SCALE := 1.0
-const GUN_K := 0.82            # (the guns a touch smaller in a full-size person's hands)
+## each gun's real length, metres (the models are made to all sorts of sizes)
+const GUN_LEN := {"pistol": 0.21, "revolver": 0.28, "smg": 0.5, "shotgun": 1.0, "rifle": 0.88, "sniper": 1.15}
 
 ## [id, name] for the character picker; each wears one of the pack's twelve colour sheets (SKINS). An id
 ## can name the sheet too: "male_casual1@02_B" (the people about the island are dealt them at random).
@@ -194,12 +195,13 @@ func _clip(n: String) -> String:
 			"drive": "x_driving", "enter_car": "x_entering_car", "exit_car": "x_exiting_car", "slide": "x_running_slide",
 			"terrified": "x_terrified", "wave": "x_waving", "talk": "x_talking", "text": "x_texting_while_standing",
 			"text_walk": "x_walking_while_texting", "phone": "x_talking", "lean": "x_leaning", "dance": "dance_breakdance_footwork_1",
-			"dance2": "dance_breakdance_uprock", "kneel": "pistol_kneeling_idle", "shrug": "gest_dismissing_gesture",
+			"dance2": "dance_breakdance_uprock", "kneel": "pistol_kneeling_idle", "shrug": "gest_weight_shift",
+			"idle2": "act_idle_2", "idle3": "act_idle_3", "idle4": "act_idle_4", "idle5": "act_idle_5",
 			"hurt_idle": "hurt_injured_idle", "hurt_walk": "hurt_injured_walk", "hurt_run": "hurt_injured_run"},
-		"pistol": {"idle": "pistol_idle", "walk": "pistol_walk", "sprint": "pistol_run", "jump": "pistol_jump",
+		"pistol": {"idle": "pistol_idle", "walk": "pistol_walk", "sprint": "pistol_run", "jump": "pistol_jump_2",
 			"holding-both": "pistol_idle"},
 		"rifle": {"idle": "rifle_idle", "walk": "rifle_walk_forward", "sprint": "rifle_run_forward", "jump": "rifle_jump_up",
-			"fall": "rifle_jump_loop", "holding-both": "rifle_idle_aiming", "die": "rifle_death_from_the_front"},
+			"fall": "rifle_jump_loop", "land": "rifle_jump_down", "holding-both": "rifle_idle_aiming", "die": "rifle_death_from_the_front"},
 	}
 	var t: Dictionary = table[kind]
 	return String(t.get(n, table[""].get(n, n)))
@@ -207,7 +209,9 @@ func _clip(n: String) -> String:
 ## A move played once (getting in or out of a car, landing hard), from `from` seconds in, for `dur` seconds
 ## (to its end if dur < 0): the ordinary moves wait till it's done (or till `lock_t` is cleared).
 var lock_t := 0.0
-func play_once(n: String, from := 0.0, dur := -1.0, speed := 1.0) -> void:
+var lock_hard := false        # (a jump: moving doesn't cut it short)
+func play_once(n: String, from := 0.0, dur := -1.0, speed := 1.0, hard := false) -> void:
+	lock_hard = hard
 	var c := _clip(n)
 	if anim == null or limp != null or not anim.has_animation(c):
 		return
@@ -249,6 +253,12 @@ func local_point(v: Vector3) -> Vector3:
 func current() -> String:
 	return _now
 
+## The scale to hand Weapons.hand_xf so the gun comes out its real length in this hand.
+func _gun_cs(w: Dictionary, m: Mesh) -> float:
+	var ln := maxf(m.get_aabb().size.z, 0.001)
+	var world := float(GUN_LEN.get(String(w.get("id", "")), 0.3)) / ln
+	return float(w["scale"]) * sk_scale / world
+
 ## A gun in the right fist (both hands on it when aiming). w: weapons.gd entry; {} for none.
 func hold(w: Dictionary, look: int, mat: Material) -> void:
 	if gun and is_instance_valid(gun):
@@ -264,10 +274,10 @@ func hold(w: Dictionary, look: int, mat: Material) -> void:
 	gun = MeshInstance3D.new()
 	gun.mesh = Weapons.mesh(w, look)
 	gun.material_override = mat
-	gun.transform = Weapons.hand_xf(w, gun.mesh, sk_scale / GUN_K, hand)
+	gun.transform = Weapons.hand_xf(w, gun.mesh, _gun_cs(w, gun.mesh), hand)
 	ba.add_child(gun)
 	if aim:
-		aim.fore = float(w.get("fore", 0.0)) * gun.mesh.get_aabb().size.z * float(w["scale"]) * GUN_K / sk_scale
+		aim.fore = float(w.get("fore", 0.0)) * float(GUN_LEN.get(String(w["id"]), 0.3)) / sk_scale
 		aim.shoulder = float(w.get("fore", 0.0)) > 0.0
 
 ## Something carried on the back (the drill, the bag): put `n` on the chest bone, `back` metres behind the
@@ -313,6 +323,26 @@ func go_limp(world: Node3D, vel: Vector3, push: Vector3) -> void:
 	if gun:
 		gun.visible = false
 
+## The way the gun lies in the hands as the clip holds them (world).
+func _held_basis() -> Basis:
+	var sg := skel.global_transform
+	var rh := sg * skel.get_bone_global_pose(skel.find_bone("RightHand")).origin
+	var up := Vector3.UP
+	var dir: Vector3
+	if float(gun_def.get("fore", 0.0)) > 0.0:
+		dir = sg * skel.get_bone_global_pose(skel.find_bone("LeftHand")).origin - rh
+	else:
+		var mid := sg * skel.get_bone_global_pose(skel.find_bone("RightHandMiddle1")).origin
+		var th := sg * skel.get_bone_global_pose(skel.find_bone("RightHandThumb1")).origin
+		dir = mid - rh
+		up = th - rh
+		up = (up - dir.normalized() * up.dot(dir.normalized()))
+		if up.length() < 0.001 or up.dot(Vector3.UP) < -0.2:
+			up = Vector3.UP
+	if dir.length() < 0.02:
+		dir = global_transform.basis.z
+	return Basis.looking_at(dir.normalized(), up.normalized())
+
 ## Back from limp (knocked down, not dead): the ragdoll gone, the bones back to the animation, the gun back.
 func recover() -> void:
 	if limp == null:
@@ -338,8 +368,9 @@ func _process(dt: float) -> void:
 		return
 	var t := aim.aim_point_local(skel) if aim else Vector3.INF
 	var w: float = aim.weight if aim else 0.0
-	var fwd := global_transform.basis.z.normalized()
-	var low := Basis.looking_at((fwd + Vector3(0, -0.9, 0)).normalized(), Vector3.UP)
+	# lowered: the gun lies in the hands the clip has it in (a long gun from the right hand to the left on its
+	# fore-end; a pistol along the hand); aimed, it points at the target (blended between)
+	var low := _held_basis()
 	var gb := low
 	if t != Vector3.INF and w > 0.01:
 		var d := skel.global_transform * t - ba.global_transform * hand
@@ -347,7 +378,7 @@ func _process(dt: float) -> void:
 			gb = Basis(low.get_rotation_quaternion().slerp(Basis.looking_at(d.normalized(), Vector3.UP).get_rotation_quaternion(), w))
 	gb = gb * gun_extra
 	var lb := ba.global_transform.basis.orthonormalized().inverse() * gb
-	gun.transform = Weapons.hand_xf(gun_def, gun.mesh, sk_scale / GUN_K, hand, lb.orthonormalized())
+	gun.transform = Weapons.hand_xf(gun_def, gun.mesh, _gun_cs(gun_def, gun.mesh), hand, lb.orthonormalized())
 	# the kick: gun_nudge.x metres straight back along the barrel (in the bone's own, scaled, space)
 	if gun_nudge.x != 0.0:
 		gun.position += ba.global_transform.basis.inverse() * (gb.orthonormalized() * Vector3(0, 0, gun_nudge.x))
