@@ -391,12 +391,45 @@ static func _pet(I, animal: String, x: float, z: float) -> void:
 	pr["hv"] = Vector3.ZERO
 	pr["squash"] = 0.0
 
+## The drift lots dressed like a practice day: tyre racks and oil drums in the corners, spare tyres stacked
+## along the edges, a windsock, and a couple of cone gates in the middle (cones and drums knock over).
+static func _drift_props(I) -> void:
+	for lot in [[BEACH_LOT, Vector2(50, 30)], [FARM_LOT, Vector2(48, 36)]]:
+		var c: Vector2 = lot[0]
+		var hs: Vector2 = lot[1] - Vector2(3.5, 3.5)
+		var corners := [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]
+		for k in 4:
+			var q: Vector2 = c + hs * (corners[k] as Vector2)
+			var inward: Vector2 = -(corners[k] as Vector2).normalized()
+			if k % 2 == 0:
+				I.put("ds_tire_rack", q.x, q.y, _yaw_to(inward), 1.3, "box")
+				var sd := Vector2(-inward.y, inward.x) * 3.2
+				I.put("ds_airgun", q.x + sd.x, q.y + sd.y, _yaw_to(inward) + 0.6, 1.0, "")
+			else:
+				for d in 3:
+					var o := Vector2(cos(d * 2.1), sin(d * 2.1)) * 0.9
+					I.put_breakable("ds_oildrum", q.x + o.x, q.y + o.y, d * 1.3, 1.3, 0.45)
+		# stacks of spare tyres down the long sides
+		for side in [-1.0, 1.0]:
+			for i in range(-2, 3):
+				var p := c + Vector2(i * hs.x * 0.4, side * (hs.y + 1.0))
+				var tyre := "ds_offroad_spare_wheel" if i % 2 == 0 else "ds_spare_racecar_wheel"
+				for h in 3:
+					I.put(tyre, p.x, p.y, h * 0.7, 1.5, "cyl" if h == 0 else "", I.height_at(p.x, p.y) + h * 0.5)
+		I.put("ds_windsock", c.x - hs.x - 1.5, c.y, 0.0, 2.2, "cyl")
+		# cone gates to drift round
+		for g in [-0.35, 0.35]:
+			for e in [-1.0, 1.0]:
+				var cp := c + Vector2(g * hs.x * 2.0, e * 3.0)
+				I.put_breakable("ds_cone", cp.x, cp.y, 0.0, 2.2, 0.25)
+
 # ---------------------------------------------------------------- building it all
 
 static func populate(I) -> void:
 	var rr := RandomNumberGenerator.new()
 	rr.seed = 1234
 	Circuits.reserve(I)
+	_drift_props(I)
 	_town(I, rr)
 	_suburbs(I, rr)
 	_castle(I, rr)

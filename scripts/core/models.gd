@@ -15,6 +15,10 @@ static func get_mesh(name: String) -> ArrayMesh:
 	if name.begins_with("k_"):
 		_cache[name] = _k_mesh(name)
 		return _cache[name]
+	if name.begins_with("ds_"):
+		# Designersoup's extras (tools/props/bake_fbx_props.gd): tyres, cones, drums, a windsock
+		_cache[name] = load("res://assets/props/%s.res" % name)
+		return _cache[name]
 	var m: ArrayMesh = load("res://scripts/core/models.gd").call("_m_" + name)
 	_cache[name] = m
 	return m
