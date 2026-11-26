@@ -32,7 +32,11 @@ var ctl := {}                 # left, right, gas, brake, hand -> Control
 var speed_lbl: Label
 var speedo: Control
 var foot_mode := false
-var hp_bar: ProgressBar
+var hp_bar: ProgressBar      # (unused now: health is hp_g, top right)
+var hp_g: Control
+var phone_layer: Control
+var _clock_dot: Label
+var cruise_lbl: Label
 var heist_btn: Button        # by a safe: START HEIST
 var heist_box: PanelContainer   # a heist on: what to do, the clock, a bar
 var _heist_title: Label
@@ -380,18 +384,30 @@ func _build_hud() -> void:
 	_tap(pb, func(): game.pause())
 	tl.add_child(pb)
 	var info := VBoxContainer.new()
-	info.add_theme_constant_override("separation", -4)
+	info.add_theme_constant_override("separation", 2)
 	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tl.add_child(info)
-	place_lbl = K.outlined(K.label("", 30, Color.WHITE, 700, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 10)
+	# one pill: your cash · the time · the weather; the district you're in, small, under it
+	coins_pill = K.pill("coin", "0", 28)
+	coins_pill.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	var phb: HBoxContainer = coins_pill.get_child(0)
+	_clock_dot = K.label("·", 26, Color(K.INK, 0.45), 700)
+	phb.add_child(_clock_dot)
+	clock_lbl = K.label("", 24, K.INK_SOFT, 650, HORIZONTAL_ALIGNMENT_LEFT)
+	phb.add_child(clock_lbl)
+	info.add_child(coins_pill)
+	place_lbl = K.outlined(K.label("", 20, Color.WHITE, 650, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 6)
 	info.add_child(place_lbl)
-	clock_lbl = K.outlined(K.label("", 23, Color.WHITE, 700, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 6)
-	info.add_child(clock_lbl)
-	# top right: coins, minimap, camera and map buttons
-	coins_pill = K.pill("coin", "0")
-	coins_pill.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	coins_pill.position = Vector2(-250, 22)
-	hud.add_child(coins_pill)
+	# top right: fuel, the car's condition and your health, side by side; the minimap under them
+	var bars := HBoxContainer.new()
+	bars.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	bars.position = Vector2(-306, 30)
+	bars.add_theme_constant_override("separation", 14)
+	bars.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(bars)
+	fuel_g = _gauge("fuel", bars)
+	cond_g = _gauge("wrench", bars)
+	hp_g = _gauge("heart", bars)
 	mini_wrap = Panel.new()
 	mini_wrap.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	mini_wrap.size = Vector2(196, 196)
@@ -436,11 +452,7 @@ func _build_hud() -> void:
 	_tap(group_btn, func(): game.toggle_group_cam())
 	hud.add_child(group_btn)
 	phone = Phone.new()
-	phone.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
-	phone.position = Vector2(26, 204)
-	phone.size = Vector2(290, 318)
 	phone.visible = false
-	hud.add_child(phone)
 	phone.setup(self, game)
 	# REWIND: hold it to take the last few seconds back
 	var rw := PanelContainer.new()
@@ -556,9 +568,9 @@ func _build_hud() -> void:
 	rpm_bar = K.bar(200, 10, K.PAPER, Color(0, 0, 0, 0.25))
 	rpm_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	sp.add_child(rpm_bar)
-	# fuel (left of the speedo) and condition (right): slim upright bars
-	fuel_g = _gauge("fuel", Vector2(-176, -146))
-	cond_g = _gauge("wrench", Vector2(142, -146))
+	# cruise on: what it's holding, under the speedo (tap the speedo to set it, again to let go)
+	cruise_lbl = K.outlined(K.label("", 18, Color("9fe3ff"), 700), K.INK, 6)
+	sp.add_child(cruise_lbl)
 	# steering, bottom left
 	ctl["left"] = _pad("left", Vector2(40, -210), Vector2(170, 170), true, K.PAPER)
 	ctl["right"] = _pad("right", Vector2(230, -210), Vector2(170, 170), true, K.PAPER)
@@ -569,6 +581,7 @@ func _build_hud() -> void:
 	ctl["hand"] = _pad("hand", Vector2(-420, -360), Vector2(130, 120), false, K.PAPER)
 	ctl["nos"] = _pad("nos", Vector2(-270, -380), Vector2(150, 116), false, Color("cfe9ff"))
 	ctl["cruise"] = _pad("cruise", Vector2(-528, -356), Vector2(92, 92), false, K.PAPER)
+	ctl["cruise"].visible = false        # (cruise is a tap on the speedo now)
 	# the door: out of the car, or into it (both ways, the same spot)
 	ctl["door"] = _pad("door", Vector2(-528, -470), Vector2(92, 92), false, K.PAPER)       # (above cruise)
 	# on foot: a stick on the left, jump and sprint on the right
@@ -583,10 +596,7 @@ func _build_hud() -> void:
 		ctl[k].visible = false
 	# your health, on foot: a slim bar under the minimap
 	hp_bar = K.bar(196, 10, Color("ff4f6b"), Color(0, 0, 0, 0.35))
-	hp_bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	hp_bar.position = Vector2(-222, 362)
 	hp_bar.visible = false
-	hud.add_child(hp_bar)
 	# locked on: a ring of four brackets round whoever you're locked on to
 	aim_mark = Control.new()
 	aim_mark.size = Vector2(72, 72)
@@ -805,7 +815,9 @@ func _draw_foot_pad(c: Control, name: String) -> void:
 				c.draw_polyline(PackedVector2Array([cc + Vector2(-11, -2), cc + Vector2(-6, -12), cc + Vector2(7, -12), cc + Vector2(12, -2)]), cw, 3.0, true)
 				c.draw_circle(cc + Vector2(-10, 12), 4.0, cw)
 				c.draw_circle(cc + Vector2(10, 12), 4.0, cw)
-			_pad_text(c, "EXIT" if not foot else "ENTER", cc + Vector2(0, 40), 12, Color(1, 1, 1, 0.7 if (not foot or near) else 0.35))
+			var steal: bool = c.get_meta("steal", false)
+			_pad_text(c, "EXIT" if not foot else ("STEAL" if steal else "ENTER"), cc + Vector2(0, 40), 12 if not steal else 14,
+				Color("ff6b80") if steal else Color(1, 1, 1, 0.7 if (not foot or near) else 0.35))
 
 func _draw_pad(c: Control, name: String) -> void:
 	if name in FOOT_PADS or name == "door":
@@ -1153,7 +1165,7 @@ func _wanted_update2(pd: Dictionary, kmh: float) -> void:
 			wanted_why.visible = false
 			_why_t = 0.0
 	var lim := int(pd.get("limit", 0))
-	limit_sign.visible = heat == 0 and bool(pd.get("patrol", false)) and lim > 0
+	limit_sign.visible = false      # (the speedo turns red instead)
 	if limit_sign.visible:
 		limit_lbl.text = str(lim)
 		var over := kmh > lim + 10.0
@@ -1246,6 +1258,8 @@ func control_at(pos: Vector2) -> String:
 		var hub := wheel.get_global_rect().position + _wheel_hub()
 		if pos.distance_to(hub) < 250.0:
 			return "wheel"
+	if not foot_mode and speedo.visible and speedo.get_global_rect().grow(12).has_point(pos):
+		return "cruise"         # (tap the speedo: cruise control)
 	for k in (["door", "aim", "fire", "reload", "swap", "jump", "sprint", "stick"] if foot_mode else ["rewind", "door", "nos", "cruise", "hand", "gas", "brake", "left", "right"]):
 		var c: Control = ctl[k]
 		if not c.visible:
@@ -1267,12 +1281,9 @@ func set_foot(on: bool) -> void:
 		ctl["right"].visible = not wheel_mode()
 	for k in FOOT_PADS:
 		ctl[k].visible = on
-	hp_bar.visible = on
 	aim_mark.visible = false
 	reticle.visible = false
 	speedo.visible = not on
-	fuel_g.visible = not on
-	cond_g.visible = not on
 	if on:
 		limit_sign.visible = false
 	ctl["door"].set_meta("foot", on)
@@ -1293,13 +1304,15 @@ func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> 
 		_last_coins = coins
 		coins_pill.get_meta("label").text = K.money(coins)
 	var dc: Control = ctl["door"]
-	if bool(dc.get_meta("near", false)) != near:
+	var steal: bool = near and game.near_kind() == "steal"
+	if bool(dc.get_meta("near", false)) != near or bool(dc.get_meta("steal", false)) != steal:
 		dc.set_meta("near", near)
+		dc.set_meta("steal", steal)
 		dc.queue_redraw()
 	(ctl["stick"] as Control).set_meta("knob", game.stick)
 	ctl["stick"].queue_redraw()
 	var gp = game.gunplay
-	hp_bar.value = gp.hp / gp.MAX_HP
+	_gauge_set(hp_g, gp.hp / gp.MAX_HP)
 	var sw: Control = ctl["swap"]
 	var gtxt: String = String(gp.weapon.get("name", "")) + "\n" + gp.ammo_text()
 	if String(sw.get_meta("txt", "")) != gtxt:
@@ -1370,28 +1383,32 @@ func pressed_controls(held: Dictionary) -> void:
 			c.set_meta("on", on)
 			c.queue_redraw()
 
-func _gauge(icon: String, at: Vector2) -> Control:
-	var g := Control.new()
-	g.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	g.position = at
-	g.size = Vector2(34, 120)
+## A slim level bar with its icon (fuel, condition, health), side by side up in the top right.
+func _gauge(icon: String, row: HBoxContainer) -> Control:
+	var g := HBoxContainer.new()
+	g.add_theme_constant_override("separation", 4)
 	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	g.set_meta("v", 1.0)
-	g.draw.connect(func():
-		var v: float = g.get_meta("v")
-		var bar := Rect2(Vector2(11, 0), Vector2(12, 84))
-		g.draw_rect(bar.grow(3), Color(0.08, 0.08, 0.09, 0.42))
-		var col := K.STK_PAPER if v > 0.35 else (Color("f2b84b") if v > 0.15 else Color("ef6a55"))
-		var h := bar.size.y * clampf(v, 0.0, 1.0)
-		g.draw_rect(Rect2(bar.position + Vector2(0, bar.size.y - h), Vector2(bar.size.x, h)), col)
-		for k in range(1, 4):
-			var y := bar.position.y + bar.size.y * k / 4.0
-			g.draw_line(Vector2(bar.position.x, y), Vector2(bar.end.x, y), Color(0, 0, 0, 0.25), 1.0))
-	var ic := Icon.new(icon, K.STK_PAPER, 30)
-	ic.position = Vector2(2, 88)
+	var ic := Icon.new(icon, Color.WHITE, 26)
 	g.add_child(ic)
-	hud.add_child(g)
+	var bar := Control.new()
+	bar.custom_minimum_size = Vector2(52, 26)
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	g.add_child(bar)
+	g.set_meta("v", 1.0)
+	g.set_meta("bar", bar)
+	bar.draw.connect(func():
+		var v: float = g.get_meta("v")
+		var r := Rect2(Vector2(0, 9), Vector2(bar.size.x, 9))
+		bar.draw_rect(r.grow(2), Color(0.06, 0.055, 0.09, 0.55))
+		var col := (Color("ff6b80") if icon == "heart" else Color("eef0f3")) if v > 0.35 else (Color("f2b84b") if v > 0.15 else Color("ef4f55"))
+		bar.draw_rect(Rect2(r.position, Vector2(r.size.x * clampf(v, 0.0, 1.0), r.size.y)), col))
+	row.add_child(g)
 	return g
+
+func _gauge_set(g: Control, v: float) -> void:
+	if absf(float(g.get_meta("v")) - v) > 0.002:
+		g.set_meta("v", v)
+		(g.get_meta("bar") as Control).queue_redraw()
 
 ## Show (or hide) the GPS arrow: angle from straight ahead (radians, + to the right), metres to go.
 func route_arrow(on: bool, angle := 0.0, dist := 0.0, name := "") -> void:
@@ -1505,6 +1522,7 @@ func hud_update(d: Dictionary) -> void:
 		wheel.queue_redraw()
 	_wanted_update(d.get("police", {}), float(d["kmh"]))
 	var nc: Control = ctl["nos"]
+	nc.visible = not foot_mode and bool(d.get("nos_has", true))      # (a car off the street has no nitrous)
 	if absf(float(nc.get_meta("v")) - float(d.get("nos", 1.0))) > 0.01:
 		nc.set_meta("v", float(d.get("nos", 1.0)))
 		nc.queue_redraw()
@@ -1545,12 +1563,15 @@ func hud_update(d: Dictionary) -> void:
 		clock_lbl.text += ("   " if clock_lbl.text != "" else "") + _fps_txt
 	var fv := float(d.get("fuel", 100.0)) / 100.0
 	var cv := 1.0 - maxf(float(d.get("damage", 0.0)), float(d.get("engine", 0.0))) / 100.0
-	if absf(float(fuel_g.get_meta("v")) - fv) > 0.002:
-		fuel_g.set_meta("v", fv)
-		fuel_g.queue_redraw()
-	if absf(float(cond_g.get_meta("v")) - cv) > 0.002:
-		cond_g.set_meta("v", cv)
-		cond_g.queue_redraw()
+	_gauge_set(fuel_g, fv)
+	_gauge_set(cond_g, cv)
+	_gauge_set(hp_g, game.gunplay.hp / game.gunplay.MAX_HP)
+	_clock_dot.visible = clock_lbl.text != ""
+	# over the limit: the speedo goes red (no separate sign)
+	var lim: int = game.police.limit
+	var kmh := absf(game.car.speed) * 3.6
+	speed_lbl.add_theme_color_override("font_color", Color("ff4f5e") if lim > 0 and kmh > lim + 3 else Color.WHITE)
+	cruise_lbl.text = ("CRUISE %d" % int(round(game.cruise_v * 3.6))) if game.cruise_on else ""
 	place_lbl.text = d["place"]
 	if int(d["coins"]) != _last_coins:
 		_last_coins = int(d["coins"])
@@ -1978,23 +1999,53 @@ func challenge_result(name: String, score: String, medal: int, pay: int, record:
 		game.buzz(80, 0.8)
 
 ## The phone up (sliding in from below), or away.
+## The phone pulls up over everything (like the map: the game waits, the screen dims behind it); tap
+## outside it, or its back button, to put it away.
 func toggle_phone() -> void:
-	if phone.visible:
+	if phone_layer == null:
+		phone_layer = Control.new()
+		phone_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		phone_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+		phone_layer.visible = false
+		add_child(phone_layer)
+		var dim := ColorRect.new()
+		dim.color = K.DIM
+		dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		dim.mouse_filter = Control.MOUSE_FILTER_STOP
+		dim.gui_input.connect(func(e):
+			if (e is InputEventScreenTouch or e is InputEventMouseButton) and not e.pressed and phone_layer.visible:
+				game.ui_tap()
+				toggle_phone())
+		phone_layer.add_child(dim)
+		phone.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		phone.size = Vector2(290, 318)
+		phone.pivot_offset = phone.size * 0.5
+		phone_layer.add_child(phone)
+	if phone_layer.visible:
 		var t := create_tween()
-		t.tween_property(phone, "modulate:a", 0.0, 0.12)
-		t.tween_callback(func(): phone.visible = false)
+		t.tween_property(phone_layer, "modulate:a", 0.0, 0.14)
+		t.tween_callback(func():
+			phone_layer.visible = false
+			phone.visible = false
+			game.resume())
 		return
+	if game.state != game.DRIVE:
+		return
+	game.pause(false)
+	phone_layer.visible = true
 	phone.visible = true
 	phone.open()
-	phone.modulate.a = 0.0
-	var y := phone.position.y
-	phone.position.y = y + 40.0
+	phone_layer.modulate.a = 0.0
+	phone.scale = Vector2.ONE * 1.55
+	var sz: Vector2 = _vs()
+	var at := (sz - phone.size) * 0.5
+	phone.position = at + Vector2(0, sz.y * 0.6)
 	var t2 := create_tween().set_parallel()
-	t2.tween_property(phone, "modulate:a", 1.0, 0.16)
-	t2.tween_property(phone, "position:y", y, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t2.tween_property(phone_layer, "modulate:a", 1.0, 0.16)
+	t2.tween_property(phone, "position", at, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func tick(dt: float) -> void:
-	if phone and phone.visible and hud.visible:
+	if phone and phone.visible:
 		phone.tick(dt)
 	if group_btn and hud.visible and game.crew:
 		group_btn.visible = game.crew.crew_count() > 0 or game.group_cam
@@ -2325,7 +2376,7 @@ const HELP_PAGES := [
 	["Driving", "car", [
 		["left", "Steer with the wheel, bottom left (or arrow buttons: Settings). Drag anywhere else to look round the car, pinch to zoom."],
 		["play", "GAS and BRAKE, bottom right. Hold BRAKE when you've stopped to reverse."],
-		["gauge", "CRUISE holds the speed you're doing: tap it again, or brake, to let go. The bars by the speedo are fuel and the car's condition: a gas station fills one and fixes the other."],
+		["gauge", "Tap the speedometer to hold the speed you're doing (cruise): tap it again, or brake, to let go. It turns red when you're over the limit. The bars top right are fuel, the car's condition and your health: a gas station fills and fixes the car."],
 		["rewind", "Crashed? Hold REWIND (by the minimap) to take the last few seconds back."],
 	]],
 	["Drifting", "tire", [
@@ -2335,7 +2386,6 @@ const HELP_PAGES := [
 		["tank", "NOS: tap the bottle to switch it on (and again to switch it off). It burns while you're on the gas."],
 	]],
 	["Tricks", "wind", [
-		["play", "A quick tap of DRIFT with the wheel straight is a bunny hop. Hop onto a yellow-and-black rail, lined up with it, to grind along it (they're the yellow dashes on the minimap)."],
 		["wind", "In the air, GAS tips the nose down and BRAKE lifts it (hold to flip), steering spins you, and DRIFT + steering barrel-rolls. Land on your wheels!"],
 		["flag", "Kickers, ramps and boost pads are dotted round the car parks, and the Stunt Yard is just south of town."],
 	]],

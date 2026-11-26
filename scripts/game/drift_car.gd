@@ -65,7 +65,8 @@ var vis_steer := 0.0
 var wall_t := 0.0            # just touched a wall (counts down)
 var wall_pos := Vector3.ZERO  # where it last touched one
 var hit := {}                # the last knock: {"t", "pos", "n" (into the car), "kind": wall/car}
-var damage := 0.0            # 0..100, from knocks; gas stations fix it (for coins)
+const TOUGH := 1.2           # cars take this much more knocking than they used to (damage taken / 1.2)
+var damage := 0.0            # 0..100, from knocks; gas stations fix it (for cash)
 var engine_dmg := 0.0        # 0..100: knocks to the front hurt the engine: it pulls less, coughs, smokes, then
 							 # gives up (limps along) until a gas station fixes it
 var bent := 0.0              # a front wheel bent by a knock: -1..1 (sign: which side), pulls the steering
@@ -100,7 +101,7 @@ const HOP_G := 1.6
 var grind := {}                # on a rail: {i, t (along it), v, dir, time}
 var last_grind := {}           # the one just finished (main scores it): {time, v}
 var hops := 0                  # (counted: main puffs a little dust)
-var can_hop := true
+var can_hop := false        # (bunny hops and rail grinds are gone; left off)
 var sturdy := false          # (police cars: hard to tip over)
 var hop_cd := 0.0
 var _hb_down := 0.0
@@ -484,6 +485,11 @@ func _physics_process(dt: float) -> void:
 		drive = throttle * minf(engine_force, engine_force * power_speed / maxf(gv, 1.0))
 		drive *= 1.0 - damage * 0.0008     # a battered car pulls a little less,
 		drive *= engine_power()            # and a hurt engine a lot less (and coughs)
+		# wrecked (damage or the engine near the top): it won't go much over half its top speed
+		var wreck := clampf((maxf(damage, engine_dmg) - 85.0) / 15.0, 0.0, 1.0)
+		if wreck > 0.0:
+			var cap := top_speed * lerpf(1.0, 0.5, wreck)
+			drive *= clampf((cap - gv) / 3.0, 0.0, 1.0)
 		drive *= power_k                   # (and with an empty tank, hardly at all)
 		# sideways, most of the power goes into wheelspin and smoke
 		drive *= lerpf(1.0, 0.5, drift * clampf((vs - DRIFT_PACE + 6.0) / 6.0, 0.0, 1.0))

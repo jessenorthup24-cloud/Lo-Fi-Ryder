@@ -27,6 +27,11 @@ func _draw() -> void:
 			var fs := int(s * 0.3)
 			var tw := f.get_string_size("$", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 			draw_string(f, c + Vector2(-tw * 0.5, fs * 0.36), "$", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color("f2ffe6"))
+		"heart":
+			var r := s * 0.24
+			draw_circle(o + Vector2(s * 0.32, s * 0.38), r, color)
+			draw_circle(o + Vector2(s * 0.68, s * 0.38), r, color)
+			draw_colored_polygon(PackedVector2Array([o + Vector2(s * 0.1, s * 0.46), o + Vector2(s * 0.9, s * 0.46), o + Vector2(s * 0.5, s * 0.9)]), color)
 		"fuel":
 			var body := Rect2(o + Vector2(s * 0.16, s * 0.26), Vector2(s * 0.62, s * 0.7))
 			_round_rect(body, s * 0.12, Color("ec4b3f"))

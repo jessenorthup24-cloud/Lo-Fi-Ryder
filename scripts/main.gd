@@ -291,8 +291,10 @@ func _build_world() -> void:
 	car_changed()
 	fuel = clampf(float(save.data.get("fuel", 100.0)), 0.0, 100.0)
 	nos_left = nos_cap()
-	car.damage = clampf(float(save.data.get("damage", 0.0)), 0.0, 100.0)
-	car.engine_dmg = clampf(float(save.data.get("engine", 0.0)), 0.0, 100.0)
+	if not (save.data.get("car_dmg", {}) as Dictionary).has(String(save.data["car"])):
+		# (an older save: one damage figure, for the car you were in)
+		car.damage = clampf(float(save.data.get("damage", 0.0)), 0.0, 100.0)
+		car.engine_dmg = clampf(float(save.data.get("engine", 0.0)), 0.0, 100.0)
 	car.batter(hash(String(save.data["car"])))      # (it comes back looking as battered as it was)
 	router = Route.new()
 	router.build(island)
@@ -303,7 +305,6 @@ func _build_world() -> void:
 	traffic.patrol_hit = police.patrol_hit
 	car.rammed.connect(func(b, _v, _j, _at): police.rammed(b))
 	Car.rails = island.rails
-	car.collision_mask = car.collision_mask | Car.RAIL_LAYER     # (knock into the grind rails)
 	gunplay = Gunplay.new()
 	gunplay.name = "Gunplay"
 	add_child(gunplay)
@@ -554,7 +555,7 @@ func go_title() -> void:
 	_title_mood(true)
 	ui.show_title()
 
-func pause() -> void:
+func pause(menu := true) -> void:
 	if state != DRIVE:
 		return
 	state = PAUSED
@@ -567,7 +568,8 @@ func pause() -> void:
 	sound.mute_loops(true)
 	if island.rail:
 		island.rail.quiet(true)
-	ui.open_pause()
+	if menu:
+		ui.open_pause()
 	_save_now()
 
 func resume() -> void:
@@ -615,8 +617,22 @@ func close_garage(back_to: int) -> void:
 		state = TITLE
 		ui.show_title()
 
+## Each of your cars keeps its own damage (the save's "car_dmg": id -> [damage, engine, bent wheel]).
+func _stash_damage(def: Dictionary) -> void:
+	if def.is_empty() or def.has("kmodel") or not car:
+		return
+	var cd: Dictionary = save.data.get("car_dmg", {})
+	cd[String(def["id"])] = [snappedf(car.damage, 0.1), snappedf(car.engine_dmg, 0.1), snappedf(car.bent, 0.01)]
+	save.data["car_dmg"] = cd
+
+func _stashed_damage(id: String) -> Array:
+	return (save.data.get("car_dmg", {}) as Dictionary).get(id, [0.0, 0.0, 0.0])
+
 func car_changed() -> void:
 	var d := CARS.by_id(String(save.data["car"]))
+	if not drive_def.is_empty() and String(drive_def.get("id", "")) != String(d["id"]):
+		_stash_damage(drive_def)
+	var same: bool = String(drive_def.get("id", "")) == String(d["id"])
 	drive_def = d
 	for pk in parked.duplicate():
 		if bool(pk["own"]):
@@ -625,13 +641,11 @@ func car_changed() -> void:
 	var sm := int((save.data["tune"].get(String(d["id"]), {}) as Dictionary).get("smoke", 0))
 	smoke_col = Color(Car.SMOKE[clampi(sm, 0, Car.SMOKE.size() - 1)])
 	var xf := car.global_transform if car.is_inside_tree() and car.wheels.size() > 0 else Transform3D()
-	var dmg := car.damage
-	var edmg := car.engine_dmg
-	var bnt := car.bent
+	var keep: Array = [car.damage, car.engine_dmg, car.bent] if same else _stashed_damage(String(d["id"]))
 	car.setup(d, toon, island, int(save.data["paint"].get(String(d["id"]), 0)))
-	car.damage = dmg          # (a different car doesn't mean a repaired one)
-	car.engine_dmg = edmg
-	car.bent = bnt
+	car.damage = float(keep[0])       # (this car's own damage: another car's knocks don't follow you)
+	car.engine_dmg = float(keep[1])
+	car.bent = float(keep[2])
 	car.batter(hash(String(d["id"])))
 	car.tune(d, save.data["up"], save.data["tune"].get(String(d["id"]), {}))
 	car.assist = 1.0 if bool(save.setting("assist")) else 0.35
@@ -738,6 +752,8 @@ func _save_now() -> void:
 		save.data["fuel"] = snappedf(fuel, 0.1)
 		save.data["damage"] = snappedf(car.damage, 0.1)
 		save.data["engine"] = snappedf(car.engine_dmg, 0.1)
+		if not drive_def.is_empty() and String(drive_def.get("id", "")) == String(save.data["car"]):
+			_stash_damage(drive_def)
 	save.save()
 
 # ------------------------------------------------------------------ feedback
@@ -1038,6 +1054,12 @@ func _crew_tests() -> void:
 			if frames % 30 == 0:
 				print("GUN t=%.1f gun=%s ammo=%s hp=%.0f heat=%d target=%s people_down=%d cops=%d officers=%d anim=%s cash_drops=%d cash=%d" % [time, gunplay.weapon.get("id", "?"), gunplay.ammo_text(), gunplay.hp,
 					police.heat, "yes" if gunplay.lock_pos != Vector3.INF else "no", gunplay.kills["people"], gunplay.kills["police"], gunplay.officers.size(), foot.avatar.current(), heist.cash.size(), int(save.data["coins"])])
+	if args.has("phonetest") and state == DRIVE and time > 3.5 and not has_meta("ph_done"):
+		set_meta("ph_done", true)
+		ui.toggle_phone()
+		get_tree().create_timer(1.0).timeout.connect(func():
+			get_viewport().get_texture().get_image().save_png("/tmp/audit/phone1.png")
+			get_tree().quit())
 	if args.has("heisttest") and state == DRIVE:
 		# a test: the whole heist, skipping the walking (and most of the drilling)
 		var hs: Dictionary = heist.safes[int(args.get("heisttest", "0")) if String(args["heisttest"]).is_valid_int() else 0]
@@ -1543,7 +1565,7 @@ func _drive(dt: float) -> void:
 		"zone": zone, "zone_t": zone_t, "zone_pts": zone_pts, "trial": trial, "trial_t": trial_t, "trial_gate": trial_gate,
 		"trial_pts": trial_pts, "race": {} if race == null else race.hud(), "car_pos": car.get_global_transform_interpolated().origin, "car_yaw": car.global_rotation.y, "angle": rad_to_deg(absf(car.slip)),
 		"close": drift_on and close < 1.6 and car.drift > 0.2, "damage": car.damage, "engine": car.engine_dmg, "fuel": fuel,
-		"nos": nos_left / nos_cap(), "nos_on": car.nitro, "wheel": wheel_angle / WHEEL_MAX, "police": police.hud()})
+		"nos": nos_left / maxf(nos_cap(), 0.01), "nos_has": nos_cap() > 0.0, "nos_on": car.nitro, "wheel": wheel_angle / WHEEL_MAX, "police": police.hud()})
 
 # ------------------------------------------------------------------ drifting
 
@@ -1673,7 +1695,7 @@ func _on_bump(strength: float) -> void:
 		car.dent(at, hn, strength)
 		var was := car.damage
 		var ewas := car.engine_dmg
-		car.damage = minf(100.0, car.damage + strength * 1.4)
+		car.damage = minf(100.0, car.damage + strength * 1.4 / Car.TOUGH)
 		# the engine's in the front: a knock there hurts it most (a roll shakes it about a bit too)
 		var lp := car.to_local(at)
 		var half_l: float = float(car.info["length"]) * 0.5
@@ -1681,7 +1703,7 @@ func _on_bump(strength: float) -> void:
 		var nose := clampf((zc - lp.z) / maxf(half_l, 0.1), -1.0, 1.0)       # (+1: right at the front)
 		# (gentler than it was: small knocks leave the engine alone, and it takes a lot of big ones to kill it)
 		var e_k := 0.2 if kind == "roll" else 0.12 + 0.68 * smoothstep(0.2, 0.8, nose)
-		car.engine_dmg = minf(100.0, car.engine_dmg + maxf(strength - 5.0, 0.0) * e_k)
+		car.engine_dmg = minf(100.0, car.engine_dmg + maxf(strength - 5.0, 0.0) * e_k / Car.TOUGH)
 		# a hard knock on a front corner bends that wheel
 		if strength > 9.0 and nose > 0.4 and absf(lp.x) > float(car.info["width"]) * 0.2 and kind != "roll":
 			car.bent = clampf(car.bent + signf(lp.x) * strength * 0.035, -1.0, 1.0)
@@ -1893,7 +1915,7 @@ func _breakables() -> void:
 					randf_range(0.5, 1.0), Vector3(randf_range(-2, 2), randf_range(0.5, 2.0), randf_range(-2, 2)), 1.2, 0.2)
 		fx.puff((tr["pos"] as Vector3) + Vector3(0, 0.6, 0), Color(0.85, 0.8, 0.72), 1.6, Vector3(0, 1, 0), 0.7, 0.8)
 		car.linear_velocity *= 0.8 if tree else 0.88
-		car.damage = minf(100.0, car.damage + (4.0 if tree else 2.5))
+		car.damage = minf(100.0, car.damage + (4.0 if tree else 2.5) / Car.TOUGH)
 		shake = maxf(shake, 0.45 if tree else 0.3)
 		_break_drift(true)
 	var hits := island.hit_breakables(p, car.linear_velocity, 1.9)
@@ -2682,6 +2704,8 @@ func _rewind_end() -> void:
 
 ## Seconds of nitrous a full bottle holds (the Nitrous Tank upgrade makes it bigger).
 func nos_cap() -> float:
+	if drive_def.has("kmodel"):
+		return 0.0          # (an ordinary car off the street: no nitrous in it)
 	return 3.0 + 1.2 * save.level("nitrous")
 
 ## Hold NOS: a shove and a higher top speed while the bottle lasts. It fills back up slowly as you drive,
@@ -2690,7 +2714,7 @@ func _nitrous(dt: float) -> void:
 	var cap := nos_cap()
 	if nos_left <= 0.05:
 		nos_toggle = false
-	var want: bool = nos_toggle and nos_left > 0.05 and car.grounded >= 2 and car.speed > 2.0 \
+	var want: bool = cap > 0.0 and nos_toggle and nos_left > 0.05 and car.grounded >= 2 and car.speed > 2.0 \
 		and intro.is_empty() and not car.freeze and not car.hold
 	if args.has("nos") and car.speed > 8.0 and nos_left > 0.05:
 		want = true          # (a test: fire it as soon as you're moving)
@@ -3418,6 +3442,17 @@ func you_vel() -> Vector3:
 ## Near enough to a car to get in.
 func near_car() -> bool:
 	return on_foot and foot != null and not _enter_target().is_empty()
+
+## What the ENTER button would do: "" (nothing near), "enter" (one of yours), "steal" (someone else's).
+func near_kind() -> String:
+	if not on_foot or foot == null:
+		return ""
+	var t := _enter_target()
+	if t.is_empty():
+		return ""
+	if t["kind"] == "traffic" or (t["kind"] == "parked" and not bool(t["pk"].get("own", false))):
+		return "steal"
+	return "enter"
 
 ## The car you'd get into from here: {kind: "car" | "parked" | "traffic", ...}, or {} if none's close.
 func _enter_target() -> Dictionary:

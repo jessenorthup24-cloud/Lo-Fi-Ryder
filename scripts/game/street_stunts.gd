@@ -45,8 +45,8 @@ static func populate(I, D) -> void:
 		var c := Vector2(float(sp[1]), float(sp[2]))
 		var dir := Vector2(float(sp[3]), float(sp[4])).normalized()
 		var hand: bool = (sp as Array).size() < 7          # (the hand-placed ones: look about; the lot ones: there or nowhere)
-		if kind == "rail" and I.rails.size() >= MAX_RAILS:
-			continue
+		if kind == "rail":
+			continue        # (grind rails are gone: just the ramps and pads now)
 		if kind == "rail" and not hand:
 			var mid0 := c + dir * float(sp[5]) * 0.5
 			var near := false
