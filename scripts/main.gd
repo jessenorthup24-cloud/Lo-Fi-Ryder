@@ -2459,6 +2459,9 @@ func _start_info(kind: String, id: String) -> Dictionary:
 		out["warn"] = "Low on fuel: fill up at a gas station first"
 	if kind == "fight":
 		return fights.start_info(id)
+	if needs_drift_car(kind, id) and not car.can_drift:
+		out["warn"] = "A drift event: you need a drift car (the Pop-Up 86 is the cheapest, at Lo-Fi Customs)"
+		out["start"] = func(): ui.toast("Drift events need a drift car", "lock", K.PAPER, K.INK, 2.4)
 	match kind:
 		"zone":
 			for z in island.zones:
@@ -2509,6 +2512,16 @@ func on_ground(xf: Transform3D) -> Transform3D:
 	return Transform3D(xf.basis, (hit["position"] as Vector3) + Vector3(0, 0.12, 0))
 
 ## START pressed: a wipe, then you're lined up for it, the title, the countdown and away.
+## The drift events (the Drift Bowl, the drift trials): drift cars only.
+func needs_drift_car(kind: String, id: String) -> bool:
+	if kind == "zone":
+		return id == "bowl"
+	if kind == "trial":
+		for t in island.trials:
+			if String(t["id"]) == id:
+				return String(t["kind"]) == "drift"
+	return false
+
 func begin_challenge(kind: String, id: String) -> void:
 	ui.start_card_hide()
 	in_marker = {}
@@ -2540,6 +2553,9 @@ func quit_challenge() -> void:
 		ui.toast("Challenge over: free roam", "flag", K.PAPER, K.INK, 1.6)
 
 func start_challenge_now(kind: String, id: String) -> void:
+	if needs_drift_car(kind, id) and not car.can_drift and not args.has("anycar"):
+		ui.toast("Drift events need a drift car: Lo-Fi Customs has them", "lock", K.PAPER, K.INK, 2.6)
+		return
 	if not campaign.marker_open(kind, id):
 		ui.toast("That opens later in the story", "lock", K.PAPER, K.INK, 2.4)
 		return

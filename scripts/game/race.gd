@@ -17,16 +17,17 @@ const MB := preload("res://scripts/core/mesh_builder.gd")
 # across the field (each driver's share of the line's speed), how much they hold back when they're ahead
 # of you (and push when behind); the cars they get and how upgraded they are.
 const DIFF := [
-	{"name": "Easy", "a_lat": 8.0, "a_brake": 7.0, "a_acc": 4.5, "v_max": 40.0,
+	# (road cars are heavy now: under 1 g round a bend and about 8 m/s² on the brakes, so the field drives to that)
+	{"name": "Easy", "a_lat": 7.4, "a_brake": 6.4, "a_acc": 3.8, "v_max": 40.0,
 		"skill": [1.04, 1.0, 0.97, 0.95, 0.99, 0.93, 1.02, 0.96], "band": [0.94, 1.05], "cars": 0.0, "up": -1, "rel": 1.15},
-	{"name": "Medium", "a_lat": 8.9, "a_brake": 7.9, "a_acc": 5.3, "v_max": 46.0,
+	{"name": "Medium", "a_lat": 8.0, "a_brake": 7.0, "a_acc": 4.5, "v_max": 46.0,
 		"skill": [1.05, 1.03, 1.0, 0.99, 1.02, 0.98, 1.04, 1.0], "band": [0.97, 1.05], "cars": 0.4, "up": 2, "rel": 1.5},
-	{"name": "Hard", "a_lat": 9.4, "a_brake": 8.6, "a_acc": 6.2, "v_max": 52.0,
+	{"name": "Hard", "a_lat": 8.5, "a_brake": 7.6, "a_acc": 5.2, "v_max": 52.0,
 		"skill": [1.07, 1.05, 1.04, 1.03, 1.06, 1.02, 1.07, 1.04], "band": [0.995, 1.07], "cars": 0.7, "up": 5, "rel": 99.0},
 ]
 var diff := 0
 var rewinds := 0           # how many you've used this race (main allows three)
-var A_LAT := 8.0            # m/s² round a corner (what these cars hold, gripping)
+var A_LAT := 7.4            # m/s² round a corner (what these cars hold, gripping)
 var A_BRAKE := 7.0
 var A_ACC := 4.5
 var V_MAX := 40.0

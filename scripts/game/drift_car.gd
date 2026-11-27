@@ -83,6 +83,17 @@ var _vh: Array = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]   # the last few vel
 var _ram_cd := 0.0
 var _clock := 0.0
 var drift_mode := false      # pulled the handbrake: drifting physics until you straighten up
+var can_drift := true        # a drift car (cars.gd "drifter"): only these go into drift mode. Anything else on the
+                             # handbrake just locks its back wheels: a real handbrake turn, or a spin
+# ---- the body on its springs, drawn: it leans out in a bend, dives on the brakes, squats on the gas, bobs
+# over bumps and sways a moment after (GTA IV soft). Only the body mesh moves: the wheels stay planted
+var _lean := Vector3.ZERO      # pitch (x, + nose up), heave (y, metres), roll (z)
+var _lean_v := Vector3.ZERO
+var _acc_loc := Vector3.ZERO   # the car's acceleration in its own frame (smoothed): x right, y up, z back
+var _pv := Vector3.ZERO
+var _com_base := Vector3.ZERO
+var weighty := false         # a road car: heavier, softer, slower to turn in and to get going (drift cars keep
+                             # the light, nimble setup they've always had: they're built for it)
 var _last_vdir := Vector3.ZERO   # (which way it was going last step: how fast the line is curving)
 const SWEET := [22.0, 42.0]  # degrees: the sweet spot of a drift (bonus points)
 # ---- the garage tuning: camber 0..1, ride -1 (slammed) .. 1 (lifted). More camber and lower: drifts
@@ -181,6 +192,7 @@ func setup(def: Dictionary, mat: Material, isl: Node, paint := 0) -> void:
 	mass = 1250.0
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = Vector3(0, bottom + 0.25, 0.12)
+	_com_base = center_of_mass
 	inertia = Vector3(1500, 2300, 1100)
 	gravity_scale = 1.0
 	linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
@@ -214,8 +226,23 @@ func tune(def: Dictionary, up: Dictionary, tun := {}) -> void:
 	if ni > 0 and ni < NEON.size() and not info.is_empty():
 		neon_node = make_neon(info, NEON[ni], body_node.material_override if body_node else null)
 		add_child(neon_node)
+	can_drift = bool(def.get("drifter", false))
+	weighty = not can_drift
+	# road cars: real weight. More mass and more of it to swing round (slower to turn in, it leans into
+	# corners and dives under braking), softer springs, and less shove from the engine for that weight
+	var heft: float = float(def.get("mass", 1.0))
+	# (in the order setup() sets them, mass, centre, inertia: the physics takes them differently otherwise)
+	mass = (1450.0 if weighty else 1250.0) * heft
+	if _com_base != Vector3.ZERO:
+		center_of_mass = _com_base + (Vector3(0, -0.12, 0) if weighty else Vector3.ZERO)
+	inertia = Vector3(1500, 2300, 1100) * (mass / 1250.0) * (1.3 if weighty else 1.0)
+	# (a road car: soft, long springs and gentle dampers, GTA IV style: it rolls and pitches and takes a
+	# moment to settle. Its weight sits a little lower, so all that lean doesn't tip it over)
+	spring_k = (25000.0 if weighty else 42000.0) * heft
+	damper_c = (2300.0 if weighty else 3600.0) * sqrt(heft)
+
 	var pw: float = def.get("power", 1.0) * (1.0 + 0.08 * int(up.get("engine", 0)))
-	engine_force = 7600.0 * pw
+	engine_force = (6900.0 if weighty else 7600.0) * pw * heft
 	power_speed = 13.0 * (1.0 + 0.05 * int(up.get("turbo", 0)))
 	top_speed = 46.0 * def.get("speed", 1.0) * (1.0 + 0.035 * int(up.get("turbo", 0)))
 	drag = engine_force * power_speed / pow(top_speed, 3.0)
@@ -437,7 +464,7 @@ func _physics_process(dt: float) -> void:
 	else:
 		slip = 0.0
 	# drift mode: in with a pull of the handbrake, out once it's been running straight for a moment
-	if handbrake > 0.5 and vs > 6.0:
+	if handbrake > 0.5 and vs > 6.0 and can_drift:
 		drift_mode = true
 		_straight_t = 0.0
 	elif drift_mode:
@@ -470,8 +497,11 @@ func _physics_process(dt: float) -> void:
 			want += steer_in * deg_to_rad(10.0) * drift
 	# (gripping: about a tenth of a second to full lock whatever the speed, like hands on a wheel: quick, but
 	# never a jolt that makes the car dart)
+	# (a road car: a third of a second to full lock, and a little longer to wind back: it doesn't dart)
+	var t_in := 0.3 if weighty else 0.11
+	var t_out := 0.22 if weighty else 0.08
 	var rate := (4.2 if absf(want) > absf(steer) else 6.5) if drift_mode else \
-		(clampf(lock_v / 0.11, 1.2, 7.0) if absf(want) > absf(steer) else clampf(lock_v / 0.08, 1.8, 9.5))
+		(clampf(lock_v / t_in, 1.0, 7.0) if absf(want) > absf(steer) else clampf(lock_v / t_out, 1.4, 9.5))
 	steer = move_toward(steer, want, rate * dt)
 	# ---- engine and gearbox
 	_gear_cd = maxf(0.0, _gear_cd - dt)
@@ -559,7 +589,7 @@ func _physics_process(dt: float) -> void:
 		# anti-roll bar: share the load across the axle
 		var other: Dictionary = wheels[i ^ 1]
 		if other["contact"] or i % 2 == 1:
-			var arb: float = (float(other["len"]) - length) * 26000.0
+			var arb: float = (float(other["len"]) - length) * (11000.0 if weighty else 26000.0) * (mass / 1250.0)
 			apply_force(up * arb, hp - com)
 		# what's under the tyre
 		var s := 1
@@ -587,6 +617,12 @@ func _physics_process(dt: float) -> void:
 		var vz := pv.dot(wf)
 		# (gripping, the rear holds on a little better than the front: it turns in, it doesn't spin)
 		var fz_g := minf(fz, mass * 9.8 * 0.45)
+		if weighty and not drift_mode:
+			# the load on each tyre is what it grips with: brake and the nose bites, lift and the tail goes
+			# light, lean and the outside tyres do the work (each extra kilo grips a bit less than the last)
+			var w0 := mass * 9.8 * 0.25
+			fz_g = minf(fz, mass * 9.8 * 0.62)
+			fz_g *= clampf(1.0 - 0.1 * (fz_g / w0 - 1.0), 0.8, 1.1)
 		if wd["front"] and not drift_mode and drive > 0.0:
 			# gripping on the gas: give the nose back the load accelerating takes off it (so it doesn't go light
 			# and push wide), and you can turn while you accelerate
@@ -596,11 +632,13 @@ func _physics_process(dt: float) -> void:
 		var cap := mu * wet_k * g * fz_g * (1.0 if wd["front"] else (rear_grip if drift_mode else maxf(rear_grip, 1.04)))
 		if not drift_mode:
 			cap *= GRIP_MU * grip_k        # race tyres, as it were (less with camber): drifting keeps its own feel
+			if weighty:
+				cap *= 0.88                # (road tyres on a road car: a touch under 1 g round a bend)
 		elif not wd["front"]:
 			cap *= 1.0 - 0.08 * drift_k    # (camber and a low car: the tail lets go more easily)
 		# handbrake: rear wheels lock and let go sideways
 		if not wd["front"] and handbrake > 0.0:
-			cap *= lerpf(1.0, 0.45, handbrake)
+			cap *= lerpf(1.0, 0.35 if weighty else 0.45, handbrake)
 		# once it's sideways, keeping your foot in keeps the tail light (lift off and it grips again);
 		# and just after a handbrake tap the rear stays loose for a moment
 		if not wd["front"] and drift_mode:
@@ -655,9 +693,15 @@ func _physics_process(dt: float) -> void:
 	if grounded >= 2 and vs > 5.0 and not drift_mode:
 		# gripping: a stability system catches any slide before it gets going
 		# (a few degrees is just how a tyre corners at the limit: it only steps in past that)
-		if aslip > deg_to_rad(6.0) and speed > 3.0:
+		# (a road car: it lets the tail move a little before it steps in, more gently, and not at all while
+		# you've the handbrake up: that slide's yours)
+		var esc_at := deg_to_rad(10.0 if weighty else 6.0)
+		# (and after a handbrake pull it comes back in over half a second, so the tail can swing, then it's caught)
+		var hb_off := 1.0 - clampf(_hb_t / 0.45, 0.0, 1.0) if weighty else 1.0
+		var esc_k := (0.55 if weighty else 1.0) * (0.0 if (weighty and handbrake > 0.3) else hb_off) * (mass / 1250.0)
+		if aslip > esc_at and speed > 3.0:
 			var d0 := -signf(slip)
-			apply_torque(-up * d0 * (-(aslip - deg_to_rad(6.0)) * 15000.0 - slip_rate * 4500.0))
+			apply_torque(-up * d0 * (-(aslip - esc_at) * 15000.0 - slip_rate * 4500.0) * esc_k)
 		var yr0 := angular_velocity.dot(up)
 		if absf(steer_in) < 0.1:
 			apply_torque(-up * yr0 * (2600.0 if brake > 0.1 else 900.0))
@@ -669,8 +713,12 @@ func _physics_process(dt: float) -> void:
 			# no more than the wheels' angle itself would give)
 			var r_kin := vs * tan(absf(steer)) / maxf(wb, 1.0)
 			var r_ref := -signf(steer) * minf(r_kin, absf(steer) / maxf(lock_v, 0.01) * r_lim)
-			var k_as := 7.0 if absf(steer_in) > 0.05 else 2.5
-			apply_torque(up * clampf((r_ref - yr0) * inertia.y * k_as, -7000.0, 7000.0) * assist)
+			# (a road car: only a light hand on it: the weight swings round in its own time, it pushes wide if
+			# you ask too much, and the tyres, not a helper, decide the line)
+			var k_as := (2.0 if absf(steer_in) > 0.05 else 1.2) if weighty else (7.0 if absf(steer_in) > 0.05 else 2.5)
+			var t_cap := 3000.0 * (mass / 1250.0) if weighty else 7000.0
+			if not (weighty and handbrake > 0.3):
+				apply_torque(up * clampf((r_ref - yr0) * inertia.y * k_as, -t_cap, t_cap) * assist * hb_off)
 	elif grounded >= 2 and vs > 5.0:
 		# a handbrake flick with some steering swings the tail out
 		if _hb_t > 0.0 and absf(steer_in) > 0.2 and aslip < deg_to_rad(28.0):
@@ -805,6 +853,15 @@ func _physics_process(dt: float) -> void:
 		pm.friction = want_f
 	_vh.push_front(linear_velocity)
 	_vh.resize(3)
+	# (what the body's springs feel: the car's acceleration in its own frame, smoothed, knocks clipped)
+	var acc_w := (linear_velocity - _pv) / maxf(dt, 0.001)
+	_pv = linear_velocity
+	var acc_l := xf.basis.inverse() * (acc_w + Vector3(0, 9.8, 0))
+	acc_l.y -= 9.8
+	acc_l = acc_l.limit_length(18.0)
+	if grounded == 0:
+		acc_l = Vector3(0, -2.0, 0)       # (in the air the springs hang loose; the landing squashes them)
+	_acc_loc = _acc_loc.lerp(acc_l, 1.0 - exp(-dt * 14.0))
 	# bumps: sudden changes in velocity. Told a step late, so what was hit (and where) is known by then:
 	# the speed changes in the step before the contact is reported
 	var dv := (linear_velocity - _last_v).length()
@@ -835,6 +892,39 @@ func _physics_process(dt: float) -> void:
 func _process(dt: float) -> void:
 	if not is_physics_interpolated_and_enabled():
 		_wheel_vis(dt)
+	_body_sway(dt)
+
+## The body on its springs: leans out of a bend, the nose down on the brakes and up on the gas, a bob over a
+## bump; a soft spring with light damping, so it swings past and settles (road cars). Drift cars sit on
+## stiff coilovers: a little lean, settled at once.
+func _body_sway(dt: float) -> void:
+	if body_node == null or dt <= 0.0:
+		return
+	var soft := weighty
+	var f := 1.05 if soft else 2.2              # Hz: how quickly it swings
+	var zeta := 0.3 if soft else 0.65           # damping (well under 1: it overshoots and sways back)
+	var k_roll := 0.0095 if soft else 0.004     # radians per m/s² sideways (with the springs' own lean, 10° or so in a hard bend)
+	var k_pitch := 0.0085 if soft else 0.0035   # radians per m/s² along (about 4° braking hard)
+	var k_heave := 0.006 if soft else 0.003     # metres per m/s² up and down
+	var w := TAU * f
+	# (braking pushes the load forward: nose down; the gas, nose up; a bump or a landing squashes it down;
+	# a bend leans it out: z is backwards, so braking is +z, and a left turn is -x)
+	var target := Vector3(clampf(-_acc_loc.z * k_pitch, -0.1, 0.1), clampf(-_acc_loc.y * k_heave, -0.09, 0.07),
+		clampf(_acc_loc.x * k_roll, -0.16, 0.16))
+	if not _righting.is_empty() or roll_t > 0.0 or freeze:
+		target = Vector3.ZERO
+	# (small steps, so a slow frame doesn't throw the spring)
+	var n := ceili(dt / 0.008)
+	var h := dt / n
+	for i in n:
+		var acc := (target - _lean) * w * w - _lean_v * 2.0 * zeta * w
+		_lean_v += acc * h
+		_lean += _lean_v * h
+	_lean = Vector3(clampf(_lean.x, -0.12, 0.12), clampf(_lean.y, -0.1, 0.08), clampf(_lean.z, -0.18, 0.18))
+	# (it pivots low, near the axles, as a real body rolls about its suspension)
+	var piv := Vector3(0, float(info.get("r_f", 0.3)) if not info.is_empty() else 0.3, 0)
+	var b := Basis.from_euler(Vector3(_lean.x, 0.0, _lean.z))
+	body_node.transform = Transform3D(b, piv - b * piv + Vector3(0, _lean.y, 0))
 
 func _wheel_vis(dt: float) -> void:
 	if wheels.is_empty():

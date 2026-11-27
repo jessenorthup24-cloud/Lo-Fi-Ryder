@@ -404,6 +404,14 @@ func _done(sp: Array) -> bool:
 			return up - int(b.get("up", 0)) >= int(sp[1])
 		"buy_car":
 			return (sv.data["owned"] as Array).size() > int(b.get("owned", 1))
+		"buy_drift":
+			for cid in sv.data["owned"]:
+				if bool(game.CARS.by_id(String(cid)).get("drifter", false)):
+					return true
+			return false
+		"drive_drift":
+			# (in a drift car, anywhere near the Bowl; swap at Customs or have Dez bring one)
+			return game.car.can_drift and not game.on_foot and anchor("zone:bowl").distance_to(game.car.global_position) < 70.0
 		"buy_gun":
 			return (sv.data.get("guns", ["pistol"]) as Array).size() > int(b.get("guns", 1))
 		"property":
@@ -526,8 +534,10 @@ func route() -> Dictionary:
 			at = "fight:" + String(sp[1])
 		"pay":
 			at = String(sp[2])
-		"upgrade", "buy_car":
+		"upgrade", "buy_car", "buy_drift":
 			at = "door:customs"
+		"drive_drift":
+			at = "zone:bowl"
 		"buy_gun":
 			at = "door:armory"
 		"property":

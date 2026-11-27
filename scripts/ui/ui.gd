@@ -4750,7 +4750,14 @@ func _cars_tab() -> void:
 		g_panel.add_child(K.label("LEGENDARY · %d of %d" % [g_index + 1, CARS.LIST.size()], 20, Color("b8892b"), 800))
 	else:
 		g_panel.add_child(K.label("%d of %d" % [g_index + 1, CARS.LIST.size()], 20, K.INK_SOFT, 600))
-	for st in [["Power", d["power"], 0.95, 1.6], ["Top speed", d["speed"], 0.95, 1.25], ["Grip", d["grip"], 0.95, 1.16], ["Drift", d["drift"], 1.0, 1.4]]:
+	# drift car or road car: says what the handbrake does in it
+	var drifter: bool = d.get("drifter", false)
+	g_panel.add_child(K.label("DRIFT CAR · the handbrake throws it into a drift" if drifter else "ROAD CAR · grips, no drifting (that needs a drift car)",
+		18, Color("ff4fb0") if drifter else K.INK_SOFT, 800))
+	var stats := [["Power", d["power"], 0.95, 1.6], ["Top speed", d["speed"], 0.95, 1.25], ["Grip", d["grip"], 0.95, 1.16]]
+	if drifter:
+		stats.append(["Drift", d["drift"], 1.0, 1.6])
+	for st in stats:
 		var hb := HBoxContainer.new()
 		hb.add_theme_constant_override("separation", 12)
 		var l := K.label(st[0], 24, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT)

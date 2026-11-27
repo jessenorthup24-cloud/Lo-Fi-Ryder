@@ -346,6 +346,8 @@ func _spawn(who: int, called: bool) -> Dictionary:
 	c.setup(def, game.toon, island, (who * 7 + 3) % maxi(paints, 1))
 	# well sorted cars: tuned up, as a regular's would be
 	c.tune(def, {"engine": 3, "turbo": 3, "tyres": 3, "steering": 4})
+	if String(r.get("style", "")) == "drift":
+		c.can_drift = true          # (a drift regular's car is set up for it, whatever it started as)
 	c.assist = 1.0
 	c.can_hop = false
 	c.collision_layer = LAYER

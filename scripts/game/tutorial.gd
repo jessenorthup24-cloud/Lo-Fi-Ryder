@@ -1,6 +1,6 @@
 extends Node
 ## The first ride: a coach that walks you through it, one thing at a time, pointing at the button to press
-## and with the GPS arrow showing where to go. Into Jay's car, gas, steer, drift, out to your first race,
+## and with the GPS arrow showing where to go. Into Jay's car, gas, steer, brake, out to your first race,
 ## START, then Lo-Fi Customs on Main Street, then your phone. Each step's done when you've done it (or
 ## already had); skip any time. Jay's texts wait till it's over. Save "tut": true once done.
 
@@ -9,7 +9,7 @@ const STEPS := [
 	["car", "Get in Jay's car", "Walk over with the stick, then tap ENTER", "door"],
 	["gas", "Hold GAS to drive", "Keep it held to pick up speed", "gas"],
 	["steer", "Steer", "Hold left or right to turn", "steer"],
-	["drift", "Drift a corner", "Turning at speed, hold DRIFT to swing the tail out", "hand"],
+	["brake", "Brake for corners", "Cars have real weight: slow down with BRAKE before you turn in", "brake"],
 	["go_race", "Your first race", "Tap Set as destination, then follow the arrow to the pink beacon", "dest"],
 	["start", "Tap START", "Easy races pay cash and XP every time you win", "start"],
 	["racing", "", "", ""],
@@ -140,10 +140,10 @@ func _done(dt: float) -> bool:
 			if not game.on_foot and spd > 4.0:
 				_acc += absf(car.angular_velocity.y) * dt
 			return _acc > 1.4
-		"drift":
-			if not game.on_foot and spd > 7.0 and absf(car.slip) > deg_to_rad(16.0):
+		"brake":
+			if not game.on_foot and spd > 6.0 and car.brake > 0.5:
 				_acc += dt
-			return _acc > 0.35 or _t > 25.0       # (not got it yet? it comes: on to the race)
+			return _acc > 0.4 or _t > 25.0        # (not got it yet? it comes: on to the race)
 		"go_race":
 			return game.in_marker.get("kind", "") == "race" or game.race != null or _raced()
 		"start":

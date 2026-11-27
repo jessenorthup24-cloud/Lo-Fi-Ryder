@@ -108,9 +108,11 @@ const MISSIONS := [
 			{"at": "place:The Drift Bowl", "cam": ["fly", 80, 30, 90], "dur": 4.0, "title": ["THE DRIFT BOWL", "Concrete, tyre smoke, and an audience"]},
 			{"at": "zone:bowl", "cam": ["dolly", [6, 2, 5], [3.5, 1.7, 3], [0, 1.3, 0]], "dur": 3.0,
 				"actors": [["Ivy", [1.5, 1.0], "you", "talk"]],
-				"lines": [["Ivy", "So you're Jay's mystery driver. He said you were good."], ["Ivy", "Everybody's good on a straight. Show me in the Bowl."]]},
+				"lines": [["Ivy", "So you're Jay's mystery driver. He said you were good."], ["Ivy", "Everybody's good on a straight. But that Bug grips, it won't slide."],
+					["Ivy", "Get yourself a real drift car. Customs has a Pop-Up 86. Then show me in the Bowl."]]},
 		]},
-		"steps": [["zone", "bowl", 6000, "Score 6,000 in the Drift Bowl"]],
+		"steps": [["buy_drift", "Get a drift car at Lo-Fi Customs (the Pop-Up 86 is the cheapest)"], ["drive_drift", "Drive your drift car to the Drift Bowl"],
+			["zone", "bowl", 6000, "Score 6,000 in the Drift Bowl"]],
 		"outro": [["Ivy", "Okay. Okay! You can slide. Keep your phone on."]], "pay": 500},
 	{"id": "night_moves", "ch": 2, "title": "Night Moves", "giver": "Ivy", "start": "race:northloop",
 		"intro": {"shots": [

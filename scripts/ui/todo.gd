@@ -98,6 +98,8 @@ static func _fill(ui: Node, body: VBoxContainer, id: String) -> void:
 			_rows(ui, body, pts, ["drop", "bank", "atm"])
 		"drift":
 			_para(body, "Drift zones score your slides inside the zone; time trials and drift runs take you through gates against the clock. Medals for each.")
+			if not ui.game.car.can_drift:
+				_para(body, "Drifting needs a drift car: the Pop-Up 86 is the cheapest, at Lo-Fi Customs. Road cars grip, and their handbrake just locks the back wheels.", true)
 			_rows(ui, body, pts, ["zone", "trial"])
 		"cars":
 			var owned: int = (s["owned"] as Array).size()

@@ -122,6 +122,8 @@ func _run() -> void:
 			await _story()
 		"storyrun":
 			await _storyrun()
+		"handling":
+			await _handling()
 		"sticktest":
 			game.args["drive"] = true
 			game.save.data["settings"]["wheel"] = true
@@ -185,6 +187,58 @@ func _run() -> void:
 			await wait(2.0)
 			check(not game.in_marker.is_empty(), "stopped in it: the card comes up")
 			await snap("calm_stopped")
+		"racediff":
+			game.args["drive"] = true
+			game.start_drive()
+			await wait(1.0)
+			for dk in [0, 1, 2]:
+				game.save.data["settings"]["race_diff"] = dk
+				game.args["raceauto"] = true
+				game.begin_challenge("race", "downtown")
+				await wait_until(func(): return game.race != null and game.race.state == 1, 20.0)
+				var t0: float = game.time
+				var done := await wait_until(func(): return game.race != null and game.race.state == 2, 480.0)
+				var resets := 0
+				for r in game.race.racers:
+					resets += int(r.get("resets", 0))
+				check(done, "%s: the race finishes (%.0f s, P%d, rival resets %d)" % [game.race.DIFF[dk]["name"], game.time - t0, game.race.place_of(game.race.you), resets])
+				game.quit_challenge()
+				await wait(2.0)
+		"sway":
+			game.args["drive"] = true
+			game.start_drive()
+			await wait(1.5)
+			for cid in ["bug", "roadster"]:
+				game.save.data["car"] = cid
+				game.car_changed()
+				await wait(1.0)
+				await _strip(19.0)
+				_hold_steer(0.9)
+				await wait(1.2)
+				_hold_steer(0.0)
+				var trace := []
+				for i in 16:
+					await wait(0.1)
+					trace.append("%.1f" % rad_to_deg(game.car._lean.z))
+				game.wheel_idx = -1
+				print("SWAY %s roll after letting go (deg, every 0.1 s): %s" % [cid, " ".join(trace)])
+		"swaysnap":
+			game.args["drive"] = true
+			game.start_drive()
+			await wait(1.5)
+			await _strip(20.0)
+			game.held["gas"] = true
+			_hold_steer(-1.0)
+			await wait(0.7)
+			await snap("sway_corner")
+			_hold_steer(0.0)
+			game.held["gas"] = false
+			await _strip(25.0)
+			game.held["brake"] = true
+			await wait(0.35)
+			await snap("sway_brake")
+			game.held["brake"] = false
+			game.wheel_idx = -1
 		"racebug":
 			game.args["drive"] = true
 			game.start_drive()
@@ -305,12 +359,21 @@ func _racer() -> void:
 	check(not game.challenge_on(), "left the race")
 	# a zone and a trial start and stop cleanly
 	if not game.island.zones.is_empty():
-		game.start_challenge_now("zone", String(game.island.zones[0]["id"]))
+		game.start_challenge_now("zone", "bowl")
+		await wait(1.0)
+		check(not game.challenge_on(), "the Drift Bowl turns a road car away")
+		var was := String(game.save.data["car"])
+		game.save.data["car"] = "roadster"
+		game.car_changed()
+		await wait(0.5)
+		game.start_challenge_now("zone", "bowl")
 		await wait(6.0)
 		await snap("zone")
-		check(game.challenge_on(), "drift zone runs")
+		check(game.challenge_on(), "drift zone runs (in a drift car)")
 		game.quit_challenge()
 		await wait(1.0)
+		game.save.data["car"] = was
+		game.car_changed()
 	if not game.island.trials.is_empty():
 		game.start_challenge_now("trial", String(game.island.trials[0]["id"]))
 		await wait(6.0)
@@ -902,15 +965,17 @@ func _tutor() -> void:
 	await snap("tut_steer")
 	check(game.tutorial.step_id() == "steer", "coach: steer")
 	game.held["left"] = true
-	await wait_until(func(): return game.tutorial.step_id() == "drift", 10.0)
+	await wait_until(func(): return game.tutorial.step_id() == "brake", 10.0)
 	game.held["left"] = false
 	await wait(0.8)
-	await snap("tut_drift")
-	check(game.tutorial.step_id() == "drift", "coach: drift")
-	game.held["right"] = true
-	game.held["hand"] = true
+	await snap("tut_brake")
+	check(game.tutorial.step_id() == "brake", "coach: brake")
+	game.held["gas"] = true
+	await wait(2.5)
+	game.held["gas"] = false
+	game.held["brake"] = true
 	await wait_until(func(): return game.tutorial.step_id() == "go_race", 28.0)
-	game.held["right"] = false
+	game.held["brake"] = false
 	game.held["hand"] = false
 	game.held["gas"] = false
 	await wait(1.0)
@@ -1677,6 +1742,8 @@ func _dispatch() -> void:
 	await wait(3.0)
 	check(not pol.wanted(), "speeding: nobody cares")
 	game.car.linear_velocity = Vector3.ZERO
+	# (somewhere out of the way: no patrol happening past to see it for themselves)
+	game.car.place(game.on_ground(Transform3D(Basis(), Vector3(300, 1.0, -260))))
 	await wait(1.0)
 	pol.crime(1.0, "Crashed into someone")
 	await wait(0.5)
@@ -1686,7 +1753,7 @@ func _dispatch() -> void:
 	await wait(14.0)
 	check(not pol.wanted() and pol.report.get("phase", "") == "call", "still on the phone at 14 s")
 	await wait(7.0)
-	check(pol.report.get("phase", "") == "search", "dispatched by 21 s")
+	check(pol.report.get("phase", "") == "search", "dispatched by 21 s (phase %s, wanted %s, heat %d)" % [pol.report.get("phase", "-"), pol.wanted(), pol.heat])
 	var resp := 0
 	for u in pol.units:
 		if u.get("respond", false):
@@ -2344,6 +2411,21 @@ func _do_step(sp: Array, chaos: bool) -> void:
 			game.ui._garage_action()
 			game.close_garage(game.DRIVE)
 			await wait(1.0)
+		"buy_drift":
+			var dc: Dictionary = CARS.by_id("roadster")
+			note("buying the %s for %s (coins %d)" % [dc["name"], K.money(int(dc["price"])), int(game.save.data["coins"])])
+			await _need_cash(int(dc["price"]))
+			await _drive_to(game.shops.door_of("customs"), game.shops.shops["customs"]["front"] * 6.0)
+			game.open_shop("customs")
+			await wait(0.5)
+			game.ui.g_index = CARS.index_of("roadster")
+			game.ui._garage_action()
+			game.close_garage(game.DRIVE)
+			await wait(1.0)
+			check(game.car.can_drift, "bought the Pop-Up 86 and driving it: a drift car")
+		"drive_drift":
+			await _drive_to(c.anchor("zone:bowl"), Vector3(30, 0, 0))
+			await wait(1.0)
 		"buy_gun":
 			var lv2: int = Progress.level(game.save)
 			var gun := {}
@@ -2578,3 +2660,135 @@ func _storyrun() -> void:
 	note("run %s: %d missions, %.0f s game time, %d grind races, %d forced" % [run, per.size(), game.time - t_all, _grinds, _forced])
 	for i in _issues:
 		note("ISSUE " + String(i))
+
+
+# ------------------------------------------------------------------ handling numbers
+## On the Raceway's main straight: 0-100, 100-0, turn-in, grip at the limit, body lean, the handbrake. For a
+## road car, a heavy truck and a drift car. Prints a line per car to compare before/after.
+func _hold_steer(v: float) -> void:
+	game.wheel_idx = 99
+	game.wheel_angle = v * game.WHEEL_MAX
+
+func _keys(gas := false, brk := false, hand := false) -> void:
+	game.held["gas"] = gas
+	game.held["brake"] = brk
+	game.held["hand"] = hand
+
+func _strip(v0: float) -> void:
+	var c = game.car
+	_keys()
+	_hold_steer(0.0)
+	var xf := Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(345, 0, 372))
+	c.place(game.on_ground(Transform3D(xf.basis, xf.origin + Vector3(0, 0.6, 0))))
+	c.linear_velocity = Vector3.ZERO
+	c.angular_velocity = Vector3.ZERO
+	await wait(1.2)
+	c.linear_velocity = -c.global_transform.basis.z * v0
+	await wait(0.02)
+
+func _handling() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.5)
+	var c = game.car
+	var dt := 1.0 / 60.0
+	for cid in String(game.args.get("cars", "bug,trailhand,roadster")).split(","):
+		game.save.data["car"] = cid
+		game.save.data["up"] = {"engine": 0, "turbo": 0, "tyres": 0, "steering": 0}
+		game.car_changed()
+		await wait(1.0)
+		if game.args.has("hdebug"):
+			print("CAR %s com=%s mass=%.0f inertia=%s spring=%.0f damp=%.0f weighty=%s" % [cid, str(c.center_of_mass), c.mass, str(c.inertia), c.spring_k, c.damper_c, c.weighty])
+		var r := {}
+		# 0-100 km/h
+		await _strip(0.0)
+		_keys(true)
+		var t := 0.0
+		var t80 := 0.0
+		while c.speed < 27.78 and t < 25.0 and c.global_position.x < 535.0:
+			await get_tree().physics_frame
+			t += dt
+			if t80 == 0.0 and c.speed >= 22.2:
+				t80 = t
+			if game.args.has("hdebug") and int(t / dt) % 60 == 0:
+				print("ACC t=%.0f v=%.1f gear=%d thr=%.1f gr=%d spin=%.2f pos=%s" % [t, c.speed, c.gear, c.throttle, c.grounded, c.wheelspin, str(c.global_position.snapped(Vector3.ONE))])
+		r["0-100"] = t if c.speed >= 27.78 else -1.0
+		r["0-80"] = t80
+		_keys()
+		# 100-0: the distance, and how far the nose dips
+		await _strip(27.78)
+		var p0: Vector3 = c.global_position
+		_keys(false, true)
+		var dip := 0.0
+		t = 0.0
+		while c.linear_velocity.length() > 0.5 and t < 10.0:
+			await get_tree().physics_frame
+			t += dt
+			dip = maxf(dip, rad_to_deg(asin(clampf(-c.global_transform.basis.z.y, -1.0, 1.0))) * -1.0)
+		r["100-0 m"] = p0.distance_to(c.global_position)
+		r["dive deg"] = dip
+		r["body dive"] = rad_to_deg(c._lean.x)
+		_keys()
+		# turn-in at 60: half lock, time to 90% of the yaw rate it settles at
+		await _strip(16.7)
+		_hold_steer(0.5)
+		var yaws: Array = []
+		t = 0.0
+		while t < 1.6:
+			await get_tree().physics_frame
+			t += dt
+			yaws.append(absf(c.angular_velocity.y))
+		var settle := 0.0
+		for i in range(72, 96):
+			settle += float(yaws[i]) / 24.0
+		r["turn@0.25"] = float(yaws[15]) / maxf(settle, 0.001)     # (how much of its turn it's found a quarter second in)
+		r["yaw@half"] = settle
+		_hold_steer(0.0)
+		# the limit at 80: full lock for a second and a bit; most sideways g, the lean, the slip
+		await _strip(22.2)
+		_keys(true)
+		_hold_steer(1.0)
+		var g := 0.0
+		var lean := 0.0
+		var lv: Vector3 = c.linear_velocity
+		t = 0.0
+		while t < 1.3:
+			await get_tree().physics_frame
+			t += dt
+			var a: Vector3 = (c.linear_velocity - lv) / dt
+			lv = c.linear_velocity
+			var side: Vector3 = c.global_transform.basis.x
+			g = maxf(g, absf(a.dot(side)) / 9.8)
+			lean = maxf(lean, rad_to_deg(absf(asin(clampf(side.y, -1.0, 1.0)))))
+			r["body roll"] = maxf(float(r.get("body roll", 0.0)), rad_to_deg(absf(c._lean.z)))
+		r["limit g"] = g
+		r["lean deg"] = lean
+		r["limit slip"] = rad_to_deg(absf(c.slip))
+		_keys()
+		_hold_steer(0.0)
+		# the handbrake at 60, steering in, then gas and a little lock
+		await _strip(16.7)
+		_hold_steer(0.7)
+		_keys(false, false, true)
+		var mx := 0.0
+		var dm := false
+		t = 0.0
+		while t < 2.6:
+			await get_tree().physics_frame
+			t += dt
+			if t > 0.45:
+				_keys(true)
+				_hold_steer(-0.25)
+			mx = maxf(mx, rad_to_deg(absf(c.slip)))
+			dm = dm or c.drift_mode
+		r["hb max slip"] = mx
+		r["upright"] = c.global_transform.basis.y.y > 0.8
+		r["drift mode"] = dm
+		r["hb end slip"] = rad_to_deg(absf(c.slip))
+		_keys()
+		_hold_steer(0.0)
+		game.wheel_idx = -1
+		var line := "HANDLING %-10s" % cid
+		for k in r:
+			line += "  %s=%s" % [k, ("%.2f" % r[k]) if r[k] is float else str(r[k])]
+		print(line)
