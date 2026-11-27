@@ -38,6 +38,8 @@ const Gore := preload("res://scripts/game/gore.gd")
 const CarHits := preload("res://scripts/game/car_hits.gd")
 const Allies := preload("res://scripts/game/allies.gd")
 const Story := preload("res://scripts/game/story.gd")
+const Campaign := preload("res://scripts/game/campaign.gd")
+const Cutscene := preload("res://scripts/game/cutscene.gd")
 const Tutorial := preload("res://scripts/game/tutorial.gd")
 const Cards := preload("res://scripts/game/cards.gd")
 
@@ -181,6 +183,8 @@ var bank: Bank              # cash on you vs banked: ATMs, the three banks, the 
 var allies: Node3D          # your crew on foot, fighting beside you (allies.gd)
 var story: Node             # Jay's texts and your goal on the HUD (story.gd)
 var tutorial: Node          # the first ride's coach (tutorial.gd)
+var campaign: Campaign      # story mode: chapters, missions, what's open (campaign.gd, campaign_data.gd)
+var cutscene: Cutscene      # the story's scenes: camera shots, bars, subtitles (cutscene.gd)
 var on_foot := false
 var stick := Vector2.ZERO    # the on-foot stick: x right, y forward
 var stick_idx := -1          # the finger on it
@@ -389,6 +393,14 @@ func _build_world() -> void:
 	tutorial.name = "Tutorial"
 	add_child(tutorial)
 	tutorial.setup(self)
+	cutscene = Cutscene.new()
+	cutscene.name = "Cutscene"
+	add_child(cutscene)
+	cutscene.setup(self)
+	campaign = Campaign.new()
+	campaign.name = "Campaign"
+	add_child(campaign)
+	campaign.setup(self)
 	crew = Crew.new()
 	crew.name = "Crew"
 	add_child(crew)
@@ -601,13 +613,17 @@ func start_drive() -> void:
 	if story.step == 0 and not args.has("drive") and not autopilot:
 		# the very start: you're stood by Jay's old car, and the story begins (the first ride's coach with it)
 		save.data["seen_help"] = true
-		tutorial.start()
+		if not campaign.on:
+			tutorial.start()
 		get_tree().create_timer(0.3, false).timeout.connect(func():
 			if not on_foot:
 				toggle_foot()
 			gunplay.holstered = true        # (just arrived: hands in pockets, not a gun out)
 			gunplay.equip()
-			story.intro())
+			if campaign.on:
+				campaign.intro()            # (the island from the air, Jay at the ferry, then his coach)
+			else:
+				story.intro())
 		return
 	story.begin()
 	if not bool(save.data.get("seen_help", false)) and not autopilot and not args.has("drive"):
@@ -721,6 +737,9 @@ func deliver_car(id: String) -> void:
 func open_shop(id: String) -> void:
 	if police.wanted():
 		ui.toast("Lose the police first", "eye", Color("ff5c7a"), Color.WHITE)
+		return
+	if not campaign.allows("shop:" + id):
+		ui.toast("Opens in chapter %d of the story" % campaign.lock_ch("shop:" + id), "lock", K.PAPER, K.INK, 2.4)
 		return
 	_shop_in = id
 	_shop_car = String(save.data["car"])
@@ -894,7 +913,8 @@ func _apply_settings() -> void:
 	if args.has("shadowdist"):
 		atmos.sun.directional_shadow_max_distance = float(args["shadowdist"])
 	atmos.env.glow_enabled = bool(st.get("bloom", true))
-	Engine.max_fps = 60 if bool(st.get("fps60", false)) else 0
+	# (a steady 30 beats a 40-50 that keeps missing the screen's refresh: every frame the same length, no judder)
+	Engine.max_fps = 30 if bool(st.get("fps30", false)) else (60 if bool(st.get("fps60", false)) else 0)
 	cam_mode = clampi(int(st.get("cam", 0)), 0, 2)
 	cam_zoom = clampf(float(st.get("zoom", 1.0)), 0.55, 1.7)
 	if car:
@@ -1042,6 +1062,7 @@ func _process(dt: float) -> void:
 			bank.tick(dt)
 			allies.tick(dt)
 			story.tick(dt)
+			campaign.tick(dt)
 			fights.tick(dt)
 			crew.tick(dt)
 			_crew_tests()
@@ -2397,7 +2418,7 @@ func _markers_tick(_dt: float) -> void:
 		var is_fight: bool = m["kind"] == "fight"
 		# (a fight's beacon: only whoever's next, and you can walk into it as well as drive)
 		var d := (m["pos"] as Vector3).distance_to(you().global_position if is_fight else p)
-		var show := d < 220.0 and not busy and (not is_fight or fights.showing(String(m["id"])))
+		var show := d < 220.0 and not busy and (not is_fight or fights.showing(String(m["id"]))) and campaign.marker_open(String(m["kind"]), String(m["id"]))
 		(m["node"] as Node3D).visible = show
 		(m["label"] as Node3D).visible = show and d < 120.0 and d > float(m["r"]) + 6.0
 		# (the column of light thins out as you drive into it, so you're not sitting in a pink fog)
@@ -2507,6 +2528,9 @@ func quit_challenge() -> void:
 		ui.toast("Challenge over: free roam", "flag", K.PAPER, K.INK, 1.6)
 
 func start_challenge_now(kind: String, id: String) -> void:
+	if not campaign.marker_open(kind, id):
+		ui.toast("That opens later in the story", "lock", K.PAPER, K.INK, 2.4)
+		return
 	_back_in()
 	_end_challenges()
 	cur_challenge = [kind, id]
@@ -3031,6 +3055,7 @@ func _wake_at_station(at: Vector3) -> void:
 func police_escaped(bounty: int, heat: int) -> void:
 	save.data["coins"] = int(save.data["coins"]) + bounty
 	save.add_stat("escapes", 1)
+	campaign.on_escape(heat)
 	ui.wanted_lost(bounty, heat)
 	sfx("radio_chirp", -9.0, 0.9)
 	_save_now()
@@ -3346,6 +3371,7 @@ func race_done(place: int, t: float) -> void:
 			save.add_stat("hard_wins", 1)
 	save.add_stat("races", 1)
 	_medal_stats()
+	campaign.on_race(String(d["id"]), place)
 	var nth: String = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"][clampi(place - 1, 0, 7)]
 	var mins := int(t) / 60
 	ui.challenge_result(String(d["name"]), "%s · %s · %d:%05.2f" % [String(Race.DIFF[race.diff]["name"]), nth, mins, t - mins * 60.0], medal, pay, better and best > 0.0, restart_challenge)
@@ -3390,6 +3416,8 @@ func _route_target() -> Dictionary:
 			route_pick = {}
 			return {}
 		return route_pick
+	if not challenge_on():
+		return campaign.route()
 	return {}
 
 func _route_tick(dt: float) -> void:

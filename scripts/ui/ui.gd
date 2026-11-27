@@ -3238,6 +3238,7 @@ func open_settings(from_pause := false) -> void:
 	g.add_child(_setting_toggle("calendar", "Show clock", st["clock"], func(v): game.set_setting("clock", v)))
 	g.add_child(_setting_toggle("gauge", "Show FPS", st.get("fps", false), func(v): game.set_setting("fps", v)))
 	g.add_child(_setting_toggle("lock", "Cap at 60 fps", st.get("fps60", false), func(v): game.set_setting("fps60", v)))
+	g.add_child(_setting_toggle("lock", "Cap at 30 fps (smoother on slower phones)", st.get("fps30", false), func(v): game.set_setting("fps30", v)))
 	var reset := K.button("Reset progress", K.PAPER, K.LINE, 24, 0, 60)
 	reset.add_theme_color_override("font_color", K.CORAL_DK)
 	var armed := [false]

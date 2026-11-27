@@ -83,8 +83,8 @@ func setup(u: Node, g: Node) -> void:
 	dez_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	dez_btn.pressed.connect(func():
 		game.ui_tap()
-		if game.Progress.level(game.save) < game.Progress.DELIVERY_LEVEL:
-			ui.toast("Dez picks up at level %d" % game.Progress.DELIVERY_LEVEL, "lock", K.PAPER, K.INK, 2.0)
+		if not game.campaign.allows("dez", game.Progress.level(game.save) >= game.Progress.DELIVERY_LEVEL):
+			ui.toast(("Dez picks up from chapter %d of the story" % game.campaign.lock_ch("dez")) if game.campaign.on else ("Dez picks up at level %d" % game.Progress.DELIVERY_LEVEL), "lock", K.PAPER, K.INK, 2.0)
 			return
 		_mode = "contacts" if _mode == "dez" else "dez"
 		_sig = ""

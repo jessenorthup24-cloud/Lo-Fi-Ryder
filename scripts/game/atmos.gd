@@ -42,6 +42,7 @@ func setup(parent: Node, toon: ShaderMaterial) -> void:
 	sky_mat.sky_curve = 0.12
 	sky_sm = ShaderMaterial.new()
 	sky_sm.shader = load("res://shaders/sky.gdshader")
+	sky_sm.set_shader_parameter("sky_noise", load("res://assets/tex/sky_noise.png"))
 	sky.sky_material = sky_sm
 	sky.radiance_size = Sky.RADIANCE_SIZE_32
 	sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL     # (the clouds drift: the light from the sky updates a bit at a time)

@@ -372,16 +372,17 @@ func tick(dt: float) -> void:
 	match state:
 		IDLE:
 			near = {}
-			if on_foot and not game.challenge_on() and (game.Progress.level(game.save) >= game.Progress.HEIST_LEVEL or game.args.has("heisttest")):
+			var open_: bool = game.campaign.allows("heists", game.Progress.level(game.save) >= game.Progress.HEIST_LEVEL) or game.args.has("heisttest")
+			if on_foot and not game.challenge_on() and open_:
 				for sf in safes:
 					if (sf["pos"] as Vector3).distance_to(yp) < 3.4 and not _cracked(sf):
 						near = sf
 						break
-			if on_foot and _hint_t <= 0.0 and game.Progress.level(game.save) < game.Progress.HEIST_LEVEL:
+			if on_foot and _hint_t <= 0.0 and not open_:
 				for sf in safes:
 					if (sf["pos"] as Vector3).distance_to(yp) < 4.0:
 						_hint_t = 6.0
-						game.ui.toast("A safe. Heists open up at level %d" % game.Progress.HEIST_LEVEL, "lock", Color(0.12, 0.13, 0.16, 0.85), Color.WHITE, 2.4)
+						game.ui.toast(("A safe. Heists open in chapter %d of the story" % game.campaign.lock_ch("heists")) if game.campaign.on else ("A safe. Heists open up at level %d" % game.Progress.HEIST_LEVEL), "lock", Color(0.12, 0.13, 0.16, 0.85), Color.WHITE, 2.4)
 						break
 			game.ui.heist_prompt("START HEIST" if not near.is_empty() else "")
 		FETCH, RETURN:

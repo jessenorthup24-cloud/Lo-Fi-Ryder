@@ -53,7 +53,7 @@ const FIGHTERS := [
 		"line": "\"Nothing personal. I just need to hit something\"", "beaten": "Hammer: \"Good. The gym's in good hands. Somewhere\"", "won": "Hammer: \"Still got it\""},
 	{"id": "king", "name": "Lo Fischer", "nick": "King Lo", "who": "businessman_shirt", "place": "Downtown", "lvl": 10, "purse": 5000,
 		"stats": {"wind": 1.8, "hp": 230.0, "spd": 1.35, "cool": [0.4, 0.75], "block": 0.4, "slip": 0.4, "combo": 4, "dmg": 1.5, "range": 1.55, "recover": 0.35, "armor": 0.5, "counter": 0.7, "moves": [0, 1, 2]},
-		"story": "King Lo, Mo's partner. Never lost. Owns half of Downtown and the fights with it. Beat him and you're the king of these streets.", "odds": 3.2,
+		"story": "King Lo, Victor Crane's champion. Never lost, never been knocked down. Beat him and you're the king of these streets.", "odds": 3.2,
 		"line": "\"Mo says you're good. Mo's said that before\"", "beaten": "King Lo: \"...Long live the king, then\"", "won": "King Lo: \"Come back when you're ready. You're not\""},
 ]
 
@@ -91,7 +91,9 @@ func focus() -> Vector3:
 	return (cur["pr"] as Dictionary)["pos"]
 
 ## Their beacon's up: they're next, and Mo's told you about them.
-func showing(_id: String) -> bool:
+func showing(id: String) -> bool:
+	if game.campaign and game.campaign.on:
+		return game.campaign.fight_open(id) and cur.is_empty()     # (story mode: Mo brings them in chapter by chapter)
 	return bool(game.save.data.get("fights_intro", false)) and cur.is_empty()
 
 # ------------------------------------------------------------------ where
@@ -145,7 +147,7 @@ func tick(dt: float) -> void:
 	_mo_t -= dt
 	if _mo_t <= 0.0:
 		_mo_t = 1.0
-		if not bool(game.save.data.get("fights_intro", false)) and Progress.level(game.save) >= UNLOCK \
+		if not bool(game.save.data.get("fights_intro", false)) and Progress.level(game.save) >= UNLOCK and not game.campaign.on \
 				and game.state == game.DRIVE and not game.tutorial.active and not game.challenge_on():
 			game.save.data["fights_intro"] = true
 			game.save.save()

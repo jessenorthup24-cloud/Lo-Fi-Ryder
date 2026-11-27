@@ -7,12 +7,14 @@ const Guide := preload("res://scripts/game/guide.gd")
 const CARS := preload("res://scripts/game/cars.gd")
 
 const TABS := [
-	["start", "Start here"], ["race", "Races"], ["fight", "Fights"], ["heist", "Heists"], ["money", "Money"],
+	["story", "Story"], ["start", "Start here"], ["race", "Races"], ["fight", "Fights"], ["heist", "Heists"], ["money", "Money"],
 	["drift", "Drifting"], ["cars", "Cars & property"],
 ]
 
-static func open(ui: Node, tab := "start") -> void:
+static func open(ui: Node, tab := "") -> void:
 	var game: Node = ui.game
+	if tab == "":
+		tab = "story" if game.campaign.on else "start"
 	if game.state == game.DRIVE:
 		game.pause(false)
 	var vb: VBoxContainer = await ui._sheet("Things to do", "flag", Color("ff8a5c"), 1160.0)
@@ -34,6 +36,8 @@ static func open(ui: Node, tab := "start") -> void:
 			tabs.remove_child(c)          # (now, so the new ones can take their names)
 			c.queue_free()
 		for t in TABS:
+			if t[0] == "story" and not game.campaign.on:
+				continue
 			var on: bool = t[0] == id
 			var b := K.button(String(t[1]), K.CORAL if on else K.PAPER, K.CORAL_DK if on else K.LINE, 18, 0, 50)
 			b.name = "Tab_" + String(t[0])
@@ -65,6 +69,8 @@ static func _fill(ui: Node, body: VBoxContainer, id: String) -> void:
 	var pts: Array = Guide.points(game)
 	var lvl: int = game.Progress.level(game.save)
 	match id:
+		"story":
+			_story(ui, body, pts)
 		"start":
 			_para(body, "You're level %d with %s on you and %s in the bank." % [lvl, K.money(game.bank.cash()), K.money(game.bank.banked())], true)
 			_para(body, "Nothing's routed for you: pick anything here or on the map and tap Set as destination, and the GPS takes you there.")
@@ -199,3 +205,36 @@ static func _near(game: Node, wp: Vector3) -> String:
 			bd = d
 			best = String(pl["name"])
 	return ("near " + best) if bd < 260.0 else "out of town"
+
+## The story: the chapter, the mission and what to do now, and how far through you are.
+static func _story(ui: Node, body: VBoxContainer, pts: Array) -> void:
+	var c = ui.game.campaign
+	var D = c.Data
+	if c.finished():
+		_para(body, "The story's done. The island's yours, and everything's open.", true)
+		return
+	var md: Dictionary = c.mission()
+	var ch: int = c.chapter()
+	_para(body, "Chapter %d: %s" % [ch, D.CHAPTERS[ch - 1][0]], true)
+	_para(body, String(D.CHAPTERS[ch - 1][1]))
+	_para(body, "%s  (from %s)" % [md["title"], md["giver"]], true)
+	var g: String = c.goal()
+	if g == "":
+		g = "%s will be in touch." % md["giver"] if String(md["start"]) == "call" else "It's starting."
+	_para(body, g)
+	for p in pts:
+		if p["kind"] == "story":
+			body.add_child(_row(ui, p))
+	# how far through: a line per chapter
+	var done_in := {}
+	var all_in := {}
+	for i in D.MISSIONS.size():
+		var k := int(D.MISSIONS[i]["ch"])
+		all_in[k] = int(all_in.get(k, 0)) + 1
+		if i < c.m:
+			done_in[k] = int(done_in.get(k, 0)) + 1
+	_para(body, "Progress", true)
+	for k in range(1, D.CHAPTERS.size() + 1):
+		var mark := "✓" if int(done_in.get(k, 0)) >= int(all_in.get(k, 0)) else ("▸" if k == ch else "·")
+		_para(body, "%s  %d. %s   %d/%d" % [mark, k, D.CHAPTERS[k - 1][0] if k <= ch else "???", int(done_in.get(k, 0)), int(all_in.get(k, 0))])
+	_para(body, "Between missions the island's yours: races, drifting, fights and the rest all pay. The story opens more of it as you go.")

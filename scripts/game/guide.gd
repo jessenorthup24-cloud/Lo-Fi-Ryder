@@ -7,6 +7,7 @@ const K := preload("res://scripts/ui/kit.gd")
 
 ## The kinds, in the legend's order: colour, the glyph on its pin, the legend's name, the icon.
 const CATS := [
+	{"id": "story", "name": "Story mission", "col": Color("ffd34d"), "glyph": "!", "icon": "flag"},
 	{"id": "drop", "name": "Your dropped cash", "col": Color("3dff7a"), "glyph": "$", "icon": "coin"},
 	{"id": "race", "name": "Races", "col": Color("ff5c7a"), "glyph": "R", "icon": "flag"},
 	{"id": "fight", "name": "Street fights", "col": Color("ffb020"), "glyph": "F", "icon": "target"},
@@ -30,6 +31,10 @@ static func points(game: Node) -> Array:
 	var out: Array = []
 	var s: Dictionary = game.save.data
 	var isl = game.island
+	# the story: where the next mission is (or the step you're on)
+	var sp: Dictionary = game.campaign.map_point() if game.campaign else {}
+	if not sp.is_empty():
+		out.append(sp)
 	# the cash you dropped
 	var dr: Dictionary = game.bank.drop
 	if not dr.is_empty():
@@ -48,6 +53,11 @@ static func points(game: Node) -> Array:
 			"info": "Pull up to the beacon and tap START. Beat the field for cash and XP; harder difficulty (in Settings) pays more. Medals for your times.",
 			"pos": rc["pos"], "xf": Transform3D(Basis(), (rc["pos"] as Vector3) + Vector3(0, 1.0, 0)),
 			"start": func(): game.start_challenge_now("race", rid), "medal": int(s["medals"].get("race_" + dk, 0))})
+		var lc: int = game.campaign.lock_ch("race:" + rid)
+		if lc > 0:
+			out[-1]["sub"] = "Opens in chapter %d of the story" % lc
+			out[-1]["dim"] = true
+			out[-1].erase("start")
 	# street fights (once Mo's told you about them)
 	for fd in game.Fights.FIGHTERS:
 		var fid: String = fd["id"]

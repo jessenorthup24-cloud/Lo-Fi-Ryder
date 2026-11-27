@@ -117,6 +117,8 @@ func _run() -> void:
 			await _carhit()
 		"fear":
 			await _fear()
+		"story":
+			await _story()
 		"mapper":
 			await _mapper()
 		"ram":
@@ -1907,3 +1909,110 @@ func _fear() -> void:
 		if not p2["gone"] and float(p2.get("fear", 0.0)) > 0.0:
 			scared += 1
 	note("frightened about: %d" % scared)
+
+## Story mode: the opening scene, the coach, the first missions, what's locked and when it opens, a call,
+## paying Holloway and the escape, and the last mission opening the lot.
+func _jump_to(id: String) -> void:
+	var c = game.campaign
+	for i in c.Data.MISSIONS.size():
+		if String(c.Data.MISSIONS[i]["id"]) == id:
+			c.m = i
+	c.st = "wait"
+	c.s = 0
+	c._call_t = 0.5
+
+func _go(p: Vector3) -> void:
+	if game.on_foot:
+		game.foot.global_position = game.on_ground(Transform3D(Basis(), p + Vector3(0, 1.0, 0))).origin
+	else:
+		game.car.place(game.on_ground(Transform3D(Basis(), p + Vector3(0, 0.6, 0))))
+
+func _skip_scene() -> void:
+	await wait_until(func(): return game.cutscene.active, 6.0)
+	if game.cutscene.active:
+		game.cutscene.finish()
+	await wait(0.6)
+
+func _story() -> void:
+	var c = game.campaign
+	check(c.on and not c.legacy and c.m == 0, "story mode on for a new game (m=%d legacy=%s)" % [c.m, c.legacy])
+	game.start_drive()
+	var sc := await wait_until(func(): return game.cutscene.active, 4.0)
+	check(sc, "the opening scene plays")
+	await wait(3.0)
+	await snap("story_open")
+	check(game.state == game.PAUSED and not game.ui.hud.visible, "game held and the HUD hidden under the scene")
+	await wait(9.0)
+	await snap("story_jay")
+	note("scene shot %d line %d: %s" % [game.cutscene._shot, game.cutscene._line, game.cutscene._say.text])
+	game.cutscene.finish()
+	await wait(1.0)
+	check(game.state == game.DRIVE and game.ui.hud.visible, "back to the game after the scene")
+	check(c.st == "on" and game.tutorial.active, "Jay's coach is on (st=%s)" % c.st)
+	# gates at chapter one
+	check(c.marker_open("race", "downtown") and not c.marker_open("race", "northloop"), "chapter 1: Downtown Loop open, Northern Loop not yet")
+	check(not c.allows("heists") and not c.allows("shop:armory") and c.allows("shop:customs"), "chapter 1: no heists, no Armory, Customs open")
+	check(not game.fights.showing("dre"), "no fights yet")
+	game.tutorial.skip()
+	await wait_until(func(): return c.m == 1, 4.0)
+	check(c.m == 1, "the coach done: on to First Taste")
+	check(String(c.route().get("kind", "")) == "story", "GPS points at the next mission (%s)" % str(c.route().get("name", "")))
+	var gp := false
+	for p in preload("res://scripts/game/guide.gd").points(game):
+		gp = gp or p["kind"] == "story"
+	check(gp, "the map has the story pin")
+	check(c.goal().contains("Jay"), "goal line: %s" % c.goal())
+	# the race's beacon
+	await wait(5.0)
+	var rp: Vector3 = c.anchor("race:downtown")
+	_go(rp + Vector3(6, 0, 0))
+	await _skip_scene()
+	check(c.st == "on" and String(c._step()[0]) == "race", "driving in starts First Taste: race step")
+	c.on_race("downtown", 5)
+	await wait(0.6)
+	check(c.m == 1, "5th isn't the podium: still on it")
+	c.on_race("downtown", 2)
+	await wait_until(func(): return c.m == 2, 3.0)
+	check(c.m == 2, "2nd: First Taste done")
+	# Jay rings
+	c._call_t = 0.2
+	await wait(1.0)
+	var rang := await wait_until(func(): return game.cutscene.active, 6.0)
+	check(rang, "Jay rings, and the call plays")
+	await snap("story_call")
+	game.cutscene.finish()
+	await wait(0.8)
+	game.save.data["coins"] = int(game.save.data["coins"]) + 400
+	game.save.data["cash"] = int(game.save.data.get("cash", 0)) + 400
+	game.bank.deposit()
+	await wait_until(func(): return c.m == 3, 3.0)
+	check(c.m == 3, "banked: Bank on It done")
+	# Holloway: pay, the set-up, the chase
+	_jump_to("holloway")
+	await wait(0.5)
+	check(c.allows("heists") and c.allows("shop:armory") and c.fight_open("kiko") and not c.fight_open("deacon"), "chapter 4: heists, the Armory and Mo's first three open, not the Deacon")
+	game.save.data["coins"] = int(game.save.data["coins"]) + 2000
+	var sq: Vector3 = c.anchor("place:Town Square")
+	_go(sq + Vector3(4, 0, 4))
+	await _skip_scene()
+	var before := int(game.save.data["coins"])
+	await wait(1.0)
+	note("coins %d -> %d" % [before, int(game.save.data["coins"])])
+	await _skip_scene()
+	await wait(1.0)
+	check(String(c._step()[0]) == "escape" and game.police.heat >= 1, "set up: the police are after you (heat %d)" % game.police.heat)
+	game.police_escaped(0, game.police.heat)
+	game.police.clear()
+	await wait(1.0)
+	check(String(c.mission()["id"]) == "armory", "lost them: on to the Armory")
+	# the end
+	_jump_to("lofi_life")
+	await wait(0.5)
+	_go(c.anchor("plot:mansion") + Vector3(5, 0, 5))
+	var fin := await wait_until(func(): return game.cutscene.active, 6.0)
+	check(fin, "the finale's scene plays at the mansion")
+	await wait(2.0)
+	await snap("story_finale")
+	game.cutscene.finish()
+	await wait(1.0)
+	check(c.finished() and not c.gated() and c.marker_open("race", "southshore"), "story over: everything open")

@@ -83,6 +83,8 @@ func _done(k: int) -> bool:
 func tick(dt: float) -> void:
 	if game.on_foot:
 		_seen_foot = true
+	if game.campaign.on:
+		return                  # (story mode's running the goals and the texts)
 	_t -= dt
 	if _t > 0.0 or game.state != game.DRIVE or game.challenge_on():
 		return
@@ -100,6 +102,9 @@ func tick(dt: float) -> void:
 
 ## The first ride's coach is done (or skipped): Jay picks it up from wherever you've got to.
 func tutorial_over() -> void:
+	if game.campaign.on:
+		game.campaign.tutorial_over()
+		return
 	_texts(step)
 	game.ui.story_goal(goal())
 
@@ -125,5 +130,8 @@ func intro() -> void:
 
 func begin() -> void:
 	if game.tutorial.active:
+		return
+	if game.campaign.on:
+		game.campaign._show_goal()
 		return
 	game.ui.story_goal(goal())

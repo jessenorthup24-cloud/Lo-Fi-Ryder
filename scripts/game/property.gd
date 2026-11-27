@@ -225,6 +225,9 @@ func _pay() -> void:
 		return
 	var id := String(_btn.get_meta("id", ""))
 	var cost := int(_btn.get_meta("cost", 0))
+	if id != "" and not game.campaign.allows("property:" + id):
+		game.ui.toast("This plot opens in chapter %d of the story" % game.campaign.lock_ch("property:" + id), "lock", K.PAPER, K.INK, 2.4)
+		return
 	if id == "" or cost <= 0:
 		return
 	if int(game.save.data["coins"]) < cost:
