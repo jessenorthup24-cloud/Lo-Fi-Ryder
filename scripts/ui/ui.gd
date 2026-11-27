@@ -396,6 +396,7 @@ func _build_hud() -> void:
 	tl.add_theme_constant_override("separation", 14)
 	hud.add_child(tl)
 	var pb := K.round_button("pause", K.PAPER, K.LINE, 72)
+	K.set_art(pb, "pause")
 	pb.size_flags_vertical = Control.SIZE_SHRINK_BEGIN      # (a circle: not stretched down beside the goal lines)
 	_tap(pb, func(): game.pause())
 	tl.add_child(pb)
@@ -467,12 +468,14 @@ func _build_hud() -> void:
 	# a tidy column left of the minimap, all the same round buttons: phone, camera, rewind (and the
 	# group view beside the phone while you've a crew)
 	var camb := K.round_button("eye", K.PAPER, K.LINE, 64)
+	K.set_art(camb, "camera")
 	camb.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	camb.position = Vector2(-300, 170)
 	_tap(camb, func(): game.toggle_cam())
 	hud.add_child(camb)
 	# the phone: call the drivers you know
 	phone_btn = K.round_button("phone", K.PAPER, K.LINE, 64)
+	K.set_art(phone_btn, "phone")
 	phone_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	phone_btn.position = Vector2(-300, 94)
 	_tap(phone_btn, func(): toggle_phone())
@@ -500,9 +503,13 @@ func _build_hud() -> void:
 	rwh.add_theme_constant_override("separation", 4)
 	rwh.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rw.add_child(rwh)
-	var rwi := Icon.new("rewind", K.INK, 30)
-	rwi.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	rwh.add_child(rwi)
+	if K.art("rewind").is_empty():
+		var rwi := Icon.new("rewind", K.INK, 30)
+		rwi.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		rwh.add_child(rwi)
+	else:
+		rw.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+		rw.draw.connect(func(): K.draw_art(rw, Rect2(Vector2.ZERO, rw.size), "rewind", rw.scale.x > 1.01 or bool(rw.get_meta("on", false))))
 	hud.add_child(rw)
 	ctl["rewind"] = rw
 	_build_wanted()
@@ -608,10 +615,10 @@ func _build_hud() -> void:
 	ctl["right"] = _pad("right", Vector2(230, -210), Vector2(170, 170), true, K.PAPER)
 	_build_wheel()
 	# pedals, bottom right
-	ctl["gas"] = _pad("gas", Vector2(-172, -244), Vector2(136, 212), false, K.PAPER)
-	ctl["brake"] = _pad("brake", Vector2(-322, -204), Vector2(134, 172), false, K.PAPER)
-	ctl["hand"] = _pad("hand", Vector2(-322, -340), Vector2(134, 120), false, K.PAPER)
-	ctl["nos"] = _pad("nos", Vector2(-168, -380), Vector2(128, 124), false, Color("cfe9ff"))
+	ctl["gas"] = _pad("gas", Vector2(-176, -232), Vector2(146, 196), false, K.PAPER)
+	ctl["brake"] = _pad("brake", Vector2(-330, -212), Vector2(146, 196), false, K.PAPER)
+	ctl["hand"] = _pad("hand", Vector2(-330, -380), Vector2(150, 152), false, K.PAPER)
+	ctl["nos"] = _pad("nos", Vector2(-172, -386), Vector2(136, 140), false, Color("cfe9ff"))
 	ctl["cruise"] = _pad("cruise", Vector2(-528, -356), Vector2(92, 92), false, K.PAPER)
 	ctl["cruise"].visible = false        # (cruise is a tap on the speedo now)
 	# the door: out of the car, or into it (both ways, the same spot)
@@ -953,7 +960,50 @@ func _draw_foot_pad(c: Control, name: String) -> void:
 			if steal:
 				_tag(c, "STEAL", cc + Vector2(0, R + 12), 12, Color("ff6b80"), Color.WHITE)
 
+## Which piece of the button art a pad shows ("" none: the stick and the cruise button draw themselves).
+func _pad_art(c: Control, name: String) -> String:
+	match name:
+		"fire":
+			return "punch" if c.get_meta("fist", false) else "fire"
+		"hand":
+			return "drift"
+		"door":
+			return "enter" if c.get_meta("foot", false) else "exit"
+		"stick", "cruise":
+			return ""
+	return name
+
 func _draw_pad(c: Control, name: String) -> void:
+	# the lo-fi hardware art (assets/ui/hud), and what it can't show on top: a reload filling, the NOS left,
+	# the rounds in the gun, STEAL
+	var an := _pad_art(c, name)
+	var lit: bool = c.get_meta("on") or c.get_meta("lit", false) or c.get_meta("set", false)
+	if an != "" and K.draw_art(c, Rect2(Vector2.ZERO, c.size), an, lit):
+		var cc := c.size * 0.5
+		var rr := minf(c.size.x, c.size.y) * 0.5
+		match name:
+			"reload":
+				if c.get_meta("empty", false):
+					var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.008)
+					c.draw_arc(cc, rr + 3.0, 0, TAU, 48, Color(K.CORAL, 0.35 + 0.5 * pulse), 3.0, true)
+				var prog: float = c.get_meta("prog", 0.0)
+				if prog > 0.0:
+					c.draw_arc(cc, rr + 3.0, -PI * 0.5, -PI * 0.5 + TAU * prog, 48, K.CORAL, 4.0, true)
+			"nos":
+				var v: float = c.get_meta("v")
+				c.draw_arc(cc, rr + 3.0, 0, TAU, 64, Color(0, 0, 0, 0.35), 5.0, true)
+				if v > 0.001:
+					c.draw_arc(cc, rr + 3.0, -PI * 0.5, -PI * 0.5 + TAU * clampf(v, 0.0, 1.0), 64, Color("4fb6ff"), 5.0, true)
+			"swap":
+				var lines := String(c.get_meta("txt", "")).split("\n")
+				if lines.size() > 1 and lines[1] != "":
+					_pad_text(c, lines[1], Vector2(cc.x, c.size.y + 14), 13, Color(1, 1, 1, 0.85))
+			"door":
+				if c.get_meta("steal", false):
+					_tag(c, "STEAL", Vector2(cc.x, c.size.y + 10), 12, Color("ff6b80"), Color.WHITE)
+				elif c.get_meta("foot", false) and not c.get_meta("near", false):
+					pass
+		return
 	if name in FOOT_PADS or name == "door" or name == "block":
 		_draw_foot_pad(c, name)
 		return
@@ -1645,10 +1695,12 @@ func _social_prompt(pr: Dictionary) -> void:
 		social_box.size = Vector2(300, 64)
 		social_box.alignment = BoxContainer.ALIGNMENT_CENTER
 		hud.add_child(social_box)
-		var g := K.button("Greet", K.TEAL, K.TEAL_DK, 22, 140, 60, "person")
+		var g := K.round_button("person", K.PAPER, K.LINE, 84)
+		K.set_art(g, "greet")
 		_tap(g, func(): game.melee.greet())
 		social_box.add_child(g)
-		var t := K.button("Taunt", K.CORAL, K.CORAL_DK, 22, 140, 60, "target")
+		var t := K.round_button("target", K.PAPER, K.LINE, 84)
+		K.set_art(t, "taunt")
 		_tap(t, func(): game.melee.taunt())
 		social_box.add_child(t)
 		social_box.visible = false

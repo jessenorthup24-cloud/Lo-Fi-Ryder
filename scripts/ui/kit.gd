@@ -259,6 +259,38 @@ static func disc(ci: CanvasItem, cc: Vector2, r: float, on := false, accent := C
 	ci.draw_arc(cc, r - r * 0.09, PI * 1.18, PI * 1.82, 24, Color(1, 1, 1, 0.09 if lit else 0.04), maxf(2.0, r * 0.05), true)
 	ci.draw_arc(cc, r - 0.75, 0, TAU, maxi(32, int(r)), Color(accent, 0.95) if on else Color(1, 1, 1, 0.22 if lit else 0.1), 2.5 if on else 1.5, true)
 
+## The HUD's button art (assets/ui/hud: <name>_idle.png, <name>_on.png, the lo-fi hardware set): drawn
+## fitted into rect, keeping its shape; pressed, the "on" art at the same scale, sat on the same bottom
+## edge (it's drawn pushed in). False if there's no art by that name.
+static var _art := {}
+static func art(name: String) -> Array:
+	if not _art.has(name):
+		var p := "res://assets/ui/hud/%s_idle.png" % name
+		var q := "res://assets/ui/hud/%s_on.png" % name
+		_art[name] = [load(p), load(q) if ResourceLoader.exists(q) else load(p)] if ResourceLoader.exists(p) else []
+	return _art[name]
+
+static func draw_art(ci: CanvasItem, rect: Rect2, name: String, on: bool) -> bool:
+	var t := art(name)
+	if t.is_empty():
+		return false
+	var idle: Texture2D = t[0]
+	var tex: Texture2D = t[1] if on else t[0]
+	var s := minf(rect.size.x / idle.get_width(), rect.size.y / idle.get_height())
+	var ts := tex.get_size() * s
+	var bottom := rect.get_center().y + idle.get_height() * s * 0.5
+	ci.draw_texture_rect(tex, Rect2(Vector2(rect.get_center().x - ts.x * 0.5, bottom - ts.y), ts), false)
+	return true
+
+## A round button drawn with the HUD art instead (its icon hidden).
+static func set_art(b: Button, name: String) -> void:
+	if art(name).is_empty():
+		return
+	b.set_meta("art", name)
+	if b.has_meta("icon"):
+		(b.get_meta("icon") as Control).visible = false
+	b.queue_redraw()
+
 ## Round icon button (pause, settings…).
 static func round_button(icon: String, bg := PAPER, dk := LINE, d := 96.0, icol := INK) -> Button:
 	var b := Button.new()
@@ -271,7 +303,10 @@ static func round_button(icon: String, bg := PAPER, dk := LINE, d := 96.0, icol 
 	for st in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
 		b.add_theme_stylebox_override(st, StyleBoxEmpty.new())
 	b.draw.connect(func():
-		disc(b, b.size * 0.5, minf(b.size.x, b.size.y) * 0.5 - 1.0, b.get_draw_mode() == BaseButton.DRAW_PRESSED or b.get_draw_mode() == BaseButton.DRAW_HOVER_PRESSED))
+		var pr := b.get_draw_mode() == BaseButton.DRAW_PRESSED or b.get_draw_mode() == BaseButton.DRAW_HOVER_PRESSED
+		if b.has_meta("art") and draw_art(b, Rect2(Vector2.ZERO, b.size), String(b.get_meta("art")), pr):
+			return
+		disc(b, b.size * 0.5, minf(b.size.x, b.size.y) * 0.5 - 1.0, pr))
 	var ic := Icon.new(icon, icol, d * 0.46)
 	ic.color2 = SHADE            # (the cut-outs in an icon: dark, so a white icon keeps its details)
 	ic.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
