@@ -1504,6 +1504,17 @@ func _build_wheel() -> void:
 		var on: bool = wheel.get_meta("on")
 		var c := _wheel_hub()
 		var r := 172.0
+		# the art: a carbon-fibre sports wheel, turned with you (its middle down at the bottom of the screen)
+		var wt: Array = K.art("wheel")
+		if not wt.is_empty():
+			var tex: Texture2D = wt[0]
+			var dd := r / 0.45
+			wheel.draw_set_transform(c, a, Vector2.ONE)
+			wheel.draw_texture_rect(tex, Rect2(Vector2(-dd, -dd * tex.get_height() / tex.get_width()) * 0.5, Vector2(dd, dd * tex.get_height() / tex.get_width())), false)
+			wheel.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			if on:
+				wheel.draw_arc(c, dd * 0.5 - 3.0, PI + a - 0.2, TAU + a + 0.2, 64, Color(K.CORAL, 0.55), 3.0, true)
+			return
 		var glass := Color(0.055, 0.05, 0.08, 0.62 if on else 0.5)
 		var edge := Color(1, 1, 1, 0.3 if on else 0.2)
 		# the rim (the top half, turned): a band of smoked glass with a hairline either side
