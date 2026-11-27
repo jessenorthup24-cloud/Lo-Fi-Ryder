@@ -292,8 +292,8 @@ func _land(foot: CharacterBody3D, def: Dictionary, tgt: Dictionary) -> void:
 	if def["react"] != "body" and randf() < (0.8 if heavy else 0.3):
 		game.fx.blood(at, d, 6 if heavy else 3, 3.0)
 	game.fx.puff(at, Color(1, 1, 1, 0.8), 0.12 if not heavy else 0.2, d * 2.0, 0.18, 0.0)
-	if tgt["kind"] == "ped" and not tgt["ref"].has("solo") and not game.police.wanted() and game.chase_ok() and game.police._witnessed(me):
-		game.police.start(1.0, "Assault in front of the police")
+	if tgt["kind"] == "ped" and not tgt["ref"].has("solo") and not game.police.wanted():
+		game.police.crime(1.0, "Assault", me)          # (seen by the police: now; otherwise somebody calls it in)
 	if tgt["kind"] == "ped" and f.is_empty():
 		_provoked_by_swing(tgt)          # (hit out of nowhere: they fight back, or run)
 		f = _foe_of(tgt)
@@ -534,7 +534,7 @@ func _ko(c: Dictionary, vel: Vector3) -> void:
 			if is_instance_valid(a2):
 				a2.queue_free())
 	game.save.add_stat("knockouts", 1)
-	game.police.ped_hit(at)
+	game.police.ped_hit(at, "Knocked someone out")
 	if randf() < 0.5:
 		game.heist.drop_cash(at + Vector3(vel.x, 0, vel.z).normalized() * 0.8, randi_range(2, 8) * 5)
 	game.island.people.panic(at, 10.0)
@@ -618,7 +618,7 @@ func _calls_tick(dt: float) -> void:
 		if pr["gone"] or pr.get("down", false):
 			continue          # (knocked out before they got the call made)
 		if not game.police.wanted() and game.chase_ok_or_chase():
-			game.police.start(1.0, "Someone called the police")
+			game.police.crime(1.0, "Someone called the police", (pr["pos"] as Vector3))
 		elif game.police.wanted():
 			game.police.heat_pts += 0.15
 

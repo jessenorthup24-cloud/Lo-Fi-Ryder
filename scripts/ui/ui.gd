@@ -1125,6 +1125,19 @@ func wanted_start(why: String) -> void:
 	wanted_why.modulate.a = 1.0
 	_why_t = 3.5
 
+## Somebody's calling the police on you: the first star blinks, and a line says so.
+func wanted_report(why: String) -> void:
+	_wanted_fade = 0.0
+	wanted_box.visible = true
+	wanted_box.modulate = Color.WHITE
+	var st: Control = wanted_stars[0]
+	st.scale = Vector2.ONE * 1.6
+	create_tween().tween_property(st, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	wanted_why.text = "Someone's calling the police"
+	wanted_why.visible = true
+	wanted_why.modulate.a = 1.0
+	_why_t = 0.0
+
 ## A star more: it pops.
 func wanted_up(h: int) -> void:
 	if h >= 1 and h <= 5:
@@ -1369,6 +1382,28 @@ func _wanted_update2(pd: Dictionary, kmh: float) -> void:
 		if bool(pd["seen"]):
 			_ring_col(Color("ff3044") if phase else Color("3a6bff"))
 		else:
+			_ring_col(Color("c9ccd4") if fmod(now, 0.9) < 0.45 else Color(1, 1, 1, 0.55))
+	elif String(pd.get("report", "")) != "":
+		# a call's been made (blinking: police on the way), or they're at the scene looking round
+		var srch: bool = pd["report"] == "search"
+		wanted_box.visible = true
+		wanted_box.modulate.a = 1.0
+		_wanted_fade = 1.2
+		var on := fmod(now, 0.5 if srch else 0.9) < (0.25 if srch else 0.45)
+		for i in 5:
+			var st2: Control = wanted_stars[i]
+			if i == 0:
+				st2.modulate = (Color(1.0, 0.35, 0.35) if srch else Color.WHITE) if on else Color(0.5, 0.5, 0.55, 0.5)
+			else:
+				st2.modulate = Color(0.3, 0.3, 0.34, 0.6)
+		_searching = true
+		wanted_why.visible = true
+		wanted_why.modulate.a = 1.0
+		if srch:
+			wanted_why.text = "Police are searching the area"
+		else:
+			wanted_why.text = "Someone's calling the police"
+		if srch:
 			_ring_col(Color("c9ccd4") if fmod(now, 0.9) < 0.45 else Color(1, 1, 1, 0.55))
 	elif _wanted_fade > 0.0:
 		if _searching:

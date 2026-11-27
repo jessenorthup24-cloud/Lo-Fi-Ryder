@@ -101,6 +101,8 @@ func _run() -> void:
 				print("PLACE %s %s r%.0f" % [pl["name"], pl["pos"], float(pl.get("r", 0))])
 		"bank":
 			await _bank()
+		"dispatch":
+			await _dispatch()
 		"mapper":
 			await _mapper()
 		"ram":
@@ -994,7 +996,7 @@ func _brawler() -> void:
 		await wait(1.0)
 		check(pr2.get("fled", false), "taunted: they ran off")
 		await wait(5.0)
-		check(game.police.wanted(), "and called the police")
+		check(game.police.wanted() or not game.police.report.is_empty(), "and called the police")
 	game.police.clear()
 	# a gun only off the wheel
 	game.gunplay.select("pistol")
@@ -1541,3 +1543,58 @@ func _mapper() -> void:
 	check(not game.ui.overlay.visible and game.state == game.DRIVE, "set: back driving")
 	check(String(game.route_pick.get("name", "")) != String(bk["name"]), "and the GPS on the race (%s)" % game.route_pick.get("name", ""))
 	game.save.data["map_hide"] = {}
+
+
+## The police: speeding's nothing; a crime nobody from the police saw gets called in (a blinking star), a
+## unit comes 15-20 s later and looks round; there: a chase; gone: called off.
+func _dispatch() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(2.0)
+	var pol = game.police
+	# no patrol cars about to see it (so it's a call, not on the spot)
+	for c in game.traffic.cars:
+		if String(c["model"]) == "k_car_police":
+			c["model"] = "k_car_sedan"
+	game.car.linear_velocity = -game.car.global_transform.basis.z * 40.0
+	await wait(3.0)
+	check(not pol.wanted(), "speeding: nobody cares")
+	game.car.linear_velocity = Vector3.ZERO
+	await wait(1.0)
+	pol.crime(1.0, "Crashed into someone")
+	await wait(0.5)
+	check(not pol.wanted() and pol.report.get("phase", "") == "call", "a crime unseen: someone's calling it in")
+	check(game.ui.wanted_box.visible and pol.hud()["report"] == "call", "the star blinks")
+	await snap("calling")
+	await wait(14.0)
+	check(not pol.wanted() and pol.report.get("phase", "") == "call", "still on the phone at 14 s")
+	await wait(7.0)
+	check(pol.report.get("phase", "") == "search", "dispatched by 21 s")
+	var resp := 0
+	for u in pol.units:
+		if u.get("respond", false):
+			resp += 1
+	check(resp >= 1, "a unit on its way (%d)" % resp)
+	# stay put: they find you
+	var t := 0.0
+	while not pol.wanted() and t < 60.0:
+		await wait(1.0)
+		t += 1.0
+	check(pol.wanted(), "stayed at the scene: found, chase on (%.0f s after dispatch)" % t)
+	await snap("found")
+	pol.clear()
+	pol._end(false)
+	await wait(2.0)
+	pol.calm = 0.0
+	# again, and leave
+	pol.crime(1.0, "Shots fired")
+	await wait(0.5)
+	var far: Vector3 = game.car.global_position + Vector3(500, 0, 0)
+	game.travel_to(game._road_spot(far, 0.0))
+	await wait(1.0)
+	note("moved %.0f m from the scene" % game.car.global_position.distance_to(pol.report.get("at", Vector3.ZERO)))
+	t = 0.0
+	while not pol.report.is_empty() and t < 120.0:
+		await wait(1.0)
+		t += 1.0
+	check(pol.report.is_empty() and not pol.wanted(), "left the area: they looked round and called it off (%.0f s)" % t)

@@ -327,7 +327,7 @@ func _fire(you: CharacterBody3D) -> void:
 	# close by notice, and the police mostly don't hear about it)
 	game.island.people.panic(you.global_position, 12.0 if quiet else 40.0)
 	if not game.police.wanted() and (not quiet or randf() < 0.08):
-		game.police.start(1.0, "Shots fired")
+		game.police.crime(1.0, "Shots fired", you.global_position)
 	else:
 		game.police.heat_pts += 0.02
 
@@ -670,7 +670,7 @@ func explode(n: Node3D) -> void:
 	if game.police.wanted():
 		game.police.heat_pts += 0.4
 	else:
-		game.police.start(1.0, "Explosion")
+		game.police.crime(1.5, "Explosion")
 	# the blast: people and officers down, you hurt, other cars knocked about and damaged (so they go up too)
 	for pr in game.island.people.list:
 		if pr["gone"] or pr.get("down", false):

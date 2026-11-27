@@ -324,7 +324,7 @@ func _build_world() -> void:
 	add_child(police)
 	police.setup(self, island, traffic)
 	traffic.patrol_hit = police.patrol_hit
-	car.rammed.connect(func(b, _v, _j, _at): police.rammed(b))
+	car.rammed.connect(func(b, v, _j, _at): police.rammed(b, v))
 	Car.rails = island.rails
 	gunplay = Gunplay.new()
 	gunplay.name = "Gunplay"
@@ -2854,6 +2854,16 @@ func police_started(why: String) -> void:
 	in_marker = {}
 	rw_buf.clear()
 	route = {}
+
+## Somebody's calling it in (not in front of the police): a star blinks while they do.
+func police_reported(why: String) -> void:
+	ui.wanted_report(why)
+
+func police_dispatched() -> void:
+	sfx("radio_chirp", -9.0, 0.9)
+
+func police_called_off() -> void:
+	ui.toast("The police looked round and called it off", "star", K.PAPER, K.INK, 2.6)
 
 func police_heat_up(h: int) -> void:
 	ui.wanted_up(h)

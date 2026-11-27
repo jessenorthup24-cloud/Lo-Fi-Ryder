@@ -13,6 +13,12 @@ extends Node3D
 ## drive off. Half the street races get a visit too: then they're after everyone in it, and it isn't over
 ## at the finish line.
 ##
+## Speeding alone doesn't do it. A crime does: crashing into someone, hitting a police car, knocking a
+## person down, shooting, fighting. Done in front of the police, they're straight onto you. Anywhere else,
+## somebody calls it in: a star blinks while they do (15 to 20 seconds), then a unit or two come to where it
+## happened and look round. Still there, or seen by one, and it's a chase; gone, and after a while they call
+## it off.
+##
 ## Police cars are real cars (the same physics as yours), the same model as the patrol cars in the traffic,
 ## so one that sees you just pulls out after you.
 
@@ -52,8 +58,11 @@ var bust := 0.0             # 0..1: how nearly they've got you
 var units: Array = []       # {car, role, target, state ("chase", "block", "patrol", "wreck"), path, pi, ...}
 var heli: Heli
 var calm := 0.0
-var _witness_t := 0.0        # someone saw you knock a person down: they call it in when this runs out
-var _witness_at := Vector3.ZERO
+## A crime somebody's calling in: {phase ("call": on the phone; "search": units at the scene), t (how long
+## the call's got left, then how long they'll look), at, pts, why, arrived}
+var report := {}
+const CALL_T := Vector2(15.0, 20.0)
+const LOOK_T := 25.0          # how long they look round once a unit's there
 var limit := 0              # the limit where you are, km/h (0: off the roads)
 var patrol_near := false    # a patrol car's about (the limit sign comes up)
 var race_chase := false     # they're onto a street race: the racers too
@@ -121,7 +130,7 @@ func wanted() -> bool:
 ## For the HUD.
 func hud() -> Dictionary:
 	return {"heat": heat, "seen": seen, "evade": unseen / maxf(EVADE[heat], 0.1) if heat > 0 else 0.0, "bust": bust,
-		"limit": limit, "patrol": patrol_near}
+		"limit": limit, "patrol": patrol_near, "report": String(report.get("phase", "")) if heat == 0 else ""}
 
 # ------------------------------------------------------------------ every frame
 
@@ -134,10 +143,8 @@ func tick(dt: float) -> void:
 	_spawn_cd -= dt
 	_block_cd -= dt
 	calm -= dt
-	if _witness_t > 0.0:
-		_witness_t -= dt
-		if _witness_t <= 0.0 and heat == 0 and game.chase_ok():
-			start(1.0, "A witness called the police")
+	if heat == 0 and not report.is_empty():
+		_report_tick(dt, cp)
 	_scan -= dt
 	if _scan <= 0.0:
 		_scan = 0.2
@@ -172,7 +179,7 @@ func tick(dt: float) -> void:
 		var on: bool = u["state"] == "chase" or u["state"] == "block"
 		(u["blip"] as Node3D).visible = on
 		(u["blip"] as Node3D).global_position = Vector3(p.x, 300.8, p.z)
-		(u["cone"] as Node3D).visible = on and heat > 0
+		(u["cone"] as Node3D).visible = on and (heat > 0 or u.get("respond", false))
 		var f := -uc2.global_transform.basis.z
 		(u["cone"] as Node3D).global_transform = Transform3D(Basis(Vector3.UP, atan2(-f.x, -f.z)), Vector3(p.x, 300.6, p.z))
 	if game.args.has("copslog") and int(game.time * 2.0) != int((game.time - dt) * 2.0):
@@ -225,10 +232,11 @@ func _look_around(cp: Vector3) -> void:
 			continue
 		if not _cone(b.global_position, -b.global_transform.basis.z, cp, SEE_R, SEE_ANG, NEAR_R):
 			continue
-		if heat == 0 and calm <= 0.0 and game.chase_ok() and limit > 0 and kmh > limit + TOLERANCE:
+		if heat == 0 and String(report.get("phase", "")) == "search":
+			# they've had the call: a patrol that sees you round there pulls out after you
 			stats["notices"] += 1
-			start(1.0, "Speeding · %d in a %d" % [int(kmh), limit])
 			_join(c)
+			_caught()
 			return
 		if heat > 0 and not seen:
 			# they're looking for you and this one's spotted you: back on, and it pulls out after you
@@ -252,7 +260,7 @@ func _witnessed(cp: Vector3) -> bool:
 	return false
 
 ## You hit a car in the traffic: a patrol car's a crime; so is anyone else's, if the police saw it.
-func rammed(body: Node) -> void:
+func rammed(body: Node, its_v := Vector3.ZERO) -> void:
 	var c: Dictionary = traffic._car_of(body)
 	if c.is_empty() or _ram_cd > 0.0:
 		return
@@ -266,9 +274,9 @@ func rammed(body: Node) -> void:
 		else:
 			heat_pts += 0.4
 			_spotted(cp)
-	elif heat == 0 and calm <= 0.0 and game.chase_ok() and _witnessed(cp):
+	elif heat == 0 and (game.you_vel() - its_v).length() > 6.0:
 		_ram_cd = 2.5
-		start(1.0, "Crashed in front of the police")
+		crime(1.0, "Crashed into someone", cp)
 	elif heat > 0:
 		heat_pts += 0.08
 
@@ -292,7 +300,7 @@ func _hits() -> void:
 
 ## You knocked someone down. In front of the police (or with them after you already) it's straight on;
 ## otherwise, more often than not, somebody who saw it calls it in a few seconds later.
-func ped_hit(at: Vector3) -> void:
+func ped_hit(at: Vector3, why := "Ran someone down") -> void:
 	if not game.chase_ok_or_chase():
 		return
 	var cp: Vector3 = game.you().global_position
@@ -300,18 +308,90 @@ func ped_hit(at: Vector3) -> void:
 		heat_pts += 0.7
 		_spotted(cp)
 		if int(heat_pts) > heat:
-			start(heat_pts, "Ran someone down")
+			start(heat_pts, why)
 		return
+	crime(1.0, why, at, 2.0)
+
+## A crime (you're not wanted yet): in front of the police, they're onto you now (at `seen_pts`); anywhere
+## else, somebody calls it in.
+func crime(pts: float, why: String, at := Vector3.INF, seen_pts := -1.0) -> void:
+	if heat > 0 or not game.chase_ok_or_chase():
+		return
+	if game.fights and game.fights.active():
+		return          # (a street fight's on: whatever happens round it, nobody's calling it in)
+	var cp: Vector3 = game.you().global_position
+	if at == Vector3.INF:
+		at = cp
 	if _witnessed(cp):
-		start(2.0, "Ran someone down in front of the police")
-	elif _witness_t <= 0.0 and randf() < 0.75:
-		_witness_t = randf_range(2.5, 5.0)
-		_witness_at = at
+		start(seen_pts if seen_pts > 0.0 else pts, why + " in front of the police")
+		return
+	if report.is_empty():
+		report = {"phase": "call", "t": randf_range(CALL_T.x, CALL_T.y), "at": at, "pts": pts, "why": why, "arrived": false}
+		game.police_reported(why)
+	else:
+		report["pts"] = maxf(float(report["pts"]), pts)
+		report["at"] = at          # (the latest call's where they'll go)
+		if report["phase"] == "search":
+			last_seen = at
+			for u in units:
+				if u.get("respond", false):
+					u["search"] = at
+
+## A call in progress, or units at the scene looking for you.
+func _report_tick(dt: float, cp: Vector3) -> void:
+	report["t"] = float(report["t"]) - dt
+	if report["phase"] == "call":
+		if float(report["t"]) > 0.0:
+			return
+		# dispatched: a unit (two, for something bad) heads for where it happened, sirens on
+		report["phase"] = "search"
+		report["t"] = LOOK_T + 25.0          # (the drive there, and a look round)
+		last_seen = report["at"]
+		seen = false
+		for i in (2 if float(report["pts"]) >= 2.0 else 1):
+			_spawn_near(report["at"], game.you(), false)
+			if not units.is_empty():
+				var u: Dictionary = units[units.size() - 1]
+				u["respond"] = true
+				u["search"] = report["at"]
+		game.police_dispatched()
+		return
+	# at the scene: anyone of theirs who sees you (or you're right there when they turn up), and it's on
+	for u in units:
+		if not u.get("respond", false) or not is_instance_valid(u["car"]):
+			continue
+		var c: Node3D = u["car"]
+		var at: Vector3 = report["at"]
+		if not report["arrived"] and Vector2(c.global_position.x - at.x, c.global_position.z - at.z).length() < 60.0:
+			report["arrived"] = true
+			report["t"] = minf(float(report["t"]), LOOK_T)
+		if _cone(c.global_position, -c.global_transform.basis.z, cp, SPOT_R, SPOT_ANG, 45.0):
+			_caught()
+			return
+	if float(report["t"]) <= 0.0:
+		# nobody there: they call it off and drive away
+		for u in units:
+			if u.get("respond", false):
+				u["respond"] = false
+				_leave(u, 0.0)
+		report = {}
+		game.police_called_off()
+
+## Found you after a call: the chase is on.
+func _caught() -> void:
+	var r := report
+	report = {}
+	for u in units:
+		u["respond"] = false
+	start(maxf(float(r.get("pts", 1.0)), 1.0), String(r.get("why", "Reported")))
 
 ## They're after you (or after you harder): pts is the heat it starts at.
 func start(pts: float, why: String) -> void:
 	if game.fights and game.fights.active() and heat == 0:
 		return          # (a street fight's on: whatever happens round it, nobody's calling it in)
+	report = {}
+	for u in units:
+		u["respond"] = false
 	var was := heat
 	heat_pts = maxf(heat_pts, pts)
 	heat = clampi(int(heat_pts), 1, 5)
@@ -491,7 +571,7 @@ func hold(on: bool) -> void:
 
 ## Everything gone at once (back to the title).
 func clear() -> void:
-	_witness_t = 0.0
+	report = {}
 	for u in units:
 		if is_instance_valid(u["car"]):
 			(u["car"] as Node).queue_free()
