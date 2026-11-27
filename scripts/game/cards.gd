@@ -83,7 +83,7 @@ static func xp(save) -> int:
 	var x: float = g.call("drift_points") / 40.0 + g.call("stunt_points") / 40.0 + g.call("distance") / 40.0 \
 		+ g.call("races") * 120.0 + g.call("race_wins") * 200.0 + g.call("hard_wins") * 300.0 \
 		+ g.call("heists") * 800.0 + g.call("escapes") * 150.0 + g.call("cars_blown") * 60.0 + g.call("cops_down") * 40.0 \
-		+ g.call("cars_taken") * 40.0 + (save.data.get("coins_taken", []) as Array).size() * 50.0 \
+		+ g.call("cars_taken") * 40.0 + g.call("fights_won") * 350.0 + (save.data.get("coins_taken", []) as Array).size() * 50.0 \
 		+ (save.data.get("places", []) as Array).size() * 80.0 + medals * 120.0 + (save.data.get("ach", {}) as Dictionary).size() * 100.0
 	return int(x)
 

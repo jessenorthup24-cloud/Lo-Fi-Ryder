@@ -1512,6 +1512,30 @@ func _pop(c: Control, want: bool) -> void:
 		tw.tween_property(c, "scale", Vector2(0.8, 0.8), 0.16)
 		tw.chain().tween_callback(func(): c.visible = false)
 
+## A street fight's count-in: 3, 2, 1, FIGHT! big in the middle, each one punching in.
+func fight_count() -> void:
+	var words := ["3", "2", "1", "FIGHT!"]
+	for i in words.size():
+		var w: String = words[i]
+		get_tree().create_timer(0.62 * i, false).timeout.connect(func():
+			var l := K.outlined(K.label(w, 120 if w.length() < 2 else 96, Color("ffd34d") if w.length() > 1 else Color.WHITE, 800), K.SHADE, 16)
+			l.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+			l.size = Vector2(600, 160)
+			l.position = _vs() * 0.5 - l.size * 0.5 - Vector2(0, 60)
+			l.pivot_offset = l.size * 0.5
+			l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			popups.add_child(l)
+			l.scale = Vector2(1.8, 1.8)
+			l.modulate.a = 0.0
+			var tw := l.create_tween()
+			tw.set_parallel(true)
+			tw.tween_property(l, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			tw.tween_property(l, "modulate:a", 1.0, 0.1)
+			tw.chain().tween_interval(0.25 if w.length() < 2 else 0.6)
+			tw.chain().tween_property(l, "modulate:a", 0.0, 0.18)
+			tw.chain().tween_callback(l.queue_free)
+			game.sfx("punch_heavy" if w.length() > 1 else "bonk", -6.0 if w.length() > 1 else -10.0, 1.0 if w.length() > 1 else 1.3))
+
 ## Squared up to someone: a small red chevron over their head (who your punches go to).
 var melee_mark: Control
 func _melee_mark_tick() -> void:
@@ -1522,6 +1546,9 @@ func _melee_mark_tick() -> void:
 		melee_mark.draw.connect(func():
 			# their fight left (someone fighting you), then the chevron
 			var hpk: float = melee_mark.get_meta("hp", -1.0)
+			var nm: String = melee_mark.get_meta("name", "")
+			if nm != "":
+				melee_mark.draw_string(K.font(700), Vector2(-70, -6), nm, HORIZONTAL_ALIGNMENT_CENTER, 200, 16, Color.WHITE)
 			if hpk >= 0.0:
 				melee_mark.draw_rect(Rect2(4, 0, 52, 7), Color(0.05, 0.04, 0.07, 0.75))
 				melee_mark.draw_rect(Rect2(5, 1, 50.0 * hpk, 5), Color("ff4f6b").lerp(Color("ffd34d"), clampf(hpk * 1.3 - 0.3, 0.0, 1.0)))
@@ -1538,8 +1565,10 @@ func _melee_mark_tick() -> void:
 	melee_mark.visible = true
 	melee_mark.position = sp - Vector2(30, 32) + Vector2(0, sin(Time.get_ticks_msec() * 0.006) * 3.0)
 	var hpk: float = game.melee.focus_hp()
-	if absf(float(melee_mark.get_meta("hp", -2.0)) - hpk) > 0.005:
+	var nm: String = game.melee.focus_name()
+	if absf(float(melee_mark.get_meta("hp", -2.0)) - hpk) > 0.005 or String(melee_mark.get_meta("name", "")) != nm:
 		melee_mark.set_meta("hp", hpk)
+		melee_mark.set_meta("name", nm)
 		melee_mark.queue_redraw()
 
 ## By someone you could talk to: GREET and TAUNT, low in the middle.

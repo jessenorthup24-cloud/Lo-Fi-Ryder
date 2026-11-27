@@ -90,6 +90,11 @@ func _run() -> void:
 			await _kotest()
 		"street":
 			await _street()
+		"campaign":
+			await _campaign()
+		"places":
+			for pl in game.island.places:
+				print("PLACE %s %s r%.0f" % [pl["name"], pl["pos"], float(pl.get("r", 0))])
 		"ram":
 			await _ram()
 		"ram2":
@@ -1147,3 +1152,70 @@ func _street() -> void:
 		if downs > 0:
 			check(got_up, "%s got back up after a knock-down" % style)
 		await wait(1.5)
+
+## Mo's street fights: the first text, the beacon, a fight won for the purse, one lost (a beating, not
+## WASTED), a gun drawn (forfeit), then on to the next.
+func _campaign() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.0)
+	game.save.data["tut"] = true
+	_give_level(10)
+	await wait(1.0)
+	var got_mo := await wait_until(func(): return bool(game.save.data.get("fights_intro", false)), 8.0)
+	check(got_mo, "Mo got in touch at level %d" % game.fights.UNLOCK)
+	await wait(8.0)
+	check(not game.route_pick.is_empty() and String(game.route_pick.get("name", "")).contains("Paper Hands"), "GPS on the first fight (%s)" % game.route_pick.get("name", ""))
+	for d in game.fights.FIGHTERS:
+		var sp: Vector3 = game.fights.spots[d["id"]]
+		note("fight %s at %s (%s)" % [d["id"], sp, d["place"]])
+	# the beacon: drive into it, the card comes up
+	var sp0: Vector3 = game.fights.spots["dre"]
+	game.car.place(game.on_ground(Transform3D(Basis(), sp0 + Vector3(0, 0.6, 0))))
+	var card := await wait_until(func(): return String(game.in_marker.get("kind", "")) == "fight", 5.0)
+	check(card, "the fight's beacon brings up its card")
+	await snap("fight_card")
+	game.fights.begin("dre")
+	await wait(1.0)
+	await snap("fight_intro")
+	check(game.on_foot and game.fights.active() and game.fights.cur["crowd"].size() >= 4, "out of the car, a crowd round the ring (%d)" % game.fights.cur["crowd"].size())
+	await wait(3.2)
+	await snap("fight_count")
+	await wait(2.6)
+	check(game.melee.foes.size() == 1, "FIGHT: Dre's on you")
+	await snap("fight_on")
+	var c0 := int(game.save.data["coins"])
+	var pr: Dictionary = game.fights.cur["pr"]
+	for k in 160:
+		if pr.get("down", false):
+			break
+		game.gunplay.hp = game.gunplay.MAX_HP
+		var to: Vector3 = (pr["pos"] as Vector3) - game.foot.global_position
+		to.y = 0.0
+		if to.length() > 1.6:
+			game.foot.global_position += to.normalized() * (to.length() - 1.2)
+		await _punch()
+		await wait(0.22)
+	await wait(0.5)
+	await snap("fight_won")
+	check(game.fights.won("dre") and int(game.save.data["coins"]) - c0 == 400, "beat Dre: the purse ($%d)" % (int(game.save.data["coins"]) - c0))
+	await wait(9.0)
+	check(String(game.route_pick.get("name", "")).contains("Big Tuna"), "Mo on to the next: Big Tuna (%s)" % game.route_pick.get("name", ""))
+	await wait(4.0)
+	# Big Tuna: stand there and take it
+	game.fights.begin("tuna")
+	await wait(6.0)
+	check(game.melee.foes.size() == 1, "Big Tuna's on you")
+	game.gunplay.hp = 20.0
+	var lost := await wait_until(func(): return not game.fights.active() or game.fights.cur.get("state", "") == "done", 30.0)
+	await wait(0.3)
+	await snap("fight_lost")
+	check(lost and not game.fights.won("tuna") and not game.gunplay.dying and game.gunplay.hp > 0.0, "lost to Big Tuna: knocked down, not WASTED (hp %.0f)" % game.gunplay.hp)
+	await wait(8.0)
+	# a gun: the fight's off
+	game.fights.begin("tuna")
+	await wait(6.0)
+	game.gunplay.select("pistol")
+	await wait(0.5)
+	check(game.fights.cur.get("state", "") == "done" or not game.fights.active(), "a gun out: fight called off")
+	check(not game.fights.won("tuna"), "and no purse")

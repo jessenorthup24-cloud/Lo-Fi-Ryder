@@ -48,6 +48,7 @@ var dodge_t := 0.0
 var _held_t := -1.0           # how long BLOCK's been held (-1: not down)
 var _dodged := false
 var foes: Array = []          # people fighting you: {pr, cool, atk, stun, block_t}
+var solos: Array = []         # fighters not of the crowd (a street fight's opponent): ped-like, placed by us
 var calls: Array = []         # people off to call the police: {t, pos}
 var social := {}              # the person near enough to greet or taunt
 var _stop_k := 0.0
@@ -124,6 +125,23 @@ func stand_down() -> void:
 		game.foot.move_scale = 1.0
 		(game.foot.avatar as Avatar).fight = false
 
+## A street fight's opponent squares up: their own stats (fights.gd).
+func add_foe(pr: Dictionary, stats: Dictionary) -> void:
+	pr["fight"] = true
+	pr["fist_hp"] = float(stats["hp"])
+	pr["fist_max"] = float(stats["hp"])
+	foes.append({"pr": pr, "prof": stats, "cool": randf_range(0.6, 1.0), "atk": {}, "stun": 0.0, "block_t": 0.0,
+		"phase": "circle", "side": 1.0 if randf() < 0.5 else -1.0, "side_t": randf_range(1.0, 2.5), "left": 0,
+		"slip_t": 0.0, "slip_v": Vector3.ZERO, "hits": 0, "hit_t": 9.0, "down_t": 0.0})
+	fight_t = 4.0
+
+func drop_solo(pr: Dictionary) -> void:
+	solos.erase(pr)
+	for f in foes.duplicate():
+		if f["pr"] == pr:
+			foes.erase(f)
+	pr.erase("fight")
+
 func in_fight() -> bool:
 	return fight_t > 0.0
 
@@ -135,6 +153,13 @@ func focus_hp() -> float:
 		return -1.0
 	var pr: Dictionary = f["pr"]
 	return clampf(float(pr.get("fist_hp", PERSON_HP)) / float(pr.get("fist_max", PERSON_HP)), 0.0, 1.0)
+
+## The name of whoever you're squared up to, if they've one (a street fight's opponent).
+func focus_name() -> String:
+	var t := target if not target.is_empty() and _alive(target) else ({} if game.foot == null else _nearest(game.foot, 4.5))
+	if t.is_empty() or t["kind"] != "ped":
+		return ""
+	return String((t["ref"] as Dictionary).get("name", ""))
 
 ## Where the camera should drift to: whoever you're squared up to (INF: no one).
 func focus() -> Vector3:
@@ -254,7 +279,7 @@ func _land(foot: CharacterBody3D, def: Dictionary, tgt: Dictionary) -> void:
 	if def["react"] != "body" and randf() < (0.8 if heavy else 0.3):
 		game.fx.blood(at, d, 6 if heavy else 3, 3.0)
 	game.fx.puff(at, Color(1, 1, 1, 0.8), 0.12 if not heavy else 0.2, d * 2.0, 0.18, 0.0)
-	if tgt["kind"] == "ped" and not game.police.wanted() and game.chase_ok() and game.police._witnessed(me):
+	if tgt["kind"] == "ped" and not tgt["ref"].has("solo") and not game.police.wanted() and game.chase_ok() and game.police._witnessed(me):
 		game.police.start(1.0, "Assault in front of the police")
 	if tgt["kind"] == "ped" and f.is_empty():
 		_provoked_by_swing(tgt)          # (hit out of nowhere: they fight back, or run)
@@ -370,6 +395,9 @@ func _candidates() -> Array:
 		if pr["gone"] or pr.get("down", false) or not pr.has("live") or not is_instance_valid(pr["live"]):
 			continue
 		out.append({"kind": "ped", "ref": pr, "av": pr["live"]})
+	for pr in solos:
+		if pr.has("fight") and not pr.get("down", false) and is_instance_valid(pr["live"]):
+			out.append({"kind": "ped", "ref": pr, "av": pr["live"]})
 	for o in game.gunplay.officers:
 		if not o["dead"] and is_instance_valid(o["node"]):
 			out.append({"kind": "cop", "ref": o, "av": o["av"]})
@@ -422,6 +450,14 @@ func _ko(c: Dictionary, vel: Vector3) -> void:
 	var av = pr.get("live")
 	var at: Vector3 = pr["pos"]
 	pr.erase("fight")
+	if pr.has("solo"):
+		# a street fight's won: out cold (no police, no dropped cash: that's the purse)
+		pr["down"] = true
+		if av != null and is_instance_valid(av):
+			(av as Avatar).fight = false
+			(av as Avatar).go_limp(game, vel, vel * 0.3 + Vector3(0, 0.6, 0))
+		game.save.add_stat("knockouts", 1)
+		return
 	# (the body's ours now: the crowd lets go of it without freeing it, and counts them down)
 	if av != null and is_instance_valid(av):
 		pr.erase("live")
@@ -586,7 +622,7 @@ func _get_up(f: Dictionary, av: Avatar) -> void:
 ## them down (they get up). Wind-ups you can read: block them, dodge them, or hit them first.
 func _foes_tick(dt: float, foot: CharacterBody3D) -> void:
 	# (anyone knocked back by a blow slides off a step)
-	for pr in game.island.people._live:
+	for pr in game.island.people._live + solos:
 		if pr.has("fist_v"):
 			var v: Vector3 = pr["fist_v"]
 			var np: Vector3 = (pr["pos"] as Vector3) + v * dt
@@ -606,10 +642,13 @@ func _foes_tick(dt: float, foot: CharacterBody3D) -> void:
 			continue
 		var av: Avatar = pr["live"]
 		var prof: Dictionary = f["prof"]
+		if pr.has("solo") and not av.limp:
+			av.global_position = pr["pos"]
+			av.rotation.y = float(pr["face"]) + PI
 		var to: Vector3 = me - (pr["pos"] as Vector3)
 		to.y = 0.0
 		var dist := to.length()
-		if dist > 30.0 or game.gunplay.dying:
+		if (dist > 30.0 and not pr.has("solo")) or game.gunplay.dying:
 			foes.erase(f)
 			pr.erase("fight")
 			av.fight = false
@@ -699,7 +738,7 @@ func _foes_tick(dt: float, foot: CharacterBody3D) -> void:
 				av.locomote(Vector2.ZERO)
 				_foe_start(f, av)
 		# beaten: some give up and run
-		if float(pr.get("fist_hp", PERSON_HP)) < float(pr.get("fist_max", PERSON_HP)) * 0.2 and randf() < dt * 0.25:
+		if not pr.has("solo") and float(pr.get("fist_hp", PERSON_HP)) < float(pr.get("fist_max", PERSON_HP)) * 0.2 and randf() < dt * 0.25:
 			foes.erase(f)
 			pr.erase("fight")
 			av.fight = false
@@ -712,7 +751,8 @@ func _move(pr: Dictionary, v: Vector3, dt: float) -> void:
 
 func _foe_start(f: Dictionary, av: Avatar) -> void:
 	var prof: Dictionary = f["prof"]
-	var def: Dictionary = FOE_ATK[randi() % FOE_ATK.size()]
+	var moves: Array = prof.get("moves", [0, 1, 2])
+	var def: Dictionary = FOE_ATK[int(moves[randi() % moves.size()])]
 	# (the quick ones throw them quicker)
 	var sp := float(def["speed"]) * float(prof["spd"])
 	f["atk"] = {"def": def, "t": 0.0, "landed": false, "sp": sp}
@@ -797,6 +837,8 @@ func hurt_you(dmg: float, from: Vector3, heavy := false) -> void:
 		av.hit(foot.global_position + Vector3(0, 1.4, 0), d, 1.1)
 		foot.shove = d * (3.5 if heavy else 2.2)
 		fight_t = 4.0
+	elif game.fights and game.fights.active():
+		game.fights.lost_by_ko(from)
 	else:
 		gp.hurt(dmg, from)
 

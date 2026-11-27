@@ -28,6 +28,7 @@ const Weather := preload("res://scripts/game/weather.gd")
 const OnFoot := preload("res://scripts/game/onfoot.gd")
 const Gunplay := preload("res://scripts/game/gunplay.gd")
 const Melee := preload("res://scripts/game/melee.gd")
+const Fights := preload("res://scripts/game/fights.gd")
 const Heist := preload("res://scripts/game/heist.gd")
 const Property := preload("res://scripts/game/property.gd")
 const Shops := preload("res://scripts/game/shops.gd")
@@ -163,6 +164,7 @@ var crew: Crew               # the drivers out on the island (and the ones drivi
 var foot: OnFoot = null      # you, out of the car (null while you're driving)
 var gunplay: Gunplay         # guns, your health, the police on foot
 var melee: Melee             # fists: punches, blocks, people who fight back, greeting and taunting
+var fights: Fights           # street fights for money: Mo's campaign of eight
 var heist: Heist             # the safes, the heists, dropped cash
 var property: Node3D        # the mansion and the garage you build up (property.gd)
 var shops: Node3D           # Lo-Fi Customs, the Armory, Lo-Fi Threads (shops.gd)
@@ -330,6 +332,10 @@ func _build_world() -> void:
 	melee.name = "Melee"
 	add_child(melee)
 	melee.setup(self)
+	fights = Fights.new()
+	fights.name = "Fights"
+	add_child(fights)
+	fights.setup(self)
 	heist = Heist.new()
 	heist.name = "Heist"
 	add_child(heist)
@@ -1004,6 +1010,7 @@ func _process(dt: float) -> void:
 			shops.tick(dt)
 			allies.tick(dt)
 			story.tick(dt)
+			fights.tick(dt)
 			crew.tick(dt)
 			_crew_tests()
 		PAUSED, GARAGE:
@@ -2291,6 +2298,10 @@ func _build_markers() -> void:
 		rc["pos"] = p3
 		_marker("race", rc["id"], p3, Color("ff5c7a"), String(rc.get("label", "Street race: ")) + String(rc["name"]), 7.0)
 		island.map_marker(p3, Color("ff5c7a"), 11.0)
+	# street fights: a gold beacon for whoever Mo's lined up next (only that one shows)
+	fights.build_spots()
+	for fd in Fights.FIGHTERS:
+		_marker("fight", fd["id"], fights.spots[fd["id"]], Color("ffb020"), "Street fight: " + String(fd["nick"]), 4.5)
 
 func _zone_start(z: Dictionary) -> Vector3:
 	var c: Vector3 = z["pos"]
@@ -2341,11 +2352,13 @@ func _marker(kind: String, id: String, pos: Vector3, col: Color, name: String, r
 
 func _markers_tick(_dt: float) -> void:
 	var p := car.global_position
-	var busy := not zone.is_empty() or not trial.is_empty() or race != null or not intro.is_empty() or police.wanted()
+	var busy := not zone.is_empty() or not trial.is_empty() or race != null or not intro.is_empty() or police.wanted() or fights.active()
 	var inside := {}
 	for m in markers:
-		var d := (m["pos"] as Vector3).distance_to(p)
-		var show := d < 220.0 and not busy
+		var is_fight: bool = m["kind"] == "fight"
+		# (a fight's beacon: only whoever's next, and you can walk into it as well as drive)
+		var d := (m["pos"] as Vector3).distance_to(you().global_position if is_fight else p)
+		var show := d < 220.0 and not busy and (not is_fight or fights.showing(String(m["id"])))
 		(m["node"] as Node3D).visible = show
 		(m["label"] as Node3D).visible = show and d < 120.0 and d > float(m["r"]) + 6.0
 		# (the column of light thins out as you drive into it, so you're not sitting in a pink fog)
@@ -2355,7 +2368,7 @@ func _markers_tick(_dt: float) -> void:
 			(m["node"] as Node3D).rotation.y += 0.3 * get_process_delta_time()
 			(m["label"] as Node3D).position.y = (m["pos"] as Vector3).y + 4.0 + sin(time * 2.0) * 0.3
 		# inside a beacon: its start card comes up (nothing starts until you press START)
-		if state == DRIVE and not busy and d < float(m["r"]) + 1.0:
+		if state == DRIVE and not busy and d < float(m["r"]) + 1.0 and show:
 			inside = m
 	if String(inside.get("id", "")) + String(inside.get("kind", "")) != String(in_marker.get("id", "")) + String(in_marker.get("kind", "")):
 		in_marker = inside
@@ -2372,6 +2385,8 @@ func _start_info(kind: String, id: String) -> Dictionary:
 		out["warn"] = "Your engine's hurt and down on power: a gas station fixes it"
 	elif fuel < 15.0:
 		out["warn"] = "Low on fuel: fill up at a gas station first"
+	if kind == "fight":
+		return fights.start_info(id)
 	match kind:
 		"zone":
 			for z in island.zones:
