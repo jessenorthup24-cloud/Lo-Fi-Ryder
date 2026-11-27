@@ -310,6 +310,8 @@ func ped_hit(at: Vector3) -> void:
 
 ## They're after you (or after you harder): pts is the heat it starts at.
 func start(pts: float, why: String) -> void:
+	if game.fights and game.fights.active() and heat == 0:
+		return          # (a street fight's on: whatever happens round it, nobody's calling it in)
 	var was := heat
 	heat_pts = maxf(heat_pts, pts)
 	heat = clampi(int(heat_pts), 1, 5)

@@ -34,7 +34,7 @@ const REACT := {
 const LOCK_R := 6.5           # who you'll swing at
 const CHAIN := 0.5            # seconds after a swing ends that the next press still carries the combo on
 const PERSON_HP := 60.0       # punches to put someone down: about five, or a combo
-const BLOCK_T := 0.55
+const BLOCK_T := 0.42
 const DODGE_AT := 0.22        # held this long, the guard turns into a dodge
 
 var game: Node
@@ -53,6 +53,7 @@ var calls: Array = []         # people off to call the police: {t, pos}
 var social := {}              # the person near enough to greet or taunt
 var _stop_k := 0.0
 var _social_cd := 0.0
+var recoil_t := 0.0           # thrown off by their guard (or overreached past a slip): no punching a moment
 var stats := {"swings": 0, "landed": 0, "blocked": 0, "slipped": 0, "heavy": 0, "knockdowns": 0, "their_hits": 0, "you_blocked": 0}         # (a moment after a greet or a taunt before the prompt comes back)
 
 func setup(g: Node) -> void:
@@ -65,6 +66,7 @@ func tick(dt: float, fire_tap: bool, block_held: bool) -> void:
 		return
 	var av: Avatar = foot.avatar
 	since += dt
+	recoil_t = maxf(0.0, recoil_t - dt)
 	fight_t = maxf(0.0, fight_t - dt)
 	block_t = maxf(0.0, block_t - dt)
 	dodge_t = maxf(0.0, dodge_t - dt)
@@ -82,7 +84,7 @@ func tick(dt: float, fire_tap: bool, block_held: bool) -> void:
 				_dodge(foot, av)
 	else:
 		_held_t = -1.0
-	if fire_tap and not busy:
+	if fire_tap and not busy and recoil_t <= 0.0:
 		_press(foot, av)
 	_swing_tick(dt, foot, av)
 	# squared up: turned to them, the guard stance (and a step slower)
@@ -174,8 +176,12 @@ func focus() -> Vector3:
 
 func _press(foot: CharacterBody3D, av: Avatar) -> void:
 	if not atk.is_empty():
-		# mid swing: the next one's queued (it goes as this one lands)
-		atk["queued"] = true
+		# mid swing: the next one's queued (it goes as this one lands) - pressed in time, as it lands, not
+		# mashed through the wind-up (that's just a wasted press)
+		var def: Dictionary = atk["def"]
+		var t_hit := (float(def["hit"]) - float(def["from"])) / float(def["speed"])
+		if float(atk["t"]) >= t_hit - 0.14:
+			atk["queued"] = true
 		return
 	_start(foot, av)
 
@@ -229,8 +235,11 @@ func _swing_tick(dt: float, foot: CharacterBody3D, av: Avatar) -> void:
 	if not atk["landed"] and float(atk["t"]) >= t_hit:
 		atk["landed"] = true
 		_land(foot, def, tgt)
+		if atk.is_empty():
+			return          # (bounced off their guard: thrown off, the swing's over)
 	# chained: once it's landed the next one can cut in
-	var can_cut: bool = atk["landed"] and float(atk["t"]) > t_hit + 0.08
+	# (the punch follows through before the next one comes: about two and a half a second, flat out)
+	var can_cut: bool = atk["landed"] and float(atk["t"]) > t_hit + 0.2
 	if (can_cut and atk["queued"]) or float(atk["t"]) >= t_end:
 		var q: bool = atk["queued"]
 		atk = {}
@@ -256,6 +265,8 @@ func _land(foot: CharacterBody3D, def: Dictionary, tgt: Dictionary) -> void:
 	if not f.is_empty() and (float(f["down_t"]) > 0.0 or float(f["slip_t"]) > 0.0):
 		if float(f["slip_t"]) > 0.0:
 			stats["slipped"] += 1
+			_recoil(foot, Vector3.ZERO, 0.35)          # (overreached into thin air)
+			_counter(f)
 		return
 	# a foe with their guard up: it thuds off their arms
 	if not f.is_empty() and float(f["block_t"]) > 0.0 and not bool(def.get("finisher", false)):
@@ -264,8 +275,10 @@ func _land(foot: CharacterBody3D, def: Dictionary, tgt: Dictionary) -> void:
 		_hitstop(0.04)
 		game.shake = maxf(game.shake, 0.1)
 		f["block_t"] = 0.0
-		f["cool"] = maxf(float(f["cool"]), 0.4)
 		_knock(tgt, d * 0.3)
+		# your fist bounces off their guard: thrown off a beat (that's when they come back at you)
+		_recoil(foot, d, 0.45)
+		_counter(f)
 		return
 	var dmg: float = float(def["dmg"]) * randf_range(0.9, 1.1)
 	var heavy := bool(def.get("finisher", false)) or def == KICK
@@ -295,6 +308,17 @@ func _land(foot: CharacterBody3D, def: Dictionary, tgt: Dictionary) -> void:
 		stats["knockdowns"] += 1
 		fight_t = 4.0
 		return
+	# mid-swing, the heavy ones walk through a light punch and keep coming (you trade)
+	# (a street fight's opponent most of all: they've come to trade)
+	var armor := float(f["prof"].get("armor", 0.0)) if not f.is_empty() else 0.0
+	if not f.is_empty() and (f["pr"] as Dictionary).has("solo"):
+		armor = maxf(armor, 0.55)
+	if not f.is_empty() and not f["atk"].is_empty() and not heavy and randf() < armor:
+		stats["armored"] = int(stats.get("armored", 0)) + 1
+		if av and is_instance_valid(av):
+			av.hit(at, d, 0.6)
+		fight_t = 4.0
+		return
 	if av and is_instance_valid(av):
 		var r: Array = REACT.get(String(def["react"]), REACT["light"])
 		if def["react"] == "ko":
@@ -303,18 +327,32 @@ func _land(foot: CharacterBody3D, def: Dictionary, tgt: Dictionary) -> void:
 		av.hit(at, d, 1.5 if heavy else 1.1)
 	var push := float(def["push"])
 	if not f.is_empty():
-		# hit again and again: rocked (reeling longer, knocked further back)
+		var prof: Dictionary = f["prof"]
+		# hit again and again: rocked (reeling longer, knocked further back) - or, the good ones, they cover
+		# up and come back at you
 		f["hits"] = int(f["hits"]) + 1
 		f["hit_t"] = 0.0
 		var rocked := int(f["hits"]) >= 3
-		f["stun"] = (1.0 if rocked else (0.55 if heavy else 0.4)) * float(f["prof"]["recover"])
 		f["atk"] = {}
 		f["left"] = 0
 		f["phase"] = "circle"
-		f["cool"] = maxf(float(f["cool"]), 0.7)
-		if rocked:
-			push *= 1.8
+		f["cool"] = maxf(float(f["cool"]), 0.7 * float(prof["recover"]))
+		# (the good ones fire straight back as soon as they've shaken it off)
+		if randf() < float(prof.get("counter", 0.2)) * 0.5:
+			f["cool"] = 0.0
+			f["phase"] = "press"
+			f["left"] = randi_range(1, int(prof["combo"]))
+		if rocked and float(prof["recover"]) <= 0.6:
+			f["stun"] = 0.15
+			f["block_t"] = 0.9
 			f["hits"] = 0
+			if av and is_instance_valid(av):
+				av.play_once("fight_center_block", 0.15, 0.5, 1.3, true, 0.05)
+		else:
+			f["stun"] = (1.0 if rocked else (0.55 if heavy else 0.4)) * float(prof["recover"])
+			if rocked:
+				push *= 1.8
+				f["hits"] = 0
 	_knock(tgt, d * push)
 	fight_t = 4.0
 
@@ -591,6 +629,27 @@ func _drop_foe(c: Dictionary) -> void:
 	if not f.is_empty():
 		foes.erase(f)
 
+func _recoil(foot: CharacterBody3D, d: Vector3, t: float) -> void:
+	recoil_t = t
+	atk = {}
+	since = 9.0          # (and the combo's broken)
+	var av: Avatar = foot.avatar
+	av.lock_t = 0.0
+	if d != Vector3.ZERO:
+		av.hit(foot.global_position + Vector3(0, 1.3, 0), -d, 0.7)
+		foot.shove = -d * 1.4
+	av.play_once(String(REACT["light"][0]), 0.15, t, 1.6, true, 0.05)
+
+## They blocked or slipped you: the good ones make you pay, straight back with a combo of their own.
+func _counter(f: Dictionary) -> void:
+	if randf() < float(f["prof"].get("counter", 0.2)):
+		f["cool"] = 0.0
+		f["stun"] = 0.0
+		f["phase"] = "press"
+		f["left"] = randi_range(1, int(f["prof"]["combo"]))
+	else:
+		f["cool"] = maxf(float(f["cool"]), 0.4)
+
 ## Knocked off their feet (not out): limp a moment, then up again and back at you, angrier.
 func _knockdown(f: Dictionary, vel: Vector3) -> void:
 	var pr: Dictionary = f["pr"]
@@ -699,7 +758,11 @@ func _foes_tick(dt: float, foot: CharacterBody3D) -> void:
 				f["slip_v"] = (-to.normalized() * 2.6 + side * 2.0)
 				av.play_once("fight_dodging_1", 0.35, 0.45, 1.6, true, 0.05)
 				continue
-			elif roll < float(prof["slip"]) + float(prof["block"]) + 0.12 * int(f["hits"]):
+			# (swing after swing at them, they read it and cover up more)
+			var now: float = game.time
+			f["read"] = minf(float(f.get("read", 0.0)) + 1.0, 4.0) if now - float(f.get("last_sw", -9.0)) < 0.9 else 0.0
+			f["last_sw"] = now
+			if roll >= float(prof["slip"]) and roll < float(prof["slip"]) + float(prof["block"]) + 0.12 * int(f["hits"]) + 0.08 * float(f["read"]):
 				# (more likely the more you've just landed: they cover up)
 				f["block_t"] = 0.6
 				f["stun"] = 0.0
@@ -755,7 +818,7 @@ func _foe_start(f: Dictionary, av: Avatar) -> void:
 	var def: Dictionary = FOE_ATK[int(moves[randi() % moves.size()])]
 	# (the quick ones throw them quicker)
 	var sp := float(def["speed"]) * float(prof["spd"])
-	f["atk"] = {"def": def, "t": 0.0, "landed": false, "sp": sp}
+	f["atk"] = {"def": def, "t": 0.0, "landed": false, "sp": sp, "id": randi()}
 	av.play_once(String(def["clip"]), float(def["from"]), (float(def["to"]) - float(def["from"])) / sp, sp, true, 0.08)
 
 func _foe_swing(dt: float, f: Dictionary, av: Avatar, foot: CharacterBody3D, dist: float, to: Vector3) -> void:
@@ -765,15 +828,17 @@ func _foe_swing(dt: float, f: Dictionary, av: Avatar, foot: CharacterBody3D, dis
 	a["t"] = float(a["t"]) + dt
 	var t_hit := (float(def["hit"]) - float(def["from"])) / sp
 	var t_end := (float(def["to"]) - float(def["from"])) / sp
-	# (stepping into it a little as they throw)
-	if not a["landed"] and dist > 1.0:
-		_move(f["pr"], to.normalized() * 1.2, dt)
+	# (stepping into it as they throw: they mean to land it)
+	if not a["landed"] and dist > 1.1:
+		_move(f["pr"], to.normalized() * minf(3.0, (dist - 1.0) * 6.0), dt)
 	if not a["landed"] and float(a["t"]) > t_hit - 0.09 and not a.get("sw", false):
 		a["sw"] = true
 		game.sfx("swish_1", -12.0, randf_range(0.85, 1.0))
 	if not a["landed"] and float(a["t"]) >= t_hit:
 		a["landed"] = true
-		if dist < 1.75:
+		if dist >= 1.9:
+			stats["their_whiffs"] = int(stats.get("their_whiffs", 0)) + 1
+		if dist < 1.9:
 			var from: Vector3 = f["pr"]["pos"]
 			if dodge_t > 0.0:
 				pass          # (stepped clean out of it)

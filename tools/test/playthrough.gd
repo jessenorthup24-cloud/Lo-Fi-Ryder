@@ -92,6 +92,8 @@ func _run() -> void:
 			await _street()
 		"campaign":
 			await _campaign()
+		"fightsim":
+			await _fightsim()
 		"places":
 			for pl in game.island.places:
 				print("PLACE %s %s r%.0f" % [pl["name"], pl["pos"], float(pl.get("r", 0))])
@@ -1198,7 +1200,7 @@ func _campaign() -> void:
 		await wait(0.22)
 	await wait(0.5)
 	await snap("fight_won")
-	check(game.fights.won("dre") and int(game.save.data["coins"]) - c0 == 400, "beat Dre: the purse ($%d)" % (int(game.save.data["coins"]) - c0))
+	check(game.fights.won("dre") and int(game.save.data["coins"]) - c0 == 600, "beat Dre: the purse and the stake back (+$%d)" % (int(game.save.data["coins"]) - c0))
 	await wait(9.0)
 	check(String(game.route_pick.get("name", "")).contains("Big Tuna"), "Mo on to the next: Big Tuna (%s)" % game.route_pick.get("name", ""))
 	await wait(4.0)
@@ -1219,3 +1221,106 @@ func _campaign() -> void:
 	await wait(0.5)
 	check(game.fights.cur.get("state", "") == "done" or not game.fights.active(), "a gun out: fight called off")
 	check(not game.fights.won("tuna"), "and no purse")
+
+## How hard the street fights are: a decent player (blocks two thirds of what's thrown at them, a fifth of
+## those as dodges; punches when they're open, now and then into a guard) against each fighter, bout after
+## bout. --sims=n bouts each, --only=id for one fighter.
+func _bout(id: String) -> Dictionary:
+	var fw: Dictionary = game.save.data.get("fights", {})
+	fw.erase(id)
+	game.save.data["coins"] = 99999
+	if not game.on_foot:
+		game.toggle_foot()
+		await wait(0.5)
+	game.fights.begin(id)
+	await wait(5.8)
+	var pr: Dictionary = game.fights.cur.get("pr", {})
+	if pr.is_empty() or game.melee.foes.is_empty():
+		note("no start %s: active %s wanted %s on_foot %s down %.1f cur %s" % [id, game.fights.active(), game.police.wanted(), game.on_foot, game.foot.down_t if game.foot else -1.0, game.fights.cur.get("state", "-")])
+		game.police.clear()
+		if game.fights.active():
+			game.fights._clear()
+		await wait(2.0)
+		return {"res": "nostart"}
+	var f: Dictionary = game.melee.foes[0]
+	var reacted := {}
+	var t := 0.0
+	var res := "timeout"
+	var punches := 0
+	while t < 120.0:
+		await wait(0.05)
+		t += 0.05
+		if pr.get("down", false):
+			res = "win"
+			break
+		if not game.fights.active() or game.fights.cur.get("state", "") != "fight":
+			res = "loss(%s)" % game.fights.cur.get("why", "?")
+			break
+		var foot = game.foot
+		var to: Vector3 = (pr["pos"] as Vector3) - foot.global_position
+		to.y = 0.0
+		var dist := to.length()
+		var a: Dictionary = f["atk"]
+		if not a.is_empty() and not a["landed"]:
+			var key: int = int(a.get("id", 0))
+			var t_hit: float = (float(a["def"]["hit"]) - float(a["def"]["from"])) / float(a["sp"])
+			var left: float = t_hit - float(a["t"])
+			if not reacted.has(key):
+				reacted[key] = randf_range(0.12, 0.5)      # (when this player reacts: sometimes early, sometimes late)
+			if left < float(reacted[key]) and left > 0.0 and float(reacted[key]) > 0.0:
+				reacted[key] = -1.0
+				if randf() < 0.62:
+					game.held["block"] = true
+					await wait(0.08 if randf() < 0.8 else 0.32)
+					game.held["block"] = false
+					t += 0.1
+				continue
+		if dist > 1.6:
+			if float(f["down_t"]) <= 0.0:
+				foot.global_position += to.normalized() * minf(3.2 * 0.05, dist - 1.3)
+			continue
+		var open: bool = float(f["stun"]) > 0.0 or (a.is_empty() and float(f["block_t"]) <= 0.0)
+		if game.args.get("style", "") == "smart":
+			# (a counter-puncher: hits them when they're reeling or thrown off, otherwise waits on their move)
+			open = float(f["stun"]) > 0.0 or (a.is_empty() and float(f["block_t"]) <= 0.0 and f["phase"] == "circle" and randf() < 0.12)
+		if open or (randf() < 0.15 and game.args.get("style", "") != "smart"):
+			await _punch()
+			punches += 1
+			t += 0.05
+	var hp_left: float = game.gunplay.hp if res != "loss" else 0.0
+	var ms: Dictionary = game.melee.stats.duplicate()
+	for kk in game.melee.stats:
+		game.melee.stats[kk] = 0
+	var their: float = float(pr.get("fist_hp", 0.0))
+	game.held["block"] = false
+	if game.fights.active():
+		if game.fights.cur.get("state", "") == "fight":
+			game.fights._end(false, "", true)
+		game.fights._clear()
+	await wait(4.0)        # (a moment to get up, if you went down)
+	game.gunplay.hp = game.gunplay.MAX_HP
+	return {"res": res, "t": t, "hp": hp_left, "their": their, "punches": punches, "ms": "L%d B%d S%d A%d th%d yb%d wh%d" % [int(ms.get("landed", 0)), int(ms.get("blocked", 0)), int(ms.get("slipped", 0)), int(ms.get("armored", 0)), int(ms.get("their_hits", 0)), int(ms.get("you_blocked", 0)), int(ms.get("their_whiffs", 0))]}
+
+func _fightsim() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.0)
+	game.save.data["tut"] = true
+	game.save.data["fights_intro"] = true
+	_give_level(12)
+	await wait(1.0)
+	var n := int(game.args.get("sims", "2"))
+	var only := String(game.args.get("only", ""))
+	for d in game.fights.FIGHTERS:
+		var id := String(d["id"])
+		if only != "" and id != only:
+			continue
+		var wins := 0
+		var rows := []
+		for k in n:
+			var r: Dictionary = await _bout(id)
+			game.police.clear()
+			if r["res"] == "win":
+				wins += 1
+			rows.append("%s %.0fs you%.0f them%.0f p%d %s" % [r["res"], float(r.get("t", 0)), float(r.get("hp", 0)), float(r.get("their", 0)), int(r.get("punches", 0)), r.get("ms", "")])
+		print("SIM %s: %d/%d wins | %s" % [id, wins, n, " ; ".join(rows)])

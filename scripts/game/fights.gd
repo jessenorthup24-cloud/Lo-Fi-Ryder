@@ -13,40 +13,45 @@ const FIXER := "Mo"
 const RING := 15.0            # leave this far from the middle: you've walked away
 const UNLOCK := 2             # Mo gets in touch at this level
 
+## The stake: you put up half the purse to fight. Win, and you get it back with the purse; lose (or walk
+## away, or pull a gun) and it's gone. The police turning up: everyone scatters, and you get it back.
+static func stake(d: Dictionary) -> int:
+	return int(d["purse"]) / 2
+
 ## Who you fight. stats: hp, spd (how quick), cool (how long between combos), block, slip, combo (most
 ## punches at once), dmg, range (where they circle), recover (how fast they shake off a hit), moves (which
 ## of melee's FOE_ATK they throw: 0 cross, 1 body jab, 2 front kick; repeats weight them).
 const FIGHTERS := [
 	{"id": "dre", "name": "Dre Collins", "nick": "Paper Hands", "who": "male_hoodie", "place": "Town Square", "lvl": 2, "purse": 400,
-		"stats": {"hp": 55.0, "spd": 0.95, "cool": [1.3, 2.2], "block": 0.1, "slip": 0.05, "combo": 2, "dmg": 0.8, "range": 1.9, "recover": 1.1, "moves": [0, 1]},
+		"stats": {"hp": 80.0, "spd": 1.0, "cool": [1.0, 1.7], "block": 0.15, "slip": 0.08, "combo": 2, "dmg": 1.0, "range": 1.9, "recover": 0.9, "armor": 0.1, "counter": 0.2, "moves": [0, 1]},
 		"mo": ["Heard you can handle yourself. I run fights for money round here, if you want in", "First one's easy. Dre Collins, by Town Square. He owes me money and he's fighting to pay it off. $400"],
 		"line": "\"I need this more than you, man\"", "beaten": "Dre: \"Tell Mo I'll have the rest next week...\"", "won": "Dre: \"Ha! Debt's paid. Kind of\""},
 	{"id": "tuna", "name": "Tony Baptiste", "nick": "Big Tuna", "who": "male_constructor", "place": "Old Harbour", "lvl": 3, "purse": 700,
-		"stats": {"hp": 110.0, "spd": 0.85, "cool": [1.4, 2.3], "block": 0.15, "slip": 0.0, "combo": 1, "dmg": 1.6, "range": 1.6, "recover": 0.9, "moves": [0, 0, 1]},
+		"stats": {"hp": 175.0, "spd": 0.9, "cool": [0.9, 1.5], "block": 0.2, "slip": 0.0, "combo": 2, "dmg": 1.9, "range": 1.6, "recover": 0.7, "armor": 0.65, "counter": 0.35, "moves": [0, 0, 1]},
 		"mo": ["Big Tuna worked the docks thirty years till the cranes started driving themselves", "Now he fights anyone who'll stand still at the Old Harbour. Slow, but he hits like a truck. $700"],
 		"line": "\"Thirty years on these docks. You're nothing\"", "beaten": "Tuna: \"...Back in the day you'd have been fish food\"", "won": "Tuna: \"Waterfront's still mine\""},
 	{"id": "kiko", "name": "Kiko Reyes", "nick": "Viral", "who": "women_fitness", "place": "Skate Park", "lvl": 4, "purse": 1000,
-		"stats": {"hp": 70.0, "spd": 1.3, "cool": [0.7, 1.3], "block": 0.15, "slip": 0.45, "combo": 2, "dmg": 0.85, "range": 1.8, "recover": 0.6, "moves": [0, 1, 2]},
+		"stats": {"hp": 140.0, "spd": 1.35, "cool": [0.45, 0.85], "block": 0.15, "slip": 0.5, "combo": 3, "dmg": 1.25, "range": 1.8, "recover": 0.5, "armor": 0.0, "counter": 0.7, "moves": [0, 1, 2]},
 		"mo": ["Kiko films every fight for her channel. Needs a big win to go viral, and she's picked you", "Skate Park. She's quick, slips everything. Don't swing wild. $1,000"],
 		"line": "\"Smile for the camera, this one's going up tonight\"", "beaten": "Kiko: \"...Okay. Deleting that one\"", "won": "Kiko: \"Two million views, easy\""},
 	{"id": "deacon", "name": "Elias Grant", "nick": "The Deacon", "who": "businessman_suit", "place": "Old Hill Cemetery", "lvl": 5, "purse": 1400,
-		"stats": {"hp": 100.0, "spd": 1.0, "cool": [1.0, 1.7], "block": 0.6, "slip": 0.1, "combo": 2, "dmg": 1.1, "range": 1.6, "recover": 0.6, "moves": [0, 1]},
+		"stats": {"hp": 185.0, "spd": 1.05, "cool": [0.7, 1.2], "block": 0.65, "slip": 0.1, "combo": 2, "dmg": 1.4, "range": 1.6, "recover": 0.5, "armor": 0.35, "counter": 0.85, "moves": [0, 1]},
 		"mo": ["The Deacon runs the soup kitchen up by the cemetery. Fights to keep the lights on", "Old Hill. He'll turtle up and wait for you to tire. Hit him when he swings. $1,400"],
 		"line": "\"I'll pray for you after, child\"", "beaten": "Deacon: \"The Lord tests us all. Today He tested me\"", "won": "Deacon: \"Go in peace. And ice that\""},
 	{"id": "marco", "name": "Marco Bellini", "nick": "Two Times", "who": "male_jacket", "place": "Palmer Street", "lvl": 6, "purse": 1900,
-		"stats": {"hp": 105.0, "spd": 1.15, "cool": [0.6, 1.1], "block": 0.3, "slip": 0.2, "combo": 4, "dmg": 1.0, "range": 1.6, "recover": 0.55, "moves": [0, 1, 1]},
+		"stats": {"hp": 195.0, "spd": 1.2, "cool": [0.35, 0.7], "block": 0.35, "slip": 0.25, "combo": 4, "dmg": 1.45, "range": 1.6, "recover": 0.45, "armor": 0.4, "counter": 0.55, "moves": [0, 1, 1]},
 		"mo": ["Marco says nobody beats him twice. Also, Dre's his little brother. He's not happy with you", "Palmer Street. Combos for days: block, then make him pay. $1,900"],
 		"line": "\"You put my brother on the floor. My turn\"", "beaten": "Marco: \"...Once. That was once\"", "won": "Marco: \"That's for Dre\""},
 	{"id": "sasha", "name": "Sasha Volk", "nick": "The Wall", "who": "women_coat", "place": "Sycamore Heights", "lvl": 7, "purse": 2600,
-		"stats": {"hp": 120.0, "spd": 1.15, "cool": [0.7, 1.3], "block": 0.4, "slip": 0.25, "combo": 2, "dmg": 1.3, "range": 2.0, "recover": 0.5, "moves": [2, 2, 0]},
+		"stats": {"hp": 215.0, "spd": 1.2, "cool": [0.45, 0.85], "block": 0.4, "slip": 0.3, "combo": 3, "dmg": 1.8, "range": 2.0, "recover": 0.4, "armor": 0.45, "counter": 0.6, "moves": [2, 2, 0]},
 		"mo": ["Sasha was a bodyguard up in Sycamore Heights till a client got robbed on her watch", "Says the guy looked like you. She kicks from way out: get inside. $2,600"],
 		"line": "\"I never forget a face. Yours was there that night\"", "beaten": "Sasha: \"...Fine. Wasn't you. Probably\"", "won": "Sasha: \"Case closed\""},
 	{"id": "hammer", "name": "Hamid Saleh", "nick": "The Hammer", "who": "man_fitness", "place": "The Courts", "lvl": 8, "purse": 3400,
-		"stats": {"hp": 165.0, "spd": 1.05, "cool": [0.9, 1.5], "block": 0.35, "slip": 0.15, "combo": 3, "dmg": 1.7, "range": 1.6, "recover": 0.45, "moves": [0, 1, 2]},
+		"stats": {"hp": 285.0, "spd": 1.1, "cool": [0.5, 1.0], "block": 0.4, "slip": 0.15, "combo": 3, "dmg": 2.4, "range": 1.6, "recover": 0.4, "armor": 0.6, "counter": 0.5, "moves": [0, 1, 2]},
 		"mo": ["The Hammer ran these fights before me. Retired. Then developers bought his gym out from under him", "He's back, at the Courts, and angry. Biggest punch in town. Don't trade with him. $3,400"],
 		"line": "\"Nothing personal. I just need to hit something\"", "beaten": "Hammer: \"Good. The gym's in good hands. Somewhere\"", "won": "Hammer: \"Still got it\""},
 	{"id": "king", "name": "Lo Fischer", "nick": "King Lo", "who": "businessman_shirt", "place": "Downtown", "lvl": 10, "purse": 5000,
-		"stats": {"hp": 190.0, "spd": 1.3, "cool": [0.5, 0.95], "block": 0.45, "slip": 0.35, "combo": 3, "dmg": 1.6, "range": 1.55, "recover": 0.4, "moves": [0, 1, 2]},
+		"stats": {"hp": 240.0, "spd": 1.35, "cool": [0.4, 0.75], "block": 0.4, "slip": 0.4, "combo": 4, "dmg": 1.5, "range": 1.55, "recover": 0.35, "armor": 0.5, "counter": 0.7, "moves": [0, 1, 2]},
 		"mo": ["Last one. King Lo. My partner. Never lost. He owns half of Downtown and the fights with it", "He wants you, tonight, Downtown. Beat him and you're the king. $5,000"],
 		"line": "\"Mo says you're good. Mo's said that before\"", "beaten": "King Lo: \"...Long live the king, then\"", "won": "King Lo: \"Come back when you're ready. You're not\""},
 ]
@@ -156,11 +161,13 @@ func _brief(id: String) -> void:
 func start_info(id: String) -> Dictionary:
 	var d := def_of(id)
 	var out := {"kind_label": "STREET FIGHT", "name": "%s \"%s\"" % [d["name"], d["nick"]], "col": Color("ffb020"), "medal": 0,
-		"info": "Purse %s · fists only" % _money(int(d["purse"])), "start": func(): begin(id)}
+		"info": "Stake %s to win %s · fists only" % [_money(stake(d)), _money(int(d["purse"]))], "start": func(): begin(id)}
 	if Progress.level(game.save) < int(d["lvl"]):
 		out["warn"] = "Mo won't set this one up till you're level %d" % int(d["lvl"])
 	elif game.police.wanted():
 		out["warn"] = "Not with the police on you"
+	elif int(game.save.data["coins"]) < stake(d):
+		out["warn"] = "You need %s to put up as the stake" % _money(stake(d))
 	return out
 
 func _money(n: int) -> String:
@@ -178,6 +185,14 @@ func begin(id: String) -> void:
 	if game.police.wanted():
 		game.ui.toast("Lose the police first", "eye", Color("ff5c7a"), Color.WHITE)
 		return
+	var st := stake(d)
+	if int(game.save.data["coins"]) < st:
+		game.ui.toast("You need %s for the stake" % _money(st), "coin", Color("ff5c7a"), Color.WHITE, 2.4)
+		return
+	# the stake's down: half what you'd win
+	game.save.data["coins"] = int(game.save.data["coins"]) - st
+	game.save.save()
+	game.sfx("cash", -6.0, 0.8)
 	game.ui.start_card_hide()
 	game.in_marker = {}
 	var c: Vector3 = spots[id]
@@ -211,9 +226,9 @@ func begin(id: String) -> void:
 	av.fight = true
 	var pr := {"pos": them, "face": PI, "live": av, "gone": false, "down": false, "pose": "stand", "y": 0.0, "solo": true,
 		"grit": 1.0, "style": "custom", "name": String(d["nick"])}
-	cur = {"def": d, "pr": pr, "av": av, "center": c, "state": "intro", "t": 0.0, "crowd": _crowd(c)}
+	cur = {"def": d, "pr": pr, "av": av, "center": c, "state": "intro", "t": 0.0, "crowd": _crowd(c), "stake": st}
 	game.melee.solos.append(pr)
-	game.ui.intro_card(String(d["nick"]).to_upper(), String(d["line"]))
+	game.ui.intro_card(String(d["nick"]).to_upper(), String(d["line"]) + "      ·      %s on the line" % _money(st + int(d["purse"])))
 	game.sfx("mission", -4.0)
 	game.police.calm = maxf(game.police.calm, 9999.0)      # (nobody calls the police on a fight like this)
 
@@ -281,7 +296,10 @@ func _fight_tick(dt: float) -> void:
 			if not game.gunplay.holstered:
 				_end(false, "A gun? The fight's off, and so's the purse")
 				return
-			if Vector2(foot.global_position.x - cur["center"].x, foot.global_position.z - cur["center"].z).length() > RING:
+			# (a fight moves about: walking away is running off from them, or right out of the area)
+			var from_them := Vector2(foot.global_position.x - pr["pos"].x, foot.global_position.z - pr["pos"].z).length()
+			cur["away_t"] = float(cur.get("away_t", 0.0)) + dt if from_them > RING * 0.75 else 0.0
+			if float(cur["away_t"]) > 2.0 or Vector2(foot.global_position.x - cur["center"].x, foot.global_position.z - cur["center"].z).length() > RING * 2.0:
 				_end(false, "You walked away")
 				return
 			if game.police.wanted():
@@ -307,11 +325,13 @@ func _end(win: bool, why := "", no_fault := false) -> void:
 	var pr: Dictionary = cur["pr"]
 	cur["state"] = "done"
 	cur["t"] = 0.0
+	cur["why"] = "win" if win else (why if why != "" else "knocked out")
 	game.melee.drop_solo(pr)
 	game.police.calm = 0.0
+	var st := int(cur.get("stake", 0))
 	if win:
 		var purse := int(d["purse"])
-		game.save.data["coins"] = int(game.save.data["coins"]) + purse
+		game.save.data["coins"] = int(game.save.data["coins"]) + purse + st
 		var fw: Dictionary = game.save.data.get("fights", {})
 		fw[d["id"]] = true
 		game.save.data["fights"] = fw
@@ -330,10 +350,13 @@ func _end(win: bool, why := "", no_fault := false) -> void:
 				game.ui.text_msg(FIXER, "Nobody left to fight but the cops. Don't fight the cops"))
 		game.ach_check()
 	else:
+		if no_fault:
+			game.save.data["coins"] = int(game.save.data["coins"]) + st       # (nobody won: the stake back)
+			game.save.save()
 		if why != "":
-			game.ui.toast(why, "", Color("ff5c7a"), Color.WHITE, 2.6)
+			game.ui.toast(why + ("" if no_fault else "   ·   -%s" % _money(st)), "", Color("ff5c7a"), Color.WHITE, 2.6)
 		if not no_fault:
-			game.ui.intro_card("YOU LOST", String(d["won"]).get_slice(": ", 1))
+			game.ui.intro_card("YOU LOST", "-%s   ·   " % _money(st) + String(d["won"]).get_slice(": ", 1))
 			get_tree().create_timer(4.0, false).timeout.connect(func():
 				game.ui.text_msg(FIXER, "Shake it off. %s will be there when you want another go" % String(d["nick"])))
 		# (they walk off: a beaten fighter's gone, a winner stands about a moment)
