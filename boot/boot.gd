@@ -32,9 +32,9 @@ func _ready() -> void:
 	add_child(bg)
 	var font: Font = null
 	var thin: FontVariation = null
-	if ResourceLoader.exists("res://assets/fonts/Fredoka.ttf"):
+	if ResourceLoader.exists("res://assets/fonts/Outfit.woff2"):
 		var fv := FontVariation.new()
-		fv.base_font = load("res://assets/fonts/Fredoka.ttf")
+		fv.base_font = load("res://assets/fonts/Outfit.woff2")
 		fv.variation_opentype = {"wght": 400}
 		font = fv
 		thin = FontVariation.new()

@@ -38,6 +38,10 @@ varying vec3 v_nrm;
 varying float v_direct;
 varying float v_win;
 varying float v_tex;
+varying float v_slot;
+// the ground's detail (grass, asphalt, pavement, dirt): a baked tiling noise (r: grain, g: patches, b: cracks)
+uniform sampler2D ground_noise : filter_linear_mipmap, repeat_enable;
+uniform float ground_detail = 0.0;   // 0: plain (the garage turntable's material); main.gd turns it on
 
 
 const float PAL_W = 64.0;
@@ -62,9 +66,11 @@ void vertex() {
 	v_glow = 0.0;
 	v_win = 0.0;
 	v_tex = 0.0;
+	v_slot = -1.0;
 	v_direct = c.a > 0.6 ? 1.0 : 0.0;
 	if (c.a < 0.2) {
-		v_col = pal(floor(c.r * 255.0 + 0.5));
+		v_slot = floor(c.r * 255.0 + 0.5);
+		v_col = pal(v_slot);
 	} else if (c.a < 0.4) {
 		// tile part: top or side slot comes from the instance; .b jitters brightness per tile
 		float idx = c.r > 0.5 ? INSTANCE_CUSTOM.r : INSTANCE_CUSTOM.g;
@@ -103,10 +109,49 @@ void vertex() {
 	POSITION = PROJECTION_MATRIX * vp;
 }
 
+// Detail on the flat ground, by what it is (palette slots: grass 0-1, sand 2, dirt 4-5, path 22, soil 33,
+// cobble 37, concrete 49, asphalt 51, red sand 52): patches over metres, grain up close (faded out with
+// distance so it doesn't shimmer), cracks in the asphalt, slab joints in the pavement.
+vec3 ground(vec3 base, float s, vec2 p, float dist) {
+	float near = (1.0 - smoothstep(18.0, 70.0, dist)) * ground_detail;
+	float g2 = texture(ground_noise, p / 90.0).g - 0.5;           // big patches (5-15 m)
+	if (s < 1.5) {
+		// grass: lighter and darker patches, drier (yellower) in places, and a fine blade grain
+		float fine = texture(ground_noise, p / 11.0).r - 0.5;
+		float g3 = texture(ground_noise, p / 31.0).g - 0.5;
+		vec3 c = base * (1.0 + g2 * 0.34 + g3 * 0.16 + fine * 0.26 * near);
+		return mix(c, c * vec3(1.1, 1.05, 0.72), clamp(g2 * 2.2, 0.0, 1.0) * 0.55 * ground_detail);
+	}
+	if (abs(s - 51.0) < 0.5) {
+		// asphalt: aggregate grain, worn and patched areas, hairline cracks
+		vec3 n1 = texture(ground_noise, p / 6.0).rgb;
+		// (cracks only in the worn stretches, not all over)
+		float crack = texture(ground_noise, p / 27.0).b * smoothstep(0.08, 0.2, texture(ground_noise, p / 140.0 + 0.37).g - 0.5);
+		float g3 = texture(ground_noise, p / 17.0).g - 0.5;
+		vec3 c = base * (1.0 + (n1.r - 0.5) * 0.34 * near + g2 * 0.18 + g3 * 0.12);
+		c *= 1.0 + step(0.86, n1.r) * 0.14 * near;                      // (light stones in it)
+		return c * (1.0 - crack * 0.32 * (1.0 - smoothstep(10.0, 45.0, dist)) * ground_detail);
+	}
+	if (abs(s - 49.0) < 0.5 || abs(s - 37.0) < 0.5) {
+		// pavement: concrete slabs (joints every 2 m), grain, stains
+		float fine = texture(ground_noise, p / 5.0).r - 0.5;
+		vec2 q = abs(fract(p / 2.0) - 0.5);
+		float joint = smoothstep(0.475, 0.495, max(q.x, q.y));
+		vec3 c = base * (1.0 + fine * 0.2 * near + g2 * 0.14);
+		return c * (1.0 - joint * 0.22 * near);
+	}
+	// dirt, sand, paths, soil: grainy and patchy
+	float fine = texture(ground_noise, p / 7.0).r - 0.5;
+	return base * (1.0 + fine * 0.3 * near + g2 * 0.2);
+}
+
 void fragment() {
 	vec3 base = v_col;
 	if (v_tex > 0.5) {
 		base *= lin(texture(car_detail, UV).rgb);
+	}
+	if (ground_detail > 0.0 && v_slot >= 0.0 && normalize(v_nrm).y > 0.55) {
+		base = ground(base, v_slot, v_world.xz, length(v_world - CAMERA_POSITION_WORLD));
 	}
 	vec3 col = mix(base, vec3(1.0, 0.8, 0.45), v_win * night * 0.75) * tint;
 	ALBEDO = col;

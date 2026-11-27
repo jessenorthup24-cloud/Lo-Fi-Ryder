@@ -33,6 +33,7 @@ const Heist := preload("res://scripts/game/heist.gd")
 const Property := preload("res://scripts/game/property.gd")
 const Shops := preload("res://scripts/game/shops.gd")
 const Bank := preload("res://scripts/game/bank.gd")
+const StreetProps := preload("res://scripts/game/street_props.gd")
 const Allies := preload("res://scripts/game/allies.gd")
 const Story := preload("res://scripts/game/story.gd")
 const Tutorial := preload("res://scripts/game/tutorial.gd")
@@ -169,6 +170,7 @@ var fights: Fights           # street fights for money: Mo's campaign of eight
 var heist: Heist             # the safes, the heists, dropped cash
 var property: Node3D        # the mansion and the garage you build up (property.gd)
 var shops: Node3D           # Lo-Fi Customs, the Armory, Lo-Fi Threads (shops.gd)
+var street_props: Node3D     # dumpsters, rubbish, papers, benches (street_props.gd)
 var bank: Bank              # cash on you vs banked: ATMs, the three banks, the bag you drop when you die
 var allies: Node3D          # your crew on foot, fighting beside you (allies.gd)
 var story: Node             # Jay's texts and your goal on the HUD (story.gd)
@@ -212,6 +214,7 @@ const KIND_INFO := {"zone": ["DRIFT ZONE", "ff8a5c"], "time": ["TIME TRIAL", "5c
 var race_end_t := 0.0
 
 func _ready() -> void:
+	ThemeDB.fallback_font = K.font(600)          # (the game's face everywhere, even text nothing's styled)
 	_parse_args()
 	Car.neon_globals()
 	# landscape, laid out for 1280x720 whatever the installed app was built with
@@ -226,6 +229,8 @@ func _ready() -> void:
 		save.load_data()
 	toon = ShaderMaterial.new()
 	toon.shader = load("res://shaders/toon.gdshader")
+	toon.set_shader_parameter("ground_noise", load("res://assets/tex/ground_noise.png"))
+	toon.set_shader_parameter("ground_detail", 1.0)
 	toon.set_shader_parameter("palette", PAL.make_texture())
 	cam = Camera3D.new()
 	cam.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # follows the car every frame
@@ -354,6 +359,10 @@ func _build_world() -> void:
 	bank.name = "Bank"
 	add_child(bank)
 	bank.build(self)
+	street_props = StreetProps.new()
+	street_props.name = "StreetProps"
+	add_child(street_props)
+	street_props.build(self)
 	allies = Allies.new()
 	allies.name = "Allies"
 	add_child(allies)

@@ -32,11 +32,25 @@ const STK_PAPER := Color("f7f5f1")
 const STK_LINE := Color("dcd6cd")
 static var _fonts := {}
 
+## The game's face: Outfit (OFL), a clean geometric sans, variable weight; what it hasn't got (accented
+## letters past Latin-1: its own extension; symbols: Fredoka) comes from the fallbacks.
+static var _base: Font
+static func base_font() -> Font:
+	if _base == null:
+		var f: FontFile = load("res://assets/fonts/Outfit.woff2")
+		var fb: Array[Font] = []
+		for p in ["res://assets/fonts/Outfit-ext.woff2", "res://assets/fonts/Fredoka.ttf"]:
+			if ResourceLoader.exists(p):
+				fb.append(load(p))
+		f.fallbacks = fb
+		_base = f
+	return _base
+
 static func font(weight := 600) -> Font:
 	if _fonts.has(weight):
 		return _fonts[weight]
 	var fv := FontVariation.new()
-	fv.base_font = load("res://assets/fonts/Fredoka.ttf")
+	fv.base_font = base_font()
 	fv.variation_opentype = {"wght": weight}
 	_fonts[weight] = fv
 	return fv
@@ -47,7 +61,7 @@ static func font_spaced(weight: int, spacing: int) -> Font:
 	if _fonts.has(key):
 		return _fonts[key]
 	var fv := FontVariation.new()
-	fv.base_font = load("res://assets/fonts/Fredoka.ttf")
+	fv.base_font = base_font()
 	fv.variation_opentype = {"wght": weight}
 	fv.spacing_glyph = spacing
 	_fonts[key] = fv

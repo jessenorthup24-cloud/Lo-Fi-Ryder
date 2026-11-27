@@ -105,6 +105,10 @@ func _run() -> void:
 			await _dispatch()
 		"atms":
 			await _atms()
+		"ground":
+			await _ground()
+		"props":
+			await _props()
 		"mapper":
 			await _mapper()
 		"ram":
@@ -1626,3 +1630,68 @@ func _atms() -> void:
 		await wait(1.2)
 		i += 1
 		await snap("atm_%02d" % i)
+
+
+## For the eye: the ground (grass, asphalt, pavement) and the street props, from a few spots.
+func _ground() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(2.0)
+	await snap("start")
+	game.toggle_foot()
+	await wait(1.0)
+	for nm in String(game.args.get("spots", "Downtown,City Park,Town Square")).split(","):
+		for pl in game.island.places:
+			if pl["name"] == nm:
+				var p: Vector3 = pl["pos"]
+				game.foot.place(game.foot_spot(p) if game.has_method("foot_spot") else p + Vector3(0, 0.5, 0), 0.6)
+				await wait(1.5)
+				await snap("g_" + nm.replace(" ", "_"))
+
+
+## The street props: how many of each, and a look at some (snaps).
+func _props() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.5)
+	var sp = game.street_props
+	var n := {}
+	for p in sp.placed:
+		n[p["kind"]] = int(n.get(p["kind"], 0)) + 1
+	note("props %s" % str(n))
+	for k in sp._scenes:
+		note("fit %s %s" % [k, str(sp._scenes[k].slice(1))])
+	var seen := {}
+	for c in sp.get_children():
+		if c is StaticBody3D:
+			continue
+		var tot := AABB()
+		var first := true
+		for m in c.find_children("*", "MeshInstance3D", true, false):
+			var a: AABB = (m as MeshInstance3D).global_transform * (m as MeshInstance3D).get_aabb()
+			tot = a if first else tot.merge(a)
+			first = false
+		var key := String(c.name).left(8)
+		if not seen.has(key):
+			seen[key] = true
+			note("node %s at %s aabb %s" % [c.name, (c as Node3D).global_position, tot])
+	check(int(n.get("dumpster", 0)) >= 8, "dumpsters round town")
+	check(int(n.get("bench", 0)) >= 8, "benches on the shopfronts")
+	game.toggle_foot()
+	await wait(1.0)
+	var shown := 0
+	for p in sp.placed:
+		if p["kind"] == "papers" or shown >= int(game.args.get("shots", "6")):
+			continue
+		if p["kind"] == "rubbish" or (game.args.has("kind") and p["kind"] != game.args["kind"]):
+			continue
+		var f := Vector3(0, 0, 1).rotated(Vector3.UP, float(p["yaw"]))
+		var side := Vector3(f.z, 0, -f.x)
+		game.foot.place((p["pos"] as Vector3) + f * 5.0 + side * 2.5 + Vector3(0, 0.3, 0), atan2(f.x, f.z))
+		var to: Vector3 = (p["pos"] as Vector3) - ((p["pos"] as Vector3) + f * 5.0 + side * 2.5)
+		game.foot_yaw = atan2(-to.x, -to.z)
+		game.look_yaw = 0.0
+		game.look_yaw_t = 0.0
+		await wait(1.0)
+		shown += 1
+		await snap("%s_%d" % [p["kind"], shown])
