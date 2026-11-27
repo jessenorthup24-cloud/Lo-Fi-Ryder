@@ -103,6 +103,8 @@ func _run() -> void:
 			await _bank()
 		"dispatch":
 			await _dispatch()
+		"atms":
+			await _atms()
 		"mapper":
 			await _mapper()
 		"ram":
@@ -1598,3 +1600,20 @@ func _dispatch() -> void:
 		await wait(1.0)
 		t += 1.0
 	check(pol.report.is_empty() and not pol.wanted(), "left the area: they looked round and called it off (%.0f s)" % t)
+
+
+## A look at every ATM where it stands (for the eye: snaps).
+func _atms() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.5)
+	game.toggle_foot()
+	await wait(1.0)
+	var i := 0
+	for a in game.bank.atms:
+		var fr: Vector3 = a["front"]
+		var side := Vector3(fr.z, 0, -fr.x)
+		game.foot.place((a["pos"] as Vector3) + fr * 4.5 + side * 2.0 + Vector3(0, 0.3, 0), atan2(-fr.x, -fr.z))
+		await wait(1.2)
+		i += 1
+		await snap("atm_%02d" % i)

@@ -16,8 +16,7 @@ const BANKS := [
 	{"id": "bank_east", "name": "Lo-Fi Bank: Bay Avenue"},
 ]
 ## Where the ATMs go: by these places, the shops, the gas stations and the banks' doors.
-const ATM_PLACES := ["Downtown", "Skate Park", "Old Harbour", "Sunny Bay", "Maple Hills", "Sycamore Heights"]
-const ATM_STATIONS := ["Coast Road", "Main Street East"]
+const ATM_PLACES := ["Downtown", "Town Square", "Palmer Street", "Old Harbour", "Sunny Bay"]
 
 var game: Node
 var banks: Array = []          # {id, name, door, node}
@@ -61,23 +60,17 @@ func build(g: Node) -> void:
 		door.y = game.island.height_at(door.x, door.z)
 		banks.append({"id": b["id"], "name": b["name"], "door": door, "node": model})
 		game.island.map_marker(door, Color("2fbf5f"), 10.0)
-	# ATMs by the shops' doors and the gas stations' shops
+	# ATMs where an ATM goes: backed onto a shop front beside the door, on the wall of each gas station's
+	# shop, and on a building front by the street in the busy parts of town
 	for id in game.shops.shops:
 		var sh: Dictionary = game.shops.shops[id]
-		var fr: Vector3 = sh["front"]
-		var side := Vector3(fr.z, 0, -fr.x)
-		_atm((sh["door"] as Vector3) + side * 5.5 - fr * 0.6, atan2(fr.x, fr.z), String(sh["def"]["name"]))
+		_atm_wall(sh["door"], 14.0, String(sh["def"]["name"]), 3.5)
 	for st in game.island.stations:
-		if not String(st["name"]) in ATM_STATIONS:
-			continue
-		var sp: Vector3 = st["pos"]
-		var spot: Vector3 = game.fights._open_spot(sp + Vector3(6, 0, 6))
-		_atm(spot, 0.0, "%s gas station" % st["name"])
+		_atm_wall(st["pos"], 30.0, "%s gas station" % st["name"], 0.0, true)
 	for nm in ATM_PLACES:
 		for pl2 in game.island.places:
 			if pl2["name"] == nm:
-				var spot2: Vector3 = game.fights._open_spot((pl2["pos"] as Vector3) + Vector3(5, 0, -5))
-				_atm(spot2, randf() * TAU, String(nm))
+				_atm_wall(pl2["pos"], 70.0, String(nm))
 	# a bag you'd dropped, still out there
 	var dd: Dictionary = s.get("drop", {})
 	if not dd.is_empty():
@@ -103,6 +96,102 @@ func _atm(p: Vector3, yaw: float, by: String) -> void:
 	n.add_child(sb)
 	game.island.map_marker(p, Color("7be495"), 5.0)
 	atms.append({"pos": p, "name": "ATM · " + by, "node": n, "front": Basis(Vector3.UP, yaw) * Vector3(0, 0, 1)})
+
+## An ATM against a wall near `anchor` (within r): a real building's wall (tall, and wide enough: not a
+## post, a pump or a cone), facing out onto the pavement by a street, with room in front of it, clear of
+## doors and of the other ATMs. min_d: not right on the anchor (a shop's door). Nothing that fits: none.
+func _atm_wall(anchor: Vector3, r: float, by: String, min_d := 0.0, any_side := false) -> bool:
+	var space := get_world_3d().direct_space_state
+	var best := {}
+	var bs := INF
+	var dirs: Array = []
+	for k in 8:
+		dirs.append(Vector3.FORWARD.rotated(Vector3.UP, k * TAU / 8.0))
+	var step := 3.0
+	var ring := 0.0
+	while ring <= r:
+		var n_pts := maxi(1, int(TAU * ring / step))
+		for i in n_pts:
+			var q: Vector3 = anchor + Vector3.FORWARD.rotated(Vector3.UP, i * TAU / n_pts) * ring
+			q.y = game.island.height_at(q.x, q.z)
+			for d in dirs:
+				var hit := _ray(space, q + Vector3(0, 1.0, 0), d, 7.0)
+				if hit.is_empty():
+					continue
+				var nrm: Vector3 = hit["normal"]
+				if absf(nrm.y) > 0.15:
+					continue
+				nrm.y = 0.0
+				nrm = nrm.normalized()
+				var c := _atm_fit(space, hit["position"], nrm, min_d, anchor, any_side)
+				if c.is_empty():
+					continue
+				var sc: float = (c["pos"] as Vector3).distance_to(anchor) + float(c["pen"])
+				if sc < bs:
+					bs = sc
+					best = c
+		if not best.is_empty() and ring > 6.0:
+			break          # (the nearest wall that fits: good enough)
+		ring += step
+	if best.is_empty():
+		return false
+	_atm(best["pos"], atan2(best["n"].x, best["n"].z), by)
+	return true
+
+func _ray(space: PhysicsDirectSpaceState3D, from: Vector3, d: Vector3, len: float) -> Dictionary:
+	var q := PhysicsRayQueryParameters3D.create(from, from + d * len, 1)
+	return space.intersect_ray(q)
+
+## Does an ATM fit on the wall hit at w (facing n)? Returns {pos, n, pen} or {}.
+func _atm_fit(space: PhysicsDirectSpaceState3D, w: Vector3, n: Vector3, min_d: float, anchor: Vector3, any_side: bool) -> Dictionary:
+	var isl = game.island
+	var t := Vector3(n.z, 0, -n.x)
+	var base := Vector3(w.x, 0, w.z) + n * 0.42
+	base.y = isl.height_at(base.x, base.z)
+	if Vector2(base.x - anchor.x, base.z - anchor.z).length() < min_d:
+		return {}
+	# a wall: tall and wide (1.2 m either side), flat (all at the same depth)
+	# (3.4 m up: a building, not a ramp or a fence)
+	for o in [Vector3(0, 3.4, 0), t * 1.2 + Vector3(0, 1.0, 0), -t * 1.2 + Vector3(0, 1.0, 0), t * 1.2 + Vector3(0, 3.0, 0), -t * 1.2 + Vector3(0, 3.0, 0)]:
+		var h := _ray(space, base + n * 0.6 + (o as Vector3), -n, 1.6)
+		if h.is_empty() or absf((h["normal"] as Vector3).dot(n)) < 0.92:
+			return {}
+	# flat, level ground where it stands and in front of it
+	for o in [Vector3.ZERO, n * 1.5, t * 0.6, -t * 0.6]:
+		var pp: Vector3 = base + (o as Vector3)
+		if absf(isl.height_at(pp.x, pp.z) - base.y) > 0.25:
+			return {}
+	# room: nothing in front (1.8 m) or to the sides (0.9 m)
+	for d in [n * 1.8, t * 0.9, -t * 0.9, n * 1.2 + t * 0.8, n * 1.2 - t * 0.8]:
+		if not _ray(space, base + Vector3(0, 0.9, 0), d, 1.0).is_empty():
+			return {}
+	# facing the street: a road within reach in front, but not standing on it
+	var pen := 0.0
+	var me: Array = game.router.nearest_near(Vector2(base.x, base.z), 24.0)
+	if int(me[0]) < 0:
+		if not any_side:
+			return {}
+		pen += 15.0
+	else:
+		var rw: float = float(game.island.roads[int(me[0])]["w"]) * 0.5
+		if float(me[2]) < rw + 1.0:
+			return {}
+		var rp: Vector2 = game.router.road_at(int(me[0]), float(me[1]))
+		var to_road := Vector3(rp.x - base.x, 0, rp.y - base.z).normalized()
+		if to_road.dot(n) < 0.2 and not any_side:
+			return {}          # (round the back, away from the street)
+		pen += maxf(0.0, float(me[2]) - rw - 4.0) * 0.5
+	# clear of doors (the shops', the banks') and of the other ATMs
+	for id in game.shops.shops:
+		if base.distance_to(game.shops.shops[id]["door"]) < 3.2:
+			return {}
+	for b in banks:
+		if base.distance_to(b["door"]) < 5.0:
+			return {}
+	for a in atms:
+		if base.distance_to(a["pos"]) < 40.0:
+			return {}
+	return {"pos": base, "n": n, "pen": pen}
 
 # ------------------------------------------------------------------ the money
 
