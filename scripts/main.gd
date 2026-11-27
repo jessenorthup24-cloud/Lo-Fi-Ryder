@@ -32,6 +32,7 @@ const Fights := preload("res://scripts/game/fights.gd")
 const Heist := preload("res://scripts/game/heist.gd")
 const Property := preload("res://scripts/game/property.gd")
 const Shops := preload("res://scripts/game/shops.gd")
+const Bank := preload("res://scripts/game/bank.gd")
 const Allies := preload("res://scripts/game/allies.gd")
 const Story := preload("res://scripts/game/story.gd")
 const Tutorial := preload("res://scripts/game/tutorial.gd")
@@ -168,6 +169,7 @@ var fights: Fights           # street fights for money: Mo's campaign of eight
 var heist: Heist             # the safes, the heists, dropped cash
 var property: Node3D        # the mansion and the garage you build up (property.gd)
 var shops: Node3D           # Lo-Fi Customs, the Armory, Lo-Fi Threads (shops.gd)
+var bank: Bank              # cash on you vs banked: ATMs, the three banks, the bag you drop when you die
 var allies: Node3D          # your crew on foot, fighting beside you (allies.gd)
 var story: Node             # Jay's texts and your goal on the HUD (story.gd)
 var tutorial: Node          # the first ride's coach (tutorial.gd)
@@ -348,6 +350,10 @@ func _build_world() -> void:
 	shops.name = "Shops"
 	add_child(shops)
 	shops.build(self)
+	bank = Bank.new()
+	bank.name = "Bank"
+	add_child(bank)
+	bank.build(self)
 	allies = Allies.new()
 	allies.name = "Allies"
 	add_child(allies)
@@ -1008,6 +1014,7 @@ func _process(dt: float) -> void:
 			heist.tick(dt)
 			property.tick(dt)
 			shops.tick(dt)
+			bank.tick(dt)
 			allies.tick(dt)
 			story.tick(dt)
 			fights.tick(dt)
@@ -2015,9 +2022,9 @@ func _on_bump(strength: float) -> void:
 			fx.debris(car.global_position + Vector3(0, 0.3, 0), hn, [Color("d6d9de")], 1, 5.0, 1.2)     # (the hubcap)
 		if was < 50.0 and car.damage >= 50.0 and not damage_told:
 			damage_told = true
-			ui.toast("Battered! Any gas station fixes you up: follow the arrow", "gear", K.PAPER, K.INK, 3.0)
+			ui.toast("Battered! Any gas station fixes you up (they're on the map)", "gear", K.PAPER, K.INK, 3.0)
 		if ewas < 60.0 and car.engine_dmg >= 60.0 and car.engine_dmg < 99.5:
-			ui.toast("The engine's hurt: it's losing power. A gas station fixes it: follow the arrow", "gear", Color("f2b84b"), K.INK, 3.0)
+			ui.toast("The engine's hurt: it's losing power. A gas station fixes it (they're on the map)", "gear", Color("f2b84b"), K.INK, 3.0)
 		if ewas < 99.5 and car.engine_dmg >= 99.5:
 			ui.toast("Engine's gone! Limp to a gas station", "gear", Color("ef6a55"), Color.WHITE, 3.2)
 			sfx("backfire", 0.0, 0.8)
@@ -2937,6 +2944,8 @@ func _busted_release() -> void:
 ## you're back in your car where you left it, healed up.
 func wasted() -> void:
 	heist.fail("wasted")
+	var died_at: Vector3 = you().global_position
+	bank.on_death(died_at)        # (the cash on you, on the ground; the fine comes out of the bank)
 	var fine := mini(int(save.data["coins"]), 100 + int(save.data["coins"]) / 20)
 	save.data["coins"] = maxi(int(save.data["coins"]) - fine, 0)
 	save.add_stat("wasted", 1)
@@ -2950,7 +2959,32 @@ func wasted() -> void:
 		_back_in()
 		gunplay.hp = gunplay.MAX_HP
 		gunplay.dying = false
+		_wake_at_station(died_at)
 		_save_now())
+
+## After you're wasted: you come round at the nearest gas station, the car fixed up there (so the cash you
+## dropped is a trip back, not a step away).
+func _wake_at_station(at: Vector3) -> void:
+	if race != null and race.state == 1:
+		return
+	var best := {}
+	var bd := 1e9
+	for st in island.stations:
+		var d := (st["pos"] as Vector3).distance_to(at)
+		if d < bd:
+			bd = d
+			best = st
+	if best.is_empty():
+		return
+	var sp: Vector3 = best["pos"]
+	var xf := _road_spot(sp + Vector3(0, 0, 14), 0.0)
+	jump = {}
+	loop_on = -1
+	car.place(xf)
+	_break_drift(false)
+	flip_t = 0.0
+	stuck_t = 0.0
+	_snap_cam()
 
 ## Lost them: the stars fade, and the bounty.
 func police_escaped(bounty: int, heat: int) -> void:
@@ -3133,7 +3167,7 @@ func _fuel(dt: float) -> void:
 		sfx("backfire", -10.0, 0.8)
 	if fuel < 15.0 and fuel_told < 1:
 		fuel_told = 1
-		ui.toast("Low on fuel! The arrow points to the nearest gas station", "fuel", K.PAPER, K.INK, 3.0)
+		ui.toast("Low on fuel! Gas stations are on the map: set one as your destination", "fuel", K.PAPER, K.INK, 3.0)
 	elif fuel <= 0.0 and fuel_told < 2:
 		fuel_told = 2
 		ui.toast("Out of fuel! Limping on fumes to the nearest station", "fuel", K.CORAL, Color.WHITE, 3.0)
@@ -3303,19 +3337,12 @@ func _route_target() -> Dictionary:
 	var ht: Dictionary = heist.route()
 	if not ht.is_empty() or heist.active():
 		return ht
-	var tt: Dictionary = tutorial.route()
-	if not tt.is_empty():
-		return tt
 	if not trial.is_empty():
 		var gates: Array = trial["gates"]
 		if trial_gate < gates.size():
 			return {"pos": (gates[trial_gate] as Transform3D).origin, "name": "Gate %d" % trial_gate, "kind": "trial"}
 	if not zone.is_empty():
 		return {} if _in_zone() else {"pos": zone["pos"], "name": zone["name"], "kind": "zone"}
-	if (fuel < 15.0 or car.damage >= 50.0 or car.engine_dmg >= 60.0) and at_station.is_empty():
-		var st := nearest_station()
-		if not st.is_empty():
-			return {"pos": st["pos"], "name": "Gas station", "kind": "station"}
 	if not route_pick.is_empty():
 		if (route_pick["pos"] as Vector3).distance_to(p) < 18.0:
 			ui.toast("You've arrived: %s" % route_pick["name"], "flag", K.PAPER, K.INK, 2.0)
@@ -4139,29 +4166,27 @@ func _foot_cam(dt: float) -> void:
 	_aim_dof(ak)
 
 ## Aiming: the background goes soft and what you're aiming at stays sharp (shaders/aim_dof.gdshader).
-var _dof: MeshInstance3D
+var _dof: ColorRect
 func _aim_dof(ak: float) -> void:
 	var on := on_foot and ak > 0.03 and not gunplay.dying and bool(save.data["settings"].get("dof", true))
 	if _dof == null:
 		if not on:
 			return
-		_dof = MeshInstance3D.new()
-		var q := QuadMesh.new()
-		q.size = Vector2.ONE
-		_dof.mesh = q
+		_dof = ColorRect.new()
+		_dof.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_dof.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var m := ShaderMaterial.new()
 		m.shader = load("res://shaders/aim_dof.gdshader")
-		_dof.material_override = m
-		_dof.custom_aabb = AABB(Vector3(-1e5, -1e5, -1e5), Vector3(2e5, 2e5, 2e5))
-		_dof.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		_dof.position = Vector3(0, 0, -1.0)
-		cam.add_child(_dof)
+		_dof.material = m
+		ui.hud.add_child(_dof)
+		ui.hud.move_child(_dof, 0)         # (under the HUD, like the speed blur)
 	_dof.visible = on
 	if not on:
 		return
 	# the two sharp spots: what you're aiming at (the reticle, or whoever it's locked on), and you
 	var vs := get_viewport().get_visible_rect().size
-	var m2 := _dof.material_override as ShaderMaterial
+	var m2 := _dof.material as ShaderMaterial
+	m2.set_shader_parameter("aspect", vs.x / maxf(vs.y, 1.0))
 	var a := Vector2(0.5, 0.5)
 	var ra := 0.14
 	if gunplay.lock_pos != Vector3.INF and not cam.is_position_behind(gunplay.lock_pos):

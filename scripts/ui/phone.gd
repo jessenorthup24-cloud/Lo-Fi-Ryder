@@ -5,6 +5,7 @@ extends PanelContainer
 
 const K := preload("res://scripts/ui/kit.gd")
 const Icon := preload("res://scripts/ui/icon.gd")
+const Todo := preload("res://scripts/ui/todo.gd")
 
 const BODY := Color("0c0b10")
 const SCREEN := Color("17151f")         # (a dark screen, like the rest of the UI)
@@ -24,6 +25,7 @@ var _rows := {}          # who -> {dist: Label, state: Label}
 var _t := 0.0
 var radar_btn: Button
 var dez_btn: Button
+var todo_btn: Button
 var _mode := "contacts"        # or "dez": your cars, to have one brought
 
 func setup(u: Node, g: Node) -> void:
@@ -39,7 +41,7 @@ func setup(u: Node, g: Node) -> void:
 	sb.shadow_offset = Vector2(0, 6)
 	add_theme_stylebox_override("panel", sb)
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	custom_minimum_size = Vector2(290, 318)
+	custom_minimum_size = Vector2(290, 370)
 	var screen := PanelContainer.new()
 	var ssb := K.box(SCREEN, 24, 0, Color.TRANSPARENT, 12)
 	ssb.content_margin_top = 8
@@ -88,6 +90,16 @@ func setup(u: Node, g: Node) -> void:
 		_sig = ""
 		refresh())
 	apps.add_child(dez_btn)
+	# Things to do: everything in the game, how it works and where, with Set as destination
+	todo_btn = K.button("Things to do", Color("c4602f"), Color("964622"), 18, 0, 46, "flag")
+	todo_btn.pressed.connect(func():
+		game.ui_tap()
+		# (the phone straight off, the game still paused: the app opens over it)
+		ui.phone_layer.visible = false
+		visible = false
+		game.drop_touches()
+		Todo.open(ui))
+	vb.add_child(todo_btn)
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	vb.add_child(head)

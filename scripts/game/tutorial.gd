@@ -10,10 +10,10 @@ const STEPS := [
 	["gas", "Hold GAS to drive", "Keep it held to pick up speed", "gas"],
 	["steer", "Steer", "Hold left or right to turn", "steer"],
 	["drift", "Drift a corner", "Turning at speed, hold DRIFT to swing the tail out", "hand"],
-	["go_race", "Your first race", "Follow the arrow at the top to the pink beacon", "route"],
+	["go_race", "Your first race", "Tap Set as destination, then follow the arrow to the pink beacon", "dest"],
 	["start", "Tap START", "Easy races pay cash and XP every time you win", "start"],
 	["racing", "", "", ""],
-	["shop", "Lo-Fi Customs", "Follow the arrow to Main Street: upgrades and new cars", "route"],
+	["shop", "Lo-Fi Customs", "Upgrades and new cars, on Main Street: set it as your destination", "dest"],
 	["phone", "Your phone", "Tap it: your crew, Dez's deliveries and the safe radar", "phone"],
 	["done", "You're set", "Jay will text you what's next. This town's yours", ""],
 ]
@@ -119,6 +119,9 @@ func _target(k: String) -> Variant:
 			return ui.wheel if ui.wheel_mode() else [ui.ctl["left"], ui.ctl["right"]]
 		"route":
 			return ui.route_box
+		"dest":
+			# (the button till you've tapped it, then the arrow it gave you)
+			return func(): return ui.route_box if ui.route_box.visible else ui.coach_ui.dest_btn
 		"start":
 			return func(): return ui.start_card
 		"phone":

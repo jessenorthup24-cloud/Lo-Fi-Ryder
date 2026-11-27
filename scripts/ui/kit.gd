@@ -204,6 +204,10 @@ static func button(text: String, bg := CORAL, dk := CORAL_DK, size := 38, min_w 
 	return b
 
 ## Change a button's words (icon buttons keep theirs in a label beside the icon).
+static func button_text(b: Button) -> String:
+	var l = b.get_meta("label") if b.has_meta("label") else null
+	return (l as Label).text if l is Label else b.text
+
 static func set_text(b: Button, t: String) -> void:
 	var l = b.get_meta("label") if b.has_meta("label") else null
 	if l is Label:

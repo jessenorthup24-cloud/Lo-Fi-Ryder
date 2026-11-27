@@ -343,11 +343,11 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 			pr["flee"] = float(pr["flee"]) - dt
 			if not walking and pr["pose"] == "stand":
 				var fv: Vector3 = pr["flee_v"]
-				pr["pos"] += fv * dt * clampf(float(pr["flee"]), 0.0, 1.0)
+				pr["pos"] = wall_move(pr["pos"], (pr["pos"] as Vector3) + fv * dt * clampf(float(pr["flee"]), 0.0, 1.0), false)
 				pr["face"] = lerp_angle(pr["face"], atan2(-fv.x, -fv.z), 1.0 - exp(-dt * 8.0))
 		if float(pr.get("dodge_t", 0.0)) > 0.0:
 			pr["dodge_t"] = float(pr["dodge_t"]) - dt
-			pr["pos"] += (pr["hop"] as Vector3) * dt
+			pr["pos"] = wall_move(pr["pos"], (pr["pos"] as Vector3) + (pr["hop"] as Vector3) * dt, false)
 			var hv: Vector3 = pr["hop"]
 			pr["face"] = lerp_angle(pr["face"], atan2(-hv.x, -hv.z), 1.0 - exp(-dt * 12.0))
 			if float(pr["dodge_t"]) <= 0.0:
@@ -486,3 +486,34 @@ func tick_visibility(dt: float, car_pos: Vector3) -> void:
 	for k: String in pools:
 		var base := k.trim_suffix("_al").trim_suffix("_ar")
 		pools[k].visible = pools[k].used() > 0 and near.has(base)
+
+
+## A step for someone on foot that doesn't go into a wall: stopped a body's width short of it, the rest slid
+## along it (or no step at all, in a corner). ground: put them on the ground there.
+func wall_move(from: Vector3, to: Vector3, ground := true) -> Vector3:
+	var d := to - from
+	d.y = 0.0
+	if d.length() < 0.0005:
+		return to
+	var space := get_world_3d().direct_space_state
+	var h := Vector3(0, 0.9, 0)
+	const R := 0.34
+	var q := PhysicsRayQueryParameters3D.create(from + h, to + h + d.normalized() * R, 1)
+	var hit := space.intersect_ray(q)
+	var out := to
+	if not hit.is_empty():
+		var n: Vector3 = hit["normal"]
+		n.y = 0.0
+		if n.length() > 0.3:
+			n = n.normalized()
+			var slide := from + (d - n * d.dot(n))
+			var sd := slide - from
+			sd.y = 0.0
+			out = from
+			if sd.length() > 0.0005:
+				var q2 := PhysicsRayQueryParameters3D.create(from + h, slide + h + sd.normalized() * R, 1)
+				if space.intersect_ray(q2).is_empty():
+					out = slide
+	if ground:
+		out.y = world.height_at(out.x, out.z)
+	return out

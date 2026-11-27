@@ -13,6 +13,7 @@ const Ach := preload("res://scripts/game/achievements.gd")
 const Cards := preload("res://scripts/game/cards.gd")
 const CARD_SHADER := preload("res://shaders/card.gdshader")
 const SaveData := preload("res://scripts/game/save.gd")
+const MapView := preload("res://scripts/ui/map_view.gd")
 const CarScript := preload("res://scripts/game/drift_car.gd")
 const Phone := preload("res://scripts/ui/phone.gd")
 const Progress := preload("res://scripts/game/progress.gd")
@@ -405,6 +406,11 @@ func _build_hud() -> void:
 	coins_pill = K.pill("coin", "0", 28)
 	coins_pill.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	var phb: HBoxContainer = coins_pill.get_child(0)
+	# what's in the bank, small, after the cash on you (the cash is what you'd lose)
+	_bank_lbl = K.label("", 16, Color("8cf0a8"), 800)
+	_bank_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	phb.add_child(_bank_lbl)
+	phb.move_child(_bank_lbl, 3)
 	# your level, first in the pill: the number in a ring that fills with XP
 	lvl_badge = Control.new()
 	lvl_badge.custom_minimum_size = Vector2(46, 46)
@@ -670,6 +676,12 @@ func _build_hud() -> void:
 	shop_btn.visible = false
 	_tap(shop_btn, func(): game.shops.enter())
 	hud.add_child(shop_btn)
+	atm_btn = K.button("BANK", Color("3fd26b"), Color("23934a"), 28, 380, 80, "coin")
+	atm_btn.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	atm_btn.position = Vector2(-190, -230)
+	atm_btn.visible = false
+	_tap(atm_btn, func(): game.bank.deposit())
+	hud.add_child(atm_btn)
 	heist_box = PanelContainer.new()
 	var hsb := StyleBoxFlat.new()
 	hsb.bg_color = Color(0.06, 0.055, 0.09, 0.72)
@@ -1205,6 +1217,35 @@ func shop_prompt(text: String) -> void:
 		else:
 			shop_btn.text = text
 
+var _bank_lbl: Label
+var _bank_last := Vector2i(-1, -1)
+## The pill: the cash on you, big (red-ish when there's a lot at risk), and BANK $x beside it.
+func _bank_tick() -> void:
+	if game.bank == null:
+		return
+	var k := Vector2i(game.bank.cash(), game.bank.banked())
+	if k == _bank_last:
+		return
+	_bank_last = k
+	coins_pill.get_meta("label").text = K.money(k.x)
+	(coins_pill.get_meta("label") as Label).add_theme_color_override("font_color", Color("c0392b") if k.x >= 5000 else K.INK)
+	_bank_lbl.text = "BANK\n" + K.money(k.y)
+
+var atm_btn: Button           # at an ATM or a bank: BANK $<cash on you>
+func atm_prompt(text: String) -> void:
+	var on := text != "" and not overlay.visible and not shop_btn.visible
+	if atm_btn.visible != on:
+		atm_btn.visible = on
+	if on and String(atm_btn.get_meta("t", "")) != text:
+		atm_btn.set_meta("t", text)
+		var l = atm_btn.get_meta("label") if atm_btn.has_meta("label") else null
+		if l is Label:
+			(l as Label).text = text
+		else:
+			atm_btn.text = text
+	atm_btn.disabled = text.begins_with("Nothing")
+	atm_btn.modulate.a = 0.6 if atm_btn.disabled else 1.0
+
 func heist_prompt(text: String) -> void:
 	heist_btn.visible = text != "" and not overlay.visible
 
@@ -1617,6 +1658,7 @@ func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> 
 	if coins != _last_coins:
 		_last_coins = coins
 		coins_pill.get_meta("label").text = K.money(coins)
+	_bank_tick()
 	var dc: Control = ctl["door"]
 	var steal: bool = near and game.near_kind() == "steal"
 	if bool(dc.get_meta("near", false)) != near or bool(dc.get_meta("steal", false)) != steal:
@@ -1898,6 +1940,7 @@ func hud_update(d: Dictionary) -> void:
 	if int(d["coins"]) != _last_coins:
 		_last_coins = int(d["coins"])
 		coins_pill.get_meta("label").text = K.money(_last_coins)
+	_bank_tick()
 	# drift meter
 	var pts: float = d["drift"]
 	var combo: int = d["combo"]
@@ -3691,187 +3734,8 @@ func open_map() -> void:
 	mc.environment = wenv
 	mc.fov = 48.0
 	mc.far = 2400.0
-	map_layer = Control.new()
-	map_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	map_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	map_layer = MapView.new(self)
 	add_child(map_layer)
-	var yp: Vector3 = game.you().global_position
-	var mst := {"focus": Vector3(yp.x, 0, yp.z), "zoom": 0.3, "touches": {}, "moved": 0.0}
-	var place_cam := func():
-		var z: float = mst["zoom"]
-		var h := lerpf(120.0, 900.0, z)
-		var f: Vector3 = mst["focus"]
-		# (shifted left: the list covers the right of the screen)
-		mc.global_transform = Transform3D(Basis(), f + Vector3(110.0 * (h / 500.0), h, h * 0.62))
-		mc.look_at(f + Vector3(110.0 * (h / 500.0), 0, 0), Vector3.UP)
-	place_cam.call()
-	map_layer.set_meta("place", place_cam)
-	var ground_at := func(sp: Vector2) -> Vector3:
-		var o := mc.project_ray_origin(sp)
-		var dd := mc.project_ray_normal(sp)
-		var q := PhysicsRayQueryParameters3D.create(o, o + dd * 3000.0, 1)
-		var hit: Dictionary = game.get_world_3d().direct_space_state.intersect_ray(q)
-		if not hit.is_empty():
-			return hit["position"]
-		var t := -o.y / minf(dd.y, -0.01)       # (off the land: where it meets sea level)
-		return o + dd * t
-	# you are here, the waypoint, and a heist's target: drawn over the picture where they are
-	var me := Control.new()
-	me.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	me.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var cy: float = game.you().global_rotation.y if not game.on_foot else float(game.foot.facing)
-	me.draw.connect(func():
-		var cp3: Vector3 = game.you().global_position
-		if not mc.is_position_behind(cp3):
-			var c := mc.unproject_position(cp3)
-			var f := Vector2(-sin(cy), -cos(cy))
-			var r := Vector2(-f.y, f.x)
-			var pts := PackedVector2Array([c + f * 18.0, c - f * 11.0 + r * 11.0, c - f * 4.0, c - f * 11.0 - r * 11.0])
-			me.draw_colored_polygon(pts, Color.WHITE)
-			me.draw_polyline(pts + PackedVector2Array([pts[0]]), K.SHADE, 3.0)
-		var marks: Array = []
-		if not game.route_pick.is_empty():
-			marks.append([game.route_pick["pos"], Color("4aa8ff")])
-		var ht: Dictionary = game.heist.route()
-		if not ht.is_empty():
-			marks.append([ht["pos"], Color("ffb347")])
-		for m in marks:
-			var wp3: Vector3 = m[0]
-			if mc.is_position_behind(wp3):
-				continue
-			var w := mc.unproject_position(wp3)
-			me.draw_line(w, w - Vector2(0, 30), K.SHADE, 4.0)
-			me.draw_circle(w - Vector2(0, 34), 11.0, K.SHADE)
-			me.draw_circle(w - Vector2(0, 34), 8.0, m[1])
-			me.draw_circle(w, 4.0, K.SHADE))
-	map_layer.add_child(me)
-	map_layer.gui_input.connect(func(e: InputEvent):
-		var touches: Dictionary = mst["touches"]
-		if e is InputEventMouseButton and e.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN] and e.pressed:
-			mst["zoom"] = clampf(float(mst["zoom"]) + (-0.06 if e.button_index == MOUSE_BUTTON_WHEEL_UP else 0.06), 0.0, 1.0)
-			place_cam.call()
-			me.queue_redraw()
-			return
-		var idx := -1
-		var pressed := false
-		var is_press := false
-		if e is InputEventScreenTouch:
-			idx = e.index
-			pressed = e.pressed
-			is_press = true
-		elif e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and not DisplayServer.is_touchscreen_available():
-			idx = 100
-			pressed = e.pressed
-			is_press = true
-		if is_press:
-			if pressed:
-				touches[idx] = e.position
-				if touches.size() == 1:
-					mst["moved"] = 0.0
-			else:
-				if touches.size() == 1 and float(mst["moved"]) < 14.0 and touches.has(idx):
-					var wp: Vector3 = ground_at.call(e.position)
-					game.set_route_pick(wp, "Waypoint")
-					game.ui_tap()
-					me.queue_redraw()
-				touches.erase(idx)
-			return
-		var di := -1
-		if e is InputEventScreenDrag:
-			di = e.index
-		elif e is InputEventMouseMotion and touches.has(100):
-			di = 100
-		if di < 0 or not touches.has(di):
-			return
-		var old: Vector2 = touches[di]
-		if touches.size() >= 2:
-			var other := Vector2.ZERO
-			for k in touches:
-				if k != di:
-					other = touches[k]
-			var d0 := old.distance_to(other)
-			var d1 := (e.position as Vector2).distance_to(other)
-			if d0 > 10.0:
-				mst["zoom"] = clampf(float(mst["zoom"]) * d0 / maxf(d1, 1.0), 0.0, 1.0)
-		else:
-			var dl: Vector2 = (e.position as Vector2) - old
-			mst["moved"] = float(mst["moved"]) + dl.length()
-			var k := lerpf(120.0, 900.0, float(mst["zoom"])) * 2.0 / _vs().y
-			mst["focus"] = (mst["focus"] as Vector3) + Vector3(-dl.x, 0, -dl.y) * k
-			var fv: Vector3 = mst["focus"]
-			mst["focus"] = Vector3(clampf(fv.x, -MAP_SPAN * 0.5, MAP_SPAN * 0.5), 0, clampf(fv.z, -MAP_SPAN * 0.5, MAP_SPAN * 0.5))
-		touches[di] = e.position
-		place_cam.call()
-		me.queue_redraw())
-	# the top: back, the title, the hint
-	var back := K.round_button("back", K.PAPER, K.LINE, 64)
-	back.position = Vector2(28, 22)
-	_tap(back, func(): _map_close())
-	map_layer.add_child(back)
-	var title := K.outlined(K.label("Island map", 34, Color.WHITE, 800), K.SHADE, 8)
-	title.position = Vector2(110, 30)
-	map_layer.add_child(title)
-	var hint := K.outlined(K.label("Drag to move · pinch to zoom · tap for a waypoint", 16, Color.WHITE, 650), K.SHADE, 6)
-	hint.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	hint.position = Vector2(30, -50)
-	map_layer.add_child(hint)
-	# the list, down the right
-	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", K.box(Color(0.06, 0.055, 0.09, 0.82), 24, 0, Color.TRANSPARENT, 16))
-	panel.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
-	panel.offset_left = -580
-	panel.offset_right = -20
-	panel.offset_top = 20
-	panel.offset_bottom = -20
-	map_layer.add_child(panel)
-	var right := VBoxContainer.new()
-	right.add_theme_constant_override("separation", 8)
-	panel.add_child(right)
-	var found: int = game.save.data["places"].size()
-	right.add_child(K.label("Places found %d/%d · Hidden cash %d/%d" % [found, island.places.size(), game.save.data["coins_taken"].size(), island.coin_spots.size()], 18, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
-	var sc := ScrollContainer.new()
-	sc.custom_minimum_size = Vector2(528, _vs().y - 210.0)
-	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	right.add_child(sc)
-	_drag_scroll(sc)
-	var list := VBoxContainer.new()
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	list.add_theme_constant_override("separation", 8)
-	sc.add_child(list)
-	if not game.route_pick.is_empty():
-		var clr := K.button("Clear route to %s" % game.route_pick["name"], K.PAPER, K.LINE, 20, 0, 50)
-		_tap(clr, func():
-			game.set_route_pick(Vector3.ZERO, "")
-			_map_close()
-			open_map())
-		list.add_child(clr)
-	for z in island.zones:
-		var best := int(game.save.data["zones"].get(z["id"], 0))
-		list.add_child(_chal_row(z["name"], "Drift zone · best %s" % K.fmt(best) if best > 0 else "Drift zone", int(game.save.data["medals"].get(z["id"], 0)), Color("ff8a5c"),
-			game._road_spot(z["start"], 0.0), z["start"]))
-	for t in island.trials:
-		var best2: float = float(game.save.data["trials"].get(t["id"], 0.0))
-		var info := "Time trial" if t["kind"] == "time" else "Drift run"
-		if best2 > 0.0:
-			info += (" · best %.2f s" % best2) if t["kind"] == "time" else (" · best %s" % K.fmt(int(best2)))
-		var g0: Transform3D = t["gates"][0]
-		list.add_child(_chal_row(t["name"], info, int(game.save.data["medals"].get(t["id"], 0)), Color("5cc8ff") if t["kind"] == "time" else Color("c38bff"),
-			Transform3D(g0.basis, g0.origin + Vector3(0, 1.0, 0)).translated_local(Vector3(0, 0, 16)), g0.origin))
-	for rc in island.races:
-		var dk: String = game.race_key(String(rc["id"]), game.race_diff())
-		var rbest: float = float(game.save.data["races"].get(dk, 0.0))
-		var rinfo := "%s · %d laps · %s" % ["Circuit race" if rc.get("track", false) else "Street race", int(rc["laps"]),
-			String(game.Race.DIFF[game.race_diff()]["name"])]
-		if rbest > 0.0:
-			rinfo += " · best %d:%05.2f" % [int(rbest) / 60, fmod(rbest, 60.0)]
-		var rid: String = rc["id"]
-		list.add_child(_chal_row(rc["name"], rinfo, int(game.save.data["medals"].get("race_" + dk, 0)), Color("ff5c7a"),
-			Transform3D(Basis(), (rc["pos"] as Vector3) + Vector3(0, 1.0, 0)), rc["pos"], func(): game.start_challenge_now("race", rid)))
-	for st in island.stations:
-		var sp: Vector3 = st["pos"]
-		var d := int(round(sp.distance_to(game.car.global_position) / 10.0) * 10.0)
-		list.add_child(_chal_row("%s gas station" % st["name"], "Fuel and repairs · %d m away" % d, -1, Color("4fb3a5"),
-			game._road_spot(sp, 0.0), sp))
 
 ## The camera back where it was, the map gone (a Route or Go from its list closes it this way too).
 func _map_restore() -> void:

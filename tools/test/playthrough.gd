@@ -99,6 +99,10 @@ func _run() -> void:
 		"places":
 			for pl in game.island.places:
 				print("PLACE %s %s r%.0f" % [pl["name"], pl["pos"], float(pl.get("r", 0))])
+		"bank":
+			await _bank()
+		"mapper":
+			await _mapper()
 		"ram":
 			await _ram()
 		"ram2":
@@ -775,7 +779,7 @@ func _tutor() -> void:
 	await wait(4.5)
 	await snap("tut_car")
 	check(game.tutorial.active and game.tutorial.step_id() == "car", "coach on: get in the car (%s)" % _coach_title())
-	check(not game.route.is_empty(), "the GPS points at Jay's car")
+	check(game.route.is_empty(), "no GPS set unless you ask for it")
 	check(game.ui.goal_lbl == null or not game.ui.goal_lbl.visible, "no goal line under the coach")
 	game.foot.global_position = game.car.global_position + game.car.global_transform.basis.x * 2.2
 	await wait(0.5)
@@ -809,7 +813,13 @@ func _tutor() -> void:
 		game.police.clear()
 		await wait(1.0)
 	await snap("tut_go_race")
-	check(game.tutorial.step_id() == "go_race" and game.route.get("kind", "") == "tut", "coach: off to the first race, GPS on it")
+	check(game.tutorial.step_id() == "go_race" and game.route.is_empty(), "coach: off to the first race, nothing routed yet")
+	await wait(0.6)
+	check(game.ui.coach_ui.dest_btn.visible, "coach: a Set as destination button")
+	game.ui.coach_ui.dest_btn.pressed.emit()
+	await wait(2.0)
+	check(String(game.route.get("name", "")) == "First race", "tapped it: GPS on the first race (%s)" % game.route.get("name", ""))
+	await snap("tut_dest")
 	# (driving there takes a while: put the car at the beacon)
 	var m: Dictionary = game.tutorial._race_marker()
 	game.car.place(game.on_ground(Transform3D(Basis(), (m["pos"] as Vector3) + Vector3(0, 0.5, 0))))
@@ -1378,3 +1388,156 @@ func _notices() -> void:
 	game.resume()
 	await wait(1.0)
 	check(not ui._ncur.is_empty(), "back in: it comes up")
+
+
+## Banking: what you earn is cash on you; an ATM banks it; die and it's dropped (one chance to get it back).
+func _bank() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.5)
+	var b = game.bank
+	var s: Dictionary = game.save.data
+	note("%d banks, %d ATMs" % [b.banks.size(), b.atms.size()])
+	for bk in b.banks:
+		note("BANK %s door %s" % [bk["name"], bk["door"]])
+	for a in b.atms:
+		note("ATM %s at %s" % [a["name"], (a["pos"] as Vector3).snapped(Vector3.ONE)])
+	check(b.banks.size() == 3, "three banks")
+	check(b.atms.size() >= 10 and b.atms.size() <= 12, "ATMs round town (%d)" % b.atms.size())
+	# nobody walks into a wall: a step at the bank's front wall stops short of it
+	var door: Vector3 = b.banks[0]["door"]
+	var mv: Vector3 = game.island.people.wall_move(door, door + Vector3(0, 0, 5.0))
+	check(mv.z < 77.0 and mv.z > door.z - 0.01, "a step into the bank's wall stops at it (z %.2f)" % mv.z)
+	var mv2: Vector3 = game.island.people.wall_move(door, door + Vector3(3.0, 0, 3.0))
+	check(mv2.x > door.x + 1.0 and mv2.z < 77.0, "and slides along it (%.1f, %.2f)" % [mv2.x, mv2.z])
+	var c0: int = b.cash()
+	s["coins"] = int(s["coins"]) + 3000
+	await wait(0.5)
+	check(b.cash() == c0 + 3000, "earned 3000: it's cash on you (%d)" % b.cash())
+	s["coins"] = int(s["coins"]) - 500
+	await wait(0.5)
+	check(b.cash() == c0 + 2500, "spent 500: off the cash first (%d)" % b.cash())
+	# walk up to an ATM
+	game.toggle_foot()
+	await wait(1.0)
+	var a0: Dictionary = b.atms[b.atms.size() - 1]
+	var fr: Vector3 = a0["front"]
+	game.foot.place((a0["pos"] as Vector3) + fr * 1.2 + Vector3(0, 0.3, 0), atan2(-fr.x, -fr.z))
+	await wait(1.0)
+	check(not b.near.is_empty(), "at the ATM: in range")
+	check(game.ui.atm_btn.visible, "the BANK button's up (%s)" % game.ui.atm_btn.get_meta("t", ""))
+	await snap("atm")
+	b.deposit()
+	await wait(0.5)
+	check(b.cash() == 0 and b.banked() == int(s["coins"]), "banked it all (bank %d)" % b.banked())
+	var bank0: int = b.banked()
+	# earn some, then die with it
+	s["coins"] = int(s["coins"]) + 2000
+	await wait(0.5)
+	game.foot.place((a0["pos"] as Vector3) + fr * 8.0 + Vector3(0, 0.3, 0), 0.0)
+	await wait(0.5)
+	game.wasted()
+	await wait(4.0)
+	check(not b.drop.is_empty() and int(b.drop["amount"]) == 2000, "died: 2000 dropped (%s)" % str(b.drop.get("amount", 0)))
+	check(b.cash() < 200, "nothing much on you now (%d)" % b.cash())
+	check(b.banked() < bank0 and b.banked() > 0, "hospital bill from the bank (%d -> %d)" % [bank0, b.banked()])
+	check(game.you().global_position.distance_to(b.drop["pos"]) > 20.0, "came round away from it (%.0f m)" % game.you().global_position.distance_to(b.drop["pos"]))
+	await snap("drop")
+	# get it back
+	if not game.on_foot:
+		game.toggle_foot()
+		await wait(1.0)
+	game.foot.place((b.drop["pos"] as Vector3) + Vector3(0, 0.3, 0), 0.0)
+	await wait(1.0)
+	check(b.drop.is_empty() and b.cash() >= 2000, "picked it back up (cash %d)" % b.cash())
+	# die twice: gone
+	game.wasted()
+	await wait(4.0)
+	check(int(b.drop.get("amount", 0)) >= 2000, "dropped again")
+	var tot: int = int(s["coins"])
+	game.wasted()
+	await wait(4.0)
+	check(b.drop.is_empty(), "died again before getting it: gone for good")
+	check(int(s["coins"]) <= tot, "and not back in the total")
+	check(not s.has("drop"), "and off the save")
+
+
+## The map: every kind on it, a tap on a marker opens its card, Set as destination routes there (nothing before).
+func _mapper() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(2.0)
+	game.save.data["fights_intro"] = true
+	check(game.route.is_empty() and game.route_pick.is_empty(), "nothing routed on its own")
+	game.fuel = 5.0
+	await wait(2.0)
+	check(game.route.is_empty(), "low on fuel: still no auto-route")
+	game.fuel = 80.0
+	game.ui.open_map()
+	await wait(1.0)
+	var mv = game.ui.map_layer
+	var kinds := {}
+	for p in mv.pts:
+		kinds[p["kind"]] = int(kinds.get(p["kind"], 0)) + 1
+	note("map kinds %s" % str(kinds))
+	for k in ["race", "fight", "heist", "zone", "trial", "bank", "atm", "shop", "home", "gas"]:
+		check(kinds.has(k), "on the map: %s" % k)
+	check(mv.legend.get_child_count() >= 10, "legend rows (%d)" % mv.legend.get_child_count())
+	await snap("map")
+	# tap a bank
+	var bk: Dictionary = {}
+	for p in mv.pts:
+		if p["kind"] == "bank":
+			bk = p
+	mv._select(bk, true)
+	await wait(0.5)
+	mv.tap_at(mv._scr(bk["pos"]))
+	await wait(0.6)
+	check(mv.card != null and mv.sel.get("id") == bk["id"], "tapped the bank: its card")
+	await snap("map_card")
+	var db: Button = mv.card.find_child("Dest", true, false)
+	db.pressed.emit()
+	await wait(0.4)
+	check(String(game.route_pick.get("name", "")) == String(bk["name"]), "Set as destination: routed (%s)" % game.route_pick.get("name", ""))
+	# hide ATMs
+	var before: int = mv.list.get_child_count()
+	mv.off_kinds["atm"] = true
+	mv._list_refresh()
+	await wait(0.2)
+	check(mv.list.get_child_count() <= before, "legend filter: ATMs hidden")
+	mv.zoom = 0.1
+	mv._place_cam()
+	await wait(0.4)
+	await snap("map_zoom")
+	game.ui._map_close()
+	await wait(2.0)
+	check(String(game.route.get("name", "")) == String(bk["name"]), "back in: the GPS goes to the bank")
+	# the phone's Things to do
+	game.ui.toggle_phone()
+	await wait(0.6)
+	game.ui.phone.todo_btn.pressed.emit()
+	await wait(1.2)
+	check(game.ui.overlay.visible, "Things to do: open")
+	await snap("todo_start")
+	for t in ["race", "fight", "heist", "money", "drift", "cars"]:
+		var tb: Button = game.ui.overlay.find_child("Tab_" + t, true, false)
+		check(tb != null, "tab %s" % t)
+		if tb:
+			tb.pressed.emit()
+			await wait(0.5)
+	var owns := false
+	for l in game.ui.overlay.find_children("*", "Label", true, false):
+		if (l as Label).text.begins_with("You own"):
+			owns = true
+	check(owns, "the Cars & property tab shows (you own x of y)")
+	await snap("todo_cars")
+	var mt: Button = game.ui.overlay.find_child("Tab_race", true, false)
+	mt.pressed.emit()
+	await wait(0.5)
+	var dbt: Button = game.ui.overlay.find_child("Dest", true, false)
+	check(dbt != null, "a race with Set as destination")
+	dbt.pressed.emit()
+	await wait(1.5)
+	check(not game.ui.overlay.visible and game.state == game.DRIVE, "set: back driving")
+	check(String(game.route_pick.get("name", "")) != String(bk["name"]), "and the GPS on the race (%s)" % game.route_pick.get("name", ""))
+	game.save.data["map_hide"] = {}

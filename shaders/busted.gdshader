@@ -1,7 +1,7 @@
 shader_type canvas_item;
 
 // Busted: the picture drains to grey and darkens towards the edges (k: 0 off, 1 all the way).
-uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
 uniform float k = 0.0;
 
 void fragment() {

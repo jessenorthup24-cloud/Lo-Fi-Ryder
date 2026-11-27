@@ -14,6 +14,7 @@ var title: Label
 var sub: Label
 var dots: HBoxContainer
 var skip_btn: Button
+var dest_btn: Button          # Set as destination: the step's place, on the GPS (only if you want it)
 var target: Variant = null         # a Control, an Array of them, or a Callable giving one
 var _t := 0.0
 var _on := false
@@ -69,6 +70,15 @@ func _init(u: Node) -> void:
 	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	sub.custom_minimum_size = Vector2(W - 48, 0)
 	vb.add_child(sub)
+	# the guide's suggestion, yours to follow: a tap puts it on the GPS
+	dest_btn = K.button("Set as destination", ACC, Color(ACC.darkened(0.35)), 19, 0, 48, "flag")
+	dest_btn.visible = false
+	dest_btn.pressed.connect(func():
+		var r: Dictionary = ui.game.tutorial.route()
+		if not r.is_empty():
+			ui.game.ui_tap()
+			ui.game.set_route_pick(r["pos"], String(r["name"])))
+	vb.add_child(dest_btn)
 	box.visible = false
 
 func _place() -> void:
@@ -179,6 +189,18 @@ func _process(dt: float) -> void:
 			box.position.y = _home_y
 	# (out of the way while a screen's over the HUD)
 	visible = ui.hud.visible and not ui.overlay.visible and not (ui.phone_layer != null and ui.phone_layer.visible)
+	if box.visible and not (_busy and _busy.is_valid()):
+		var r: Dictionary = ui.game.tutorial.route() if ui.game.tutorial else {}
+		var want_d: bool = not r.is_empty() and String(r.get("kind", "")) == "tut" and ui.game.on_foot == false
+		var set_already: bool = want_d and not ui.game.route_pick.is_empty() and String(ui.game.route_pick["name"]) == String(r["name"])
+		if dest_btn.visible != want_d:
+			dest_btn.visible = want_d
+			_place()
+		if want_d:
+			var tx := "✓  On your GPS" if set_already else "Set as destination"
+			if K.button_text(dest_btn) != tx:
+				K.set_text(dest_btn, tx)
+			dest_btn.disabled = set_already
 	queue_redraw()
 
 func _targets() -> Array:

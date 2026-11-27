@@ -24,6 +24,7 @@ static func defaults() -> Dictionary:
 	return {
 		"version": 2,
 		"coins": 0,
+		"cash": 0,
 		"owned": ["bug"],
 		"car": "bug",
 		"up": {"engine": 0, "turbo": 0, "tyres": 0, "steering": 0, "nitrous": 0},

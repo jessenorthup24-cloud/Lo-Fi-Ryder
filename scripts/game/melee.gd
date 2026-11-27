@@ -690,8 +690,9 @@ func _foes_tick(dt: float, foot: CharacterBody3D) -> void:
 	for pr in game.island.people._live + solos:
 		if pr.has("fist_v"):
 			var v: Vector3 = pr["fist_v"]
-			var np: Vector3 = (pr["pos"] as Vector3) + v * dt
-			np.y = game.island.height_at(np.x, np.z)
+			var np: Vector3 = game.island.people.wall_move(pr["pos"], (pr["pos"] as Vector3) + v * dt)
+			if np.distance_to(pr["pos"] as Vector3 + v * dt) > 0.05:
+				v = Vector3.ZERO        # (into a wall: stopped dead)
 			pr["pos"] = np
 			v = v.move_toward(Vector3.ZERO, dt * 12.0)
 			if v.length() < 0.05:
@@ -734,14 +735,14 @@ func _foes_tick(dt: float, foot: CharacterBody3D) -> void:
 		pr["face"] = lerp_angle(float(pr["face"]), atan2(-to.x, -to.z), 1.0 - exp(-dt * 8.0))
 		# (no walking through you, or through each other)
 		if dist < 0.85 and dist > 0.01:
-			pr["pos"] = (pr["pos"] as Vector3) - to.normalized() * (0.85 - dist)
+			pr["pos"] = game.island.people.wall_move(pr["pos"], (pr["pos"] as Vector3) - to.normalized() * (0.85 - dist))
 		for g in foes:
 			if g != f:
 				var gp2: Vector3 = (g["pr"] as Dictionary)["pos"]
 				var sep: Vector3 = (pr["pos"] as Vector3) - gp2
 				sep.y = 0.0
 				if sep.length() < 0.9 and sep.length() > 0.01:
-					pr["pos"] = (pr["pos"] as Vector3) + sep.normalized() * (0.9 - sep.length()) * 0.5
+					pr["pos"] = game.island.people.wall_move(pr["pos"], (pr["pos"] as Vector3) + sep.normalized() * (0.9 - sep.length()) * 0.5)
 		f["block_t"] = maxf(0.0, float(f["block_t"]) - dt)
 		# slipping a punch: a quick step back and aside
 		if float(f["slip_t"]) > 0.0:
@@ -814,9 +815,7 @@ func _foes_tick(dt: float, foot: CharacterBody3D) -> void:
 			_flee_and_call(pr)
 
 func _move(pr: Dictionary, v: Vector3, dt: float) -> void:
-	var np: Vector3 = (pr["pos"] as Vector3) + v * dt
-	np.y = game.island.height_at(np.x, np.z)
-	pr["pos"] = np
+	pr["pos"] = game.island.people.wall_move(pr["pos"], (pr["pos"] as Vector3) + v * dt)
 
 func _foe_start(f: Dictionary, av: Avatar) -> void:
 	var prof: Dictionary = f["prof"]

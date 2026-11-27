@@ -32,6 +32,10 @@ const SHOP_PLOTS := {
 	"customs": {"block": Vector2i(4, 1), "c": Vector2(10, 36.0), "yaw": 0.0},
 	"armory": {"block": Vector2i(1, 2), "c": Vector2(-170, 82.0), "yaw": PI},
 	"threads": {"block": Vector2i(3, 2), "c": Vector2(-50, 80.5), "yaw": PI},
+	# the three banks (bank.gd puts them up)
+	"bank_main": {"block": Vector2i(2, 2), "c": Vector2(-110, 84.0), "yaw": PI},
+	"bank_west": {"block": Vector2i(0, 1), "c": Vector2(-230, 36.0), "yaw": 0.0},
+	"bank_east": {"block": Vector2i(5, 1), "c": Vector2(70, 36.0), "yaw": 0.0},
 }
 const CITY_X := [-260.0, -200.0, -140.0, -80.0, -20.0, 40.0, 100.0]
 const CITY_Z := [-60.0, 0.0, 60.0, 120.0, 180.0]
