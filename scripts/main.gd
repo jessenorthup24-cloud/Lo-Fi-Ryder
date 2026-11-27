@@ -35,6 +35,7 @@ const Shops := preload("res://scripts/game/shops.gd")
 const Bank := preload("res://scripts/game/bank.gd")
 const StreetProps := preload("res://scripts/game/street_props.gd")
 const Gore := preload("res://scripts/game/gore.gd")
+const CarHits := preload("res://scripts/game/car_hits.gd")
 const Allies := preload("res://scripts/game/allies.gd")
 const Story := preload("res://scripts/game/story.gd")
 const Tutorial := preload("res://scripts/game/tutorial.gd")
@@ -173,6 +174,7 @@ var fights: Fights           # street fights for money: Mo's campaign of eight
 var heist: Heist             # the safes, the heists, dropped cash
 var property: Node3D        # the mansion and the garage you build up (property.gd)
 var shops: Node3D           # Lo-Fi Customs, the Armory, Lo-Fi Threads (shops.gd)
+var car_hits: CarHits        # anyone's car against people, officers and you (car_hits.gd)
 var gore: Gore               # where a shot hits a person, limbs off, crawlers (gore.gd)
 var street_props: Node3D     # dumpsters, rubbish, papers, benches (street_props.gd)
 var bank: Bank              # cash on you vs banked: ATMs, the three banks, the bag you drop when you die
@@ -367,6 +369,10 @@ func _build_world() -> void:
 	gore.name = "Gore"
 	add_child(gore)
 	gore.setup(self)
+	car_hits = CarHits.new()
+	car_hits.name = "CarHits"
+	add_child(car_hits)
+	car_hits.setup(self)
 	street_props = StreetProps.new()
 	street_props.name = "StreetProps"
 	add_child(street_props)
@@ -990,6 +996,8 @@ func _process(dt: float) -> void:
 		var half := Vector3(float(car.info["width"]) * 0.5, float(car.info["height"]) * 0.5, float(car.info["length"]) * 0.5)
 		for pr in island.people.hits(car.global_transform, half, (float(car.info["front"]) + float(car.info["back"])) * 0.5, car.linear_velocity):
 			_ped_hit(pr)
+	if state == DRIVE and car_hits:
+		car_hits.tick(dt)
 	ragdolls.tick(dt, cp)
 	traffic.parked.clear()
 	if on_foot:
@@ -2061,13 +2069,19 @@ func _on_bump(strength: float) -> void:
 ## You hit someone: they go down as a ragdoll with a thump and a spray of blood (some on your bumper), the
 ## people round about run off, and the police may well hear of it.
 func _ped_hit(pr: Dictionary) -> void:
-	var info: Dictionary = island.people.knock_down(pr)
-	if info.is_empty():
-		return
 	var v := car.linear_velocity
 	var s := Vector3(v.x, 0, v.z).length()
-	var xf: Transform3D = info["xf"]
-	ragdolls.spawn(int(info["v"]), xf, info["shoulders"], v, car)
+	var xf: Transform3D
+	if pr.has("live") and is_instance_valid(pr["live"]):
+		# up close, a full character: its own ragdoll (and, not too fast, up again, dazed)
+		xf = Transform3D(Basis(), pr["pos"])
+		car_hits.hit_person(pr, v, car)
+	else:
+		var info: Dictionary = island.people.knock_down(pr)
+		if info.is_empty():
+			return
+		xf = info["xf"]
+		ragdolls.spawn(int(info["v"]), xf, info["shoulders"], v, car)
 	var at := xf.origin + Vector3(0, 0.8, 0)
 	var dir := Vector3(v.x, 0, v.z).normalized()
 	fx.blood(at, dir, int(clampf(10.0 + s * 0.8, 10.0, 34.0)), clampf(3.0 + s * 0.18, 3.0, 9.0))

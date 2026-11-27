@@ -826,6 +826,17 @@ func _officers_tick(dt: float, you: CharacterBody3D) -> void:
 			officers.erase(o)
 			n.queue_free()
 			continue
+		if float(o.get("down_t", 0.0)) > 0.0:
+			# knocked flat by a car: the body where it lies, then back up (where it ended up)
+			o["down_t"] = float(o["down_t"]) - dt
+			var tp: Vector3 = av.limp.torso_pos() if av.limp else n.global_position
+			if float(o["down_t"]) <= 0.0:
+				av.recover()
+				n.global_position = Vector3(tp.x, game.island.height_at(tp.x, tp.z) + 0.05, tp.z)
+				n.velocity = Vector3.ZERO
+				av.play_once("get_up", 0.0, 1.1, 1.2)
+				o["cool"] = maxf(float(o["cool"]), 1.4)
+			continue
 		var to := yp - n.global_position
 		to.y = 0.0
 		var d := to.length()

@@ -113,6 +113,8 @@ func _run() -> void:
 			await _blood()
 		"gore":
 			await _gore()
+		"carhit":
+			await _carhit()
 		"mapper":
 			await _mapper()
 		"ram":
@@ -1814,7 +1816,7 @@ func _gore() -> void:
 		if int(gs.stats["severed"]) > s0 or pr3.get("down", false):
 			break
 		pr3["hp"] = 100.0
-		await _shoot_bone(pr3, "RightForeArm", 70.0)
+		await _shoot_bone(pr3, "RightArm", 70.0)
 		await wait(0.2)
 	check(int(gs.stats["severed"]) > s0, "an arm off")
 	_look(pr3["pos"])
@@ -1828,3 +1830,41 @@ func _look(p: Vector3) -> void:
 	game.foot_yaw = atan2(-to.x, -to.z)
 	game.look_yaw = 0.0
 	game.look_yaw_t = 0.0
+
+
+## Cars against people: a slow knock (down, then up dazed and limping off), a hard one (dead), and you.
+func _carhit() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.5)
+	game.toggle_foot()
+	await wait(0.5)
+	var foot: Node3D = game.foot
+	var ch = game.car_hits
+	var pr := _gore_target(foot)
+	foot.place((pr["pos"] as Vector3) + Vector3(4.0, 0.3, 0.0), PI * 0.5)
+	await wait(1.5)
+	check(pr.has("live"), "someone up close")
+	ch.hit_person(pr, Vector3(4.5, 0, 0), game.traffic.cars[0]["body"])
+	await wait(0.2)
+	check(pr.get("down", false) and ch.dazed.size() == 1, "a slow knock: down (dazed %d)" % ch.dazed.size())
+	_look(pr["pos"])
+	await wait(0.6)
+	await snap("knocked")
+	await wait(5.0)
+	check(ch.dazed.size() == 1 and String(ch.dazed[0]["state"]) == "up", "up again, limping off")
+	await snap("dazed")
+	var pr2 := _gore_target(foot)
+	foot.place((pr2["pos"] as Vector3) + Vector3(4.0, 0.3, 0.0), PI * 0.5)
+	await wait(1.5)
+	var k0: int = ch.stats["killed"]
+	ch.hit_person(pr2, Vector3(18.0, 0, 0), game.traffic.cars[0]["body"])
+	await wait(0.3)
+	check(int(ch.stats["killed"]) == k0 + 1, "hit hard: killed")
+	var hp0: float = game.gunplay.hp
+	ch._hit_you(Vector3(6.0, 0, 0), game.traffic.cars[0]["body"])
+	await wait(0.3)
+	check(foot.down_t > 0.0 and game.gunplay.hp < hp0, "you, hit: knocked flat, hurt (hp %.0f)" % game.gunplay.hp)
+	await snap("you_down")
+	await wait(4.0)
+	check(foot.down_t <= 0.0 and not game.gunplay.dying, "and back up")
