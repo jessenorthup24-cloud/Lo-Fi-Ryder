@@ -956,16 +956,25 @@ func _brawler() -> void:
 	await wait(2.2)
 	await snap("got_hit")
 	check(game.gunplay.hp < hp0, "took a punch when not guarding (hp %.0f -> %.0f)" % [hp0, game.gunplay.hp])
-	# dodge: held
-	f["cool"] = 0.0
-	f["stun"] = 0.0
-	var pos0: Vector3 = game.foot.global_position
+	# held: the guard stays up (no dodge), and it costs stamina; spent, there's no guard
+	f["cool"] = 9.0
+	var st0: float = float(game.foot.sta["v"])
 	game.held["block"] = true
-	await wait(0.35)
-	await snap("dodge")
+	await wait(1.0)
+	check(game.melee.block_t > 0.0 and float(game.foot.sta["v"]) < st0 - 2.0, "holding BLOCK: guard up, stamina going (%.0f -> %.0f)" % [st0, float(game.foot.sta["v"])])
+	await snap("guard")
 	game.held["block"] = false
+	game.foot.sta["v"] = 0.0
+	game.foot.sta["spent"] = true
+	await wait(0.3)
+	game.held["block"] = true
 	await wait(0.4)
-	check(game.foot.global_position.distance_to(pos0) > 0.5, "dodged a step aside (%.1f m)" % game.foot.global_position.distance_to(pos0))
+	check(game.melee.block_t <= 0.0, "spent: no guard")
+	game.held["block"] = false
+	var hp_s: float = game.gunplay.hp
+	await wait(4.0)
+	check(not game.foot.sta["spent"], "stood still: breath back (%.0f)" % float(game.foot.sta["v"]))
+	f["cool"] = 0.0
 	# the combo till they're down
 	game.gunplay.hp = game.gunplay.MAX_HP
 	var downed := false

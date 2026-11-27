@@ -4,6 +4,7 @@ extends CharacterBody3D
 ## the turning to face where you're going, and the animation (idle, walk, sprint, jump, fall).
 
 const Avatar := preload("res://scripts/game/avatar.gd")
+const Sta := preload("res://scripts/game/stamina.gd")
 const LAYER := 128             # what you are, for collisions
 const WALK := 2.6              # m/s at a light push of the stick
 const RUN := 4.6               # full stick
@@ -25,6 +26,8 @@ var jump_req := false
 var facing := 0.0              # where the character points (yaw)
 var island: Node
 var _air := 0.0
+var sta := Sta.make()         # your stamina: running, punches, blocks use it (stamina.gd)
+var hurt := false              # (gunplay: under 40% health: you limp)
 var aiming := 0.0              # firing: you face the target (gunplay sets facing), not where you walk
 
 func setup(isl: Node, id: String, acc: String, mat: Material) -> void:
@@ -79,6 +82,17 @@ func _physics_process(dt: float) -> void:
 			spd = lerpf(0.9, CROUCH, clampf((m.length() - 0.3) / 0.7, 0.0, 1.0))
 		else:
 			spd = SPRINT if sprint else lerpf(WALK, RUN, clampf((m.length() - 0.5) / 0.5, 0.0, 1.0))
+			# hurt: a limp (a hobbling run at best); spent: worn out, slow
+			if hurt:
+				spd = minf(spd, 2.4 if (sprint or m.length() > 0.8) else 1.1)
+			spd *= Sta.k(sta)
+	# stamina: a sprint burns it; easing off, it comes back (quickest stood still)
+	var hv0 := Vector2(velocity.x, velocity.z).length()
+	if sprint and hv0 > 4.0 and not crouch:
+		Sta.use(sta, 9.0 * dt)
+	else:
+		Sta.tick(sta, dt, 1.0 if hv0 < 0.5 else 0.55)
+	avatar.hurt = hurt
 	var want := dir.normalized() * spd if spd > 0.0 else Vector3.ZERO
 	if slide_t > 0.0:
 		slide_t -= dt

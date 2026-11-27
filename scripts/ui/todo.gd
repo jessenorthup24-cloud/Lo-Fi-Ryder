@@ -79,7 +79,7 @@ static func _fill(ui: Node, body: VBoxContainer, id: String) -> void:
 			_rows(ui, body, pts, ["race"])
 		"fight":
 			_para(body, "Mo runs street fights from level 2: eight fighters, each tougher than the last. Walk up to one, hear their story, and bet a quarter, half or all of their purse. Win: your bet back times their odds, plus the purse the first time you beat them. Lose and the bet's gone.")
-			_para(body, "FIRE throws punches (time the next press as one lands for a combo). Tap BLOCK to block, hold it to dodge. Walk away, pull a gun or bring the police and you forfeit.")
+			_para(body, "FIRE throws punches (time the next press as one lands for a combo). Hold BLOCK to keep your guard up. Everything costs stamina: running, swinging, and most of all taking hits on your guard. Run out and you're slow and weak, and a blow breaks your guard, till you back off and get your breath back. Walk away, pull a gun or bring the police and you forfeit.")
 			if not bool(s.get("fights_intro", false)):
 				_para(body, "Mo hasn't been in touch yet: reach level 2.", true)
 			_rows(ui, body, pts, ["fight"])

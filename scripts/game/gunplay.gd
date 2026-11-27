@@ -6,6 +6,7 @@ extends Node3D
 ## blood, sparks, bullet holes; people and officers fall as ragdolls. Cars take damage, smoke, catch fire and
 ## blow up. Reloads lower the gun and swap the magazine. Officers get out and fight when you're wanted on foot.
 
+const Sta := preload("res://scripts/game/stamina.gd")
 const Weapons := preload("res://scripts/game/weapons.gd")
 const Avatar := preload("res://scripts/game/avatar.gd")
 const MAX_HP := 100.0
@@ -150,6 +151,7 @@ func tick(dt: float, fire_tap: bool, fire_held: bool, aim_on: bool, reload: bool
 		return
 	manual_t = maxf(0.0, manual_t - dt)
 	shot_t = maxf(0.0, shot_t - dt)
+	you.hurt = hp < MAX_HP * 0.4          # (badly hurt: you limp)
 	if holstered:
 		# empty hands: FIRE throws punches (melee.gd). A gun only comes out off the weapon wheel
 		aiming = false
@@ -781,11 +783,17 @@ func _officers_tick(dt: float, you: CharacterBody3D) -> void:
 			n.move_and_slide()
 			o["cool"] = maxf(float(o["cool"]), 0.3)
 			continue
+		if not o.has("sta"):
+			o["sta"] = Sta.make()
 		if d > 11.0:
-			want = to.normalized() * 4.6
-			av.play("sprint", 1.0)
+			# running after you: it wears them out (then a jog); shot up, a hobble
+			Sta.use(o["sta"], 8.0 * dt)
+			var ok: float = Sta.k(o["sta"]) * (0.55 if float(o["hp"]) < OFFICER_HP * Sta.HURT_AT else 1.0)
+			want = to.normalized() * 4.6 * ok
+			av.play("sprint" if ok > 0.9 else "walk", 1.0 if ok > 0.9 else 1.25)
 			av.aim_at(Vector3.INF, true, dt)
 		else:
+			Sta.tick(o["sta"], dt, 1.0)
 			av.play("holding-both", 1.0)
 			av.aim_at(yp + Vector3(0, 1.0, 0), true, dt)
 		n.velocity.x = lerpf(n.velocity.x, want.x, 1.0 - exp(-dt * 8.0))

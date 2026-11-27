@@ -3,6 +3,7 @@ extends Node3D
 ## you, wave as you pass, cheer at stunts nearby, and hop out of the way so you can never hit them. When
 ## the ground crumbles under them they pop away in a puff (they're fine).
 
+const Sta := preload("res://scripts/game/stamina.gd")
 const M := preload("res://scripts/core/models.gd")
 const Pool := preload("res://scripts/game/pool.gd")
 const POSES := ["stand", "sit"]
@@ -80,7 +81,17 @@ func spawn_walker(v: int, path: PackedVector3Array, speed: float) -> Dictionary:
 func _walk(pr: Dictionary, dt: float) -> void:
 	var cum: PackedFloat32Array = pr["cum"]
 	var total: float = cum[cum.size() - 1]
-	var run := 3.2 if float(pr.get("flee", 0.0)) > 0.0 else 1.0
+	# running off: till they're out of breath (then a jog); badly hurt: a limp, half the pace
+	var run := 1.0
+	if float(pr.get("flee", 0.0)) > 0.0:
+		if not pr.has("sta"):
+			pr["sta"] = Sta.make()
+		Sta.use(pr["sta"], 11.0 * dt)
+		run = 3.2 * Sta.k(pr["sta"])
+	elif pr.has("sta"):
+		Sta.tick(pr["sta"], dt, 0.6)
+	if pr.get("hurt", false):
+		run *= 0.55
 	var d: float = pr["d"] + float(pr["wdir"]) * float(pr["speed"]) * run * dt
 	if d > total or d < 0.0:
 		pr["wdir"] = -float(pr["wdir"])
@@ -239,6 +250,7 @@ func _place_live(pr: Dictionary, base: Vector3, _t: float) -> void:
 		av.global_position = base
 		av.rotation.y = float(pr["face"]) + PI
 		return
+	av.hurt = pr.get("hurt", false)          # (beaten up: they limp)
 	var sitting: bool = pr["pose"] == "sit"
 	# (a sitter's origin is the seat; the character's is its feet)
 	av.global_position = base - Vector3(0, (SIT_LIFT + _seat()) if sitting else 0.0, 0)
@@ -343,6 +355,10 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 			pr["flee"] = float(pr["flee"]) - dt
 			if not walking and pr["pose"] == "stand":
 				var fv: Vector3 = pr["flee_v"]
+				if not pr.has("sta"):
+					pr["sta"] = Sta.make()
+				Sta.use(pr["sta"], 11.0 * dt)
+				fv *= Sta.k(pr["sta"]) * (0.55 if pr.get("hurt", false) else 1.0)
 				pr["pos"] = wall_move(pr["pos"], (pr["pos"] as Vector3) + fv * dt * clampf(float(pr["flee"]), 0.0, 1.0), false)
 				pr["face"] = lerp_angle(pr["face"], atan2(-fv.x, -fv.z), 1.0 - exp(-dt * 8.0))
 		if float(pr.get("dodge_t", 0.0)) > 0.0:

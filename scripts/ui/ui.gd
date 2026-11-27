@@ -38,6 +38,7 @@ var speedo: Control
 var foot_mode := false
 var hp_bar: ProgressBar      # (unused now: health is hp_g, top right)
 var hp_g: Control
+var sta_g: Control
 var phone_layer: Control
 var radar_on := false        # the phone's safe radar: a pulse on the HUD pointing roughly at the nearest safe
 var radar: Control
@@ -437,6 +438,8 @@ func _build_hud() -> void:
 	fuel_g = _gauge("fuel", bars)
 	cond_g = _gauge("wrench", bars)
 	hp_g = _gauge("heart", bars)
+	sta_g = _gauge("wind", bars)        # (your stamina: on foot)
+	sta_g.visible = false
 	mini_wrap = Panel.new()
 	mini_wrap.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	mini_wrap.size = Vector2(196, 196)
@@ -867,7 +870,7 @@ func _draw_foot_pad(c: Control, name: String) -> void:
 				c.draw_line(p0, p1, w, 9.0, true)
 				c.draw_circle(p1 + Vector2(0, -4), 7.5, w)
 			_pad_text(c, "BLOCK", cc + Vector2(0, 46), 13, Color(1, 1, 1, 0.8))
-			_pad_text(c, "hold: dodge", cc + Vector2(0, 62), 10, Color(1, 1, 1, 0.5))
+			_pad_text(c, "hold", cc + Vector2(0, 62), 10, Color(1, 1, 1, 0.5))
 		"swap":
 			# the gun you've out (or a hand), its rounds under it; ticks round the rim: there's a wheel
 			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
@@ -1630,6 +1633,11 @@ func _melee_mark_tick() -> void:
 			if hpk >= 0.0:
 				melee_mark.draw_rect(Rect2(4, 0, 52, 7), Color(0.05, 0.04, 0.07, 0.75))
 				melee_mark.draw_rect(Rect2(5, 1, 50.0 * hpk, 5), Color("ff4f6b").lerp(Color("ffd34d"), clampf(hpk * 1.3 - 0.3, 0.0, 1.0)))
+				# their stamina under it (orange: spent, your opening)
+				var sk: float = melee_mark.get_meta("sta", -1.0)
+				if sk >= 0.0:
+					melee_mark.draw_rect(Rect2(4, 7, 52, 5), Color(0.05, 0.04, 0.07, 0.75))
+					melee_mark.draw_rect(Rect2(5, 8, 50.0 * sk, 3), Color("ff8c42") if melee_mark.get_meta("spent", false) else Color("7fd6ff"))
 			var pts := PackedVector2Array([Vector2(18, 12), Vector2(42, 12), Vector2(30, 30)])
 			melee_mark.draw_colored_polygon(pts, Color("ff4f6b"))
 			melee_mark.draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[0]]), Color(0.1, 0.05, 0.08, 0.8), 2.0, true))
@@ -1644,6 +1652,12 @@ func _melee_mark_tick() -> void:
 	melee_mark.position = sp - Vector2(30, 32) + Vector2(0, sin(Time.get_ticks_msec() * 0.006) * 3.0)
 	var hpk: float = game.melee.focus_hp()
 	var nm: String = game.melee.focus_name()
+	var stk: float = game.melee.focus_sta()
+	var spk: bool = game.melee.focus_spent()
+	if absf(float(melee_mark.get_meta("sta", -2.0)) - stk) > 0.01 or bool(melee_mark.get_meta("spent", false)) != spk:
+		melee_mark.set_meta("sta", stk)
+		melee_mark.set_meta("spent", spk)
+		melee_mark.queue_redraw()
 	if absf(float(melee_mark.get_meta("hp", -2.0)) - hpk) > 0.005 or String(melee_mark.get_meta("name", "")) != nm:
 		melee_mark.set_meta("hp", hpk)
 		melee_mark.set_meta("name", nm)
@@ -1715,6 +1729,13 @@ func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> 
 	ctl["stick"].queue_redraw()
 	var gp = game.gunplay
 	_gauge_set(hp_g, gp.hp / gp.MAX_HP)
+	sta_g.visible = true
+	cond_g.visible = false          # (on foot: your stamina where the car's condition was)
+	var spent: bool = game.foot.sta["spent"]
+	if bool(sta_g.get_meta("spent", false)) != spent:
+		sta_g.set_meta("spent", spent)
+		(sta_g.get_meta("bar") as Control).queue_redraw()
+	_gauge_set(sta_g, float(game.foot.sta["v"]) / 100.0)
 	var sw: Control = ctl["swap"]
 	var gtxt: String = ("Hands" if gp.holstered else String(gp.weapon.get("name", ""))) + "\n" + ("" if gp.holstered else gp.ammo_text())
 	if String(sw.get_meta("txt", "")) != gtxt:
@@ -1800,6 +1821,8 @@ func _gauge(icon: String, row: HBoxContainer) -> Control:
 		var r := Rect2(Vector2(0, 9), Vector2(bar.size.x, 9))
 		bar.draw_rect(r.grow(2), Color(0.06, 0.055, 0.09, 0.55))
 		var col := (Color("ff6b80") if icon == "heart" else Color("eef0f3")) if v > 0.35 else (Color("f2b84b") if v > 0.15 else Color("ef4f55"))
+		if icon == "wind":
+			col = Color("ff8c42") if g.get_meta("spent", false) else Color("7fd6ff")
 		bar.draw_rect(Rect2(r.position, Vector2(r.size.x * clampf(v, 0.0, 1.0), r.size.y)), col))
 	row.add_child(g)
 	return g
@@ -1965,6 +1988,8 @@ func hud_update(d: Dictionary) -> void:
 	_gauge_set(fuel_g, fv)
 	_gauge_set(cond_g, cv)
 	_gauge_set(hp_g, game.gunplay.hp / game.gunplay.MAX_HP)
+	sta_g.visible = false
+	cond_g.visible = true
 	_clock_dot.visible = clock_lbl.text != ""
 	# over the limit: the speedo goes red (no separate sign)
 	var lim: int = game.police.limit
