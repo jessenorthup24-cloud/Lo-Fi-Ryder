@@ -1548,7 +1548,8 @@ func wheel_mode() -> bool:
 func control_at(pos: Vector2) -> String:
 	if not hud.visible or overlay.visible:
 		return ""
-	if wheel_mode() and wheel.get_global_rect().grow(16).has_point(pos):
+	# (only the wheel when you're driving: on foot it's hidden, and its patch of screen is the walk stick's)
+	if wheel_mode() and not foot_mode and wheel.visible and wheel.get_global_rect().grow(16).has_point(pos):
 		var hub := wheel.get_global_rect().position + _wheel_hub()
 		if pos.distance_to(hub) < 250.0:
 			return "wheel"
@@ -2139,6 +2140,8 @@ func drift_lost() -> void:
 
 ## A short call-out ("Close!", a stunt's name), small, beside the drift meter; a few stack up.
 func popup_text(text: String, col := Color.WHITE) -> void:
+	if popups.get_child_count() >= 2:
+		return              # (two at a time is plenty)
 	var l := K.outlined(K.label(text, 24, col, 700, HORIZONTAL_ALIGNMENT_LEFT), K.INK, 7)
 	popups.add_child(l)
 	var slot := _pop_n % 3
@@ -2354,6 +2357,8 @@ var _ncur: Dictionary = {}     # the one up: {node, tap, key, tw}
 var _cine_t := 0.0             # a title card's up: nothing else for now
 var _npump := false
 
+var _seen_keys := {}           # notice key -> when it last went up (the same one again soon: left out)
+
 func notice(build: Callable, hold: float, front := false, key := "", needs_hud := true) -> void:
 	if key != "":
 		if String(_ncur.get("key", "")) == key:
@@ -2361,6 +2366,21 @@ func notice(build: Callable, hold: float, front := false, key := "", needs_hud :
 		for e in _nq:
 			if String(e["key"]) == key:
 				return
+		var now := Time.get_ticks_msec() / 1000.0
+		if key.begins_with("toast:") and now - float(_seen_keys.get(key, -999.0)) < 30.0:
+			return
+		_seen_keys[key] = now
+	# (driving: a quieter screen. Toasts are about now, so a stale one waiting its turn gets dropped;
+	# no more than two waiting at once. Texts from people always wait their turn)
+	if key.begins_with("toast:"):
+		var waiting := 0
+		for i in range(_nq.size() - 1, -1, -1):
+			if String(_nq[i]["key"]).begins_with("toast:"):
+				waiting += 1
+				if waiting >= 2:
+					_nq.remove_at(i)
+		if game != null and game.state == game.DRIVE and not game.on_foot and game.car.linear_velocity.length() > 9.0:
+			hold = minf(hold, 2.4)
 	var e := {"build": build, "hold": hold, "hud": needs_hud, "key": key}
 	if front:
 		_nq.push_front(e)
@@ -2400,7 +2420,8 @@ func _notice_pump() -> void:
 	# (a long line waiting: each one's up a bit less)
 	var hold := float(e["hold"]) * (0.65 if _nq.size() >= 3 else 1.0)
 	_ncur = {"node": node, "key": e["key"]}
-	get_tree().create_timer(hold, false).timeout.connect(func(): _notice_dismiss(node))
+	var wr: WeakRef = weakref(node)      # (it may be gone by then: a title card clears it early)
+	get_tree().create_timer(hold, false).timeout.connect(func(): _notice_dismiss(wr.get_ref()))
 
 func _notice_dismiss(node: Control) -> void:
 	if not is_instance_valid(node) or node.has_meta("going"):
@@ -2532,13 +2553,13 @@ func _toast_card(text: String, icon: String, col: Color, icol: Color) -> Diction
 	_notice_x(p)
 	p.reset_size()
 	var vs := _vs()
-	p.position = Vector2((vs.x - p.size.x) * 0.5, 150.0)
+	p.position = Vector2((vs.x - p.size.x) * 0.5, 98.0)       # (up under the top bar, out of the view of the road)
 	p.pivot_offset = p.size * 0.5
 	p.modulate.a = 0.0
-	p.scale = Vector2(0.86, 0.86)
+	p.scale = Vector2(0.78, 0.78)
 	var t := p.create_tween()
 	t.tween_property(p, "modulate:a", 1.0, 0.18)
-	t.parallel().tween_property(p, "scale", Vector2.ONE, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(p, "scale", Vector2(0.9, 0.9), 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	p.set_meta("out", func(tw: Tween):
 		tw.tween_property(p, "modulate:a", 0.0, 0.22)
 		tw.parallel().tween_property(p, "scale", Vector2(0.94, 0.94), 0.22))
@@ -3239,6 +3260,7 @@ func open_settings(from_pause := false) -> void:
 	g.add_child(_setting_toggle("gauge", "Show FPS", st.get("fps", false), func(v): game.set_setting("fps", v)))
 	g.add_child(_setting_toggle("lock", "Cap at 60 fps", st.get("fps60", false), func(v): game.set_setting("fps60", v)))
 	g.add_child(_setting_toggle("lock", "Cap at 30 fps (smoother on slower phones)", st.get("fps30", false), func(v): game.set_setting("fps30", v)))
+	g.add_child(_setting_toggle("flag", "Event markers from afar (off: only up close, or where your GPS is going)", st.get("markers", true), func(v): game.set_setting("markers", v)))
 	var reset := K.button("Reset progress", K.PAPER, K.LINE, 24, 0, 60)
 	reset.add_theme_color_override("font_color", K.CORAL_DK)
 	var armed := [false]

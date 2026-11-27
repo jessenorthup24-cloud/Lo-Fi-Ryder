@@ -2414,21 +2414,33 @@ func _markers_tick(_dt: float) -> void:
 	var p := car.global_position
 	var busy := not zone.is_empty() or not trial.is_empty() or race != null or not intro.is_empty() or police.wanted() or fights.active()
 	var inside := {}
+	# (just driving: the beacons keep out of your way. Fewer of them, faint as you go past at speed, no
+	# names floating over the road, and the start card only once you've actually stopped at one)
+	var spd: float = 0.0 if on_foot else car.linear_velocity.length()
+	var cruising := spd > 9.0
+	var all_on: bool = bool(save.data["settings"].get("markers", true))
+	var aim: Vector3 = route.get("pos", Vector3.INF) if not route.is_empty() else Vector3.INF
 	for m in markers:
 		var is_fight: bool = m["kind"] == "fight"
 		# (a fight's beacon: only whoever's next, and you can walk into it as well as drive)
 		var d := (m["pos"] as Vector3).distance_to(you().global_position if is_fight else p)
-		var show := d < 220.0 and not busy and (not is_fight or fights.showing(String(m["id"]))) and campaign.marker_open(String(m["kind"]), String(m["id"]))
+		var wanted_one: bool = aim != Vector3.INF and (m["pos"] as Vector3).distance_to(aim) < 20.0
+		var reach := 160.0 if (all_on or wanted_one) else 45.0
+		var show := d < reach and not busy and (not is_fight or fights.showing(String(m["id"]))) and campaign.marker_open(String(m["kind"]), String(m["id"]))
 		(m["node"] as Node3D).visible = show
-		(m["label"] as Node3D).visible = show and d < 120.0 and d > float(m["r"]) + 6.0
-		# (the column of light thins out as you drive into it, so you're not sitting in a pink fog)
+		(m["label"] as Node3D).visible = show and d < 90.0 and d > float(m["r"]) + 6.0 and (not cruising or wanted_one)
+		# (the column of light thins out as you drive into it, so you're not sitting in a pink fog; and at
+		# speed, close by, it's barely there: you can see the road through it)
 		var pil: MeshInstance3D = (m["node"] as Node3D).get_child(0)
-		(pil.material_override as ShaderMaterial).set_shader_parameter("fade", clampf((d - float(m["r"])) / 14.0, 0.08, 1.0))
+		var fade := clampf((d - float(m["r"])) / 14.0, 0.08, 1.0)
+		if cruising and d < 70.0 and not wanted_one:
+			fade = minf(fade, lerpf(0.12, 0.45, clampf((d - 25.0) / 45.0, 0.0, 1.0)))
+		(pil.material_override as ShaderMaterial).set_shader_parameter("fade", fade)
 		if show:
 			(m["node"] as Node3D).rotation.y += 0.3 * get_process_delta_time()
 			(m["label"] as Node3D).position.y = (m["pos"] as Vector3).y + 4.0 + sin(time * 2.0) * 0.3
 		# inside a beacon: its start card comes up (nothing starts until you press START)
-		if state == DRIVE and not busy and d < float(m["r"]) + 1.0 and show:
+		if state == DRIVE and not busy and d < float(m["r"]) + 1.0 and show and spd < 5.0:
 			inside = m
 	if String(inside.get("id", "")) + String(inside.get("kind", "")) != String(in_marker.get("id", "")) + String(in_marker.get("kind", "")):
 		in_marker = inside
@@ -3882,6 +3894,13 @@ func _exit_car() -> void:
 	foot_yaw = cam_yaw
 	foot_pitch = 0.32
 	aim_toggle = false
+	# (a thumb still on the wheel as you get out: it's on the walk stick now, so it walks you on)
+	if wheel_idx >= 0:
+		touches[wheel_idx] = "stick"
+		stick_idx = wheel_idx
+		stick = Vector2.ZERO
+		wheel_idx = -1
+	wheel_angle = 0.0
 	ui.set_foot(true)
 	sfx("door", -6.0) if sound._stream("door") else sfx("bump", -10.0, 1.4)
 	if bail:

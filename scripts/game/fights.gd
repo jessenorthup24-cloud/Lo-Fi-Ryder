@@ -176,7 +176,7 @@ func start_info(id: String) -> Dictionary:
 		"start": func(): begin(id)}
 	if not first:
 		out["medal"] = 3
-	if Progress.level(game.save) < int(d["lvl"]):
+	if Progress.level(game.save) < int(d["lvl"]) and not game.campaign.on:
 		out["warn"] = "They won't fight anyone under level %d" % int(d["lvl"])
 	elif game.police.wanted():
 		out["warn"] = "Not with the police on you"
@@ -193,7 +193,7 @@ func begin(id: String) -> void:
 	var d := def_of(id)
 	if d.is_empty() or not cur.is_empty():
 		return
-	if Progress.level(game.save) < int(d["lvl"]):
+	if Progress.level(game.save) < int(d["lvl"]) and not game.campaign.on:     # (story mode: the chapter decides, not your level)
 		game.ui.toast("Level %d for this one" % int(d["lvl"]), "lock", K.PAPER, K.INK, 2.0)
 		return
 	if game.police.wanted():

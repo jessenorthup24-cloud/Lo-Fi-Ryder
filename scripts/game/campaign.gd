@@ -30,11 +30,12 @@ var _escaped := false
 var _race_res := {}             # the last race you finished: {id, place}
 var _gone_t := 0.0              # (busted or wrecked mid-escape: a moment, then they come again)
 var beacon: Node3D
+var _resumed := false           # (loaded mid-mission: the step's started again, once, without losing its counts)
 
 func setup(g: Node) -> void:
 	game = g
 	var a: Dictionary = game.args
-	on = not game.autopilot and not a.has("drive") and (not a.has("play") or String(a["play"]) == "story")
+	on = not game.autopilot and not a.has("drive") and (not a.has("play") or String(a["play"]).begins_with("story"))
 	for k in a:
 		if String(k).ends_with("test"):
 			on = false
@@ -198,10 +199,35 @@ func tick(dt: float) -> void:
 				_start_mission()
 		return
 	_beacon_tick(false)
+	if not _resumed:
+		if not _free():
+			return
+		_resumed = true
+		if _resume_step():
+			return
 	if _t > 0.0:
 		return
 	_t = 0.25
 	_step_tick()
+
+## Back in a game you'd quit mid-mission: whatever the step had going (the coach, the police after you, a
+## scene) going again. True if it's taken over (a scene).
+func _resume_step() -> bool:
+	var sp := _step()
+	if sp.is_empty():
+		return false
+	match String(sp[0]):
+		"tutorial":
+			if not bool(game.save.data.get("tut", false)) and not game.tutorial.active:
+				game.tutorial.start()
+		"wanted", "escape":
+			if game.police.heat == 0:
+				game.police.start(float(sp[1]), "They're still after you")
+		"scene":
+			_begin_step()
+			return true
+	_show_goal()
+	return false
 
 ## Nothing else going on: not racing, no police, no fight, no heist, no menu.
 func _free(foot_ok := true) -> bool:
@@ -236,6 +262,7 @@ func _start_mission() -> void:
 		_busy = false
 		st = "on"
 		s = 0
+		_resumed = true
 		_begin_step()
 	var sc: Dictionary = md.get("intro", {})
 	if sc.is_empty():
@@ -304,9 +331,7 @@ func _begin_step() -> void:
 				_next_step())
 			return
 	_save()
-	_show_goal()
-	if String(sp[0]) != "tutorial":
-		game.ui.toast(goal(), "flag", Color("ffd34d"), K.INK, 2.6)
+	_show_goal()          # (the goal line under the top bar says it: no toast on top)
 
 ## What the HUD's goal line says.
 func goal() -> String:
@@ -355,7 +380,11 @@ func _done(sp: Array) -> bool:
 				return false
 			var ok: bool = String(_race_res["id"]) == String(sp[1]) and int(_race_res["place"]) <= int(sp[2])
 			if not ok and String(_race_res["id"]) == String(sp[1]):
-				game.ui.toast("Not good enough this time. Line up and run it again", "flag", Color("ff5c7a"), Color.WHITE, 3.0)
+				b["fails"] = int(b.get("fails", 0)) + 1
+				if int(b["fails"]) >= 2:
+					game.ui.toast("Struggling? Easy races are kinder (Settings), and the rewind button undoes a mistake", "gear", Color("ffd34d"), K.INK, 4.0)
+				else:
+					game.ui.toast("Not good enough this time. Line up and run it again", "flag", Color("ff5c7a"), Color.WHITE, 3.0)
 			_race_res = {}
 			return ok
 		"zone":
@@ -399,6 +428,11 @@ func _done(sp: Array) -> bool:
 			game.ui.toast("Paid %s" % K.money(amt), "coin", K.PAPER, K.INK, 2.0)
 			return true
 		"wanted":
+			if game.police.heat == 0 and game.state == game.DRIVE:
+				_gone_t += 0.25
+				if _gone_t >= 5.0:
+					_gone_t = 0.0
+					game.police.start(float(sp[1]), "They're still after you")
 			return game.police.heat >= int(sp[1])
 		"escape":
 			if _escaped:

@@ -18,11 +18,11 @@ const MB := preload("res://scripts/core/mesh_builder.gd")
 # of you (and push when behind); the cars they get and how upgraded they are.
 const DIFF := [
 	{"name": "Easy", "a_lat": 8.0, "a_brake": 7.0, "a_acc": 4.5, "v_max": 40.0,
-		"skill": [1.04, 1.0, 0.97, 0.95, 0.99, 0.93, 1.02, 0.96], "band": [0.94, 1.05], "cars": 0.0, "up": -1},
+		"skill": [1.04, 1.0, 0.97, 0.95, 0.99, 0.93, 1.02, 0.96], "band": [0.94, 1.05], "cars": 0.0, "up": -1, "rel": 1.15},
 	{"name": "Medium", "a_lat": 8.9, "a_brake": 7.9, "a_acc": 5.3, "v_max": 46.0,
-		"skill": [1.05, 1.03, 1.0, 0.99, 1.02, 0.98, 1.04, 1.0], "band": [0.97, 1.05], "cars": 0.4, "up": 2},
+		"skill": [1.05, 1.03, 1.0, 0.99, 1.02, 0.98, 1.04, 1.0], "band": [0.97, 1.05], "cars": 0.4, "up": 2, "rel": 1.5},
 	{"name": "Hard", "a_lat": 9.4, "a_brake": 8.6, "a_acc": 6.2, "v_max": 52.0,
-		"skill": [1.07, 1.05, 1.04, 1.03, 1.06, 1.02, 1.07, 1.04], "band": [0.995, 1.07], "cars": 0.7, "up": 5},
+		"skill": [1.07, 1.05, 1.04, 1.03, 1.06, 1.02, 1.07, 1.04], "band": [0.995, 1.07], "cars": 0.7, "up": 5, "rel": 99.0},
 ]
 var diff := 0
 var rewinds := 0           # how many you've used this race (main allows three)
@@ -492,8 +492,18 @@ func grid(player_car) -> void:
 	ranked.sort_custom(func(a, b): return float(a["power"]) * float(a["speed"]) > float(b["power"]) * float(b["speed"]))
 	var pool := []
 	var top := maxi(8, int(round(ranked.size() * (1.0 - float(dd["cars"])))))
+	# (easy and medium: a field of cars around yours, so a starter car isn't up against supercars)
+	var mine := CARS.by_id(String(game.save.data["car"]))
+	var cap: float = float(mine.get("power", 1.0)) * float(mine.get("speed", 1.0)) * float(dd.get("rel", 99.0))
 	for d in ranked.slice(0, top):
-		if d["id"] != String(game.save.data["car"]):
+		if d["id"] != String(game.save.data["car"]) and float(d["power"]) * float(d["speed"]) <= cap:
+			pool.append(d)
+	var slow := ranked.duplicate()
+	slow.reverse()
+	for d in slow:
+		if pool.size() >= 7:
+			break
+		if d["id"] != String(game.save.data["car"]) and not pool.has(d):
 			pool.append(d)
 	pool.shuffle()
 	var names := NAMES.duplicate()

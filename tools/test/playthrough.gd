@@ -12,6 +12,7 @@ const Weapons := preload("res://scripts/game/weapons.gd")
 const Progress := preload("res://scripts/game/progress.gd")
 const Avatar := preload("res://scripts/game/avatar.gd")
 const CARS := preload("res://scripts/game/cars.gd")
+const K := preload("res://scripts/ui/kit.gd")
 
 var game: Node
 var who := ""
@@ -119,6 +120,96 @@ func _run() -> void:
 			await _fear()
 		"story":
 			await _story()
+		"storyrun":
+			await _storyrun()
+		"sticktest":
+			game.args["drive"] = true
+			game.save.data["settings"]["wheel"] = true
+			game.start_drive()
+			await wait(2.0)
+			var wc: Vector2 = game.ui.wheel.get_global_rect().get_center()
+			check(game.ui.control_at(wc) == "wheel", "driving: the wheel takes a touch")
+			# hold the wheel, get out with it still held
+			var t0 := InputEventScreenTouch.new()
+			t0.index = 0
+			t0.position = wc
+			t0.pressed = true
+			game._unhandled_input(t0)
+			check(game.wheel_idx == 0, "finger on the wheel")
+			game.toggle_foot()
+			await wait(1.0)
+			check(game.on_foot and game.wheel_idx == -1 and game.stick_idx == 0, "out of the car: that finger's on the stick now")
+			var dr := InputEventScreenDrag.new()
+			dr.index = 0
+			dr.position = game.ui.ctl["stick"].get_global_rect().get_center() + Vector2(0, -60)
+			game._unhandled_input(dr)
+			check(game.stick.length() > 0.2, "dragging it walks (%s)" % str(game.stick))
+			t0.pressed = false
+			game._unhandled_input(t0)
+			var sc: Vector2 = game.ui.ctl["stick"].get_global_rect().get_center()
+			check(game.ui.control_at(sc) == "stick", "on foot: the stick takes a touch, not the hidden wheel (%s)" % game.ui.control_at(sc))
+			# the phone, open and shut
+			game.ui.toggle_phone()
+			await wait(0.6)
+			game.ui.toggle_phone()
+			await wait(0.8)
+			check(game.state == game.DRIVE and game.ui.control_at(sc) == "stick", "after the phone: the stick still answers")
+			var t1 := InputEventScreenTouch.new()
+			t1.index = 1
+			t1.position = sc
+			t1.pressed = true
+			game._unhandled_input(t1)
+			var d1 := InputEventScreenDrag.new()
+			d1.index = 1
+			d1.position = sc + Vector2(50, 0)
+			game._unhandled_input(d1)
+			check(game.stick_idx == 1 and game.stick.length() > 0.2, "and it walks you (%s)" % str(game.stick))
+			t1.pressed = false
+			game._unhandled_input(t1)
+		"calm":
+			game.args["drive"] = true
+			game.start_drive()
+			await wait(2.0)
+			var rp: Vector3 = game.campaign.anchor("race:downtown")
+			var fw := Vector3(0, 0, 1)
+			game.car.place(game.on_ground(Transform3D(Basis.looking_at(fw), rp - fw * 45.0 + Vector3(0, 0.6, 0))))
+			await wait(0.5)
+			game.car.linear_velocity = fw * 18.0
+			game.held["gas"] = true
+			await wait(1.2)
+			await snap("calm_driving_past")
+			check(game.in_marker.is_empty(), "driving through a beacon: no start card")
+			game.held["gas"] = false
+			game.car.place(game.on_ground(Transform3D(Basis(), rp + Vector3(0, 0.6, 0))))
+			game.car.linear_velocity = Vector3.ZERO
+			await wait(2.0)
+			check(not game.in_marker.is_empty(), "stopped in it: the card comes up")
+			await snap("calm_stopped")
+		"racebug":
+			game.args["drive"] = true
+			game.start_drive()
+			await wait(1.0)
+			for sk in [1.0, 1.05, 1.1]:
+				for rid in ["downtown", "beachloop"]:
+					game.args["raceauto"] = true
+					game.begin_challenge("race", rid)
+					await wait_until(func(): return game.race != null and game.race.state == 1, 20.0)
+					game.race.you["skill"] = sk
+					var cars := []
+					for r in game.race.racers:
+						cars.append(String(r.get("car_id", r.get("name", "?"))))
+					await wait_until(func(): return game.race != null and game.race.state == 2, 480.0)
+					note("%s skill %.2f: P%d" % [rid, sk, game.race.place_of(game.race.you)])
+					game.quit_challenge()
+					await wait(2.0)
+		"mklegacy":
+			game.save.data["story"] = 5
+			game.save.data["coins"] = 4958
+			game.save.data["tut"] = true
+			game.save.data["medals"] = {"race_downtown_0": 2}
+			game.save.data.erase("camp")
+			game.save.save()
+			note("legacy save written")
 		"mapper":
 			await _mapper()
 		"ram":
@@ -1265,10 +1356,11 @@ func _campaign() -> void:
 ## How hard the street fights are: a decent player (blocks two thirds of what's thrown at them, a fifth of
 ## those as dodges; punches when they're open, now and then into a guard) against each fighter, bout after
 ## bout. --sims=n bouts each, --only=id for one fighter.
-func _bout(id: String) -> Dictionary:
-	var fw: Dictionary = game.save.data.get("fights", {})
-	fw.erase(id)
-	game.save.data["coins"] = 99999
+func _bout(id: String, rich := true) -> Dictionary:
+	if rich:
+		var fw: Dictionary = game.save.data.get("fights", {})
+		fw.erase(id)
+		game.save.data["coins"] = 99999
 	if not game.on_foot:
 		game.toggle_foot()
 		await wait(0.5)
@@ -2016,3 +2108,473 @@ func _story() -> void:
 	game.cutscene.finish()
 	await wait(1.0)
 	check(c.finished() and not c.gated() and c.marker_open("race", "southshore"), "story over: everything open")
+
+# ------------------------------------------------------------------ story mode, start to finish
+
+## Plays the story start to finish through the game itself: real races (the CPU driving), real fights,
+## real heists, the shops, the bank, the property, the police. Grinds races when it's short of money, and
+## logs anything it had to force. --run=watch (every scene played out, taps through some lines), skip
+## (scenes skipped), chaos (loses a race first, gets busted mid-escape), and --stop_ch=N to quit after
+## chapter N (then run again without --fresh: it picks up from the save).
+var _issues: Array = []
+var _grinds := 0
+var _forced := 0
+
+func _issue(s: String) -> void:
+	_issues.append(s)
+	print("ISSUE ", s)
+
+func _in_car() -> void:
+	if game.on_foot:
+		game.foot.global_position = game.car.global_position + game.car.global_transform.basis.x * 2.2
+		await wait(0.3)
+		game.toggle_foot()
+		await wait(0.8)
+
+func _on_foot() -> void:
+	if not game.on_foot:
+		game.toggle_foot()
+		await wait(0.8)
+
+## Somewhere, by car (or on foot if you're walking).
+func _drive_to(p: Vector3, off := Vector3(0, 0, 0)) -> void:
+	if game.on_foot:
+		await _in_car()
+	game.car.linear_velocity = Vector3.ZERO
+	game.car.place(game.on_ground(Transform3D(Basis(), p + off + Vector3(0, 0.6, 0))))
+	await wait(0.8)
+
+func _walk_to(p: Vector3) -> void:
+	await _drive_to(p, Vector3(4, 0, 4))
+	await _on_foot()
+	game.foot.global_position = game.on_ground(Transform3D(Basis(), p + Vector3(0, 1.0, 0))).origin
+	await wait(0.6)
+
+## The scene for this: played out (watch) or skipped.
+func _scene(watch: bool) -> void:
+	var up := await wait_until(func(): return game.cutscene.active, 12.0)
+	if not up:
+		return
+	if not watch:
+		await wait(0.4)
+		game.cutscene.finish()
+		await wait(0.6)
+		return
+	var t0: float = game.time
+	var taps := 0
+	while game.cutscene.active and game.time - t0 < 90.0:
+		await wait(0.5)
+		# (a player who taps through now and then)
+		if randf() < 0.08:
+			var e := InputEventMouseButton.new()
+			e.pressed = true
+			e.button_index = MOUSE_BUTTON_LEFT
+			game.cutscene._gui(e)
+			taps += 1
+	if game.cutscene.active:
+		_issue("a scene never ended on its own (mission %s, shot %d)" % [game.campaign.mission().get("id", "?"), game.cutscene._shot])
+		game.cutscene.finish()
+	note("scene %.1f s, %d taps" % [game.time - t0, taps])
+	await wait(0.6)
+
+## Money: race for it till there's enough (pocket: it has to be cash on you).
+func _need_cash(amt: int, pocket := false) -> void:
+	var guard := 0
+	while (game.bank.cash() if pocket else int(game.save.data["coins"])) < amt and guard < 12:
+		guard += 1
+		_grinds += 1
+		var rid := "downtown"
+		for r in ["southshore", "eastpoint", "cliffside", "ringroad", "raceway", "beachloop", "northloop"]:
+			if game.campaign.marker_open("race", r):
+				rid = r
+				break
+		await _run_race(rid)
+	if (game.bank.cash() if pocket else int(game.save.data["coins"])) < amt:
+		_issue("couldn't earn %s in 12 races" % K.money(amt))
+		game.save.data["coins"] = int(game.save.data["coins"]) + amt
+		if pocket:
+			game.save.data["cash"] = int(game.save.data.get("cash", 0)) + amt
+
+## A race, from its beacon, the CPU driving. The place you came (0: it didn't finish).
+func _run_race(id: String, quit_mid := false) -> int:
+	var rp: Vector3 = game.campaign.anchor("race:" + id)
+	await _drive_to(rp)
+	await wait(0.6)
+	if not game.campaign.marker_open("race", id):
+		_issue("race %s is locked when the story wants it" % id)
+	var card := String(game.in_marker.get("id", "")) == id
+	if not card:
+		await wait(1.0)
+		card = String(game.in_marker.get("id", "")) == id
+	if not card:
+		_issue("no start card at %s's beacon (in %s)" % [id, str(game.in_marker.get("id", ""))])
+	game.args["raceauto"] = true
+	game.begin_challenge("race", id)
+	await wait_until(func(): return game.race != null and game.race.state == 1, 20.0)
+	if game.race != null:
+		game.race.you["skill"] = 1.05       # (the CPU at your wheel: the same driver as the field, so mid-pack; podiums get forced)
+	if quit_mid:
+		await wait(8.0)
+		game.quit_challenge()
+		await wait(1.0)
+		game.args.erase("raceauto")
+		return 0
+	var placed := [0]
+	var done := await wait_until(func(): return game.race != null and game.race.state == 2, 480.0)
+	if done:
+		placed[0] = int(game.race.place_of(game.race.you))
+	await wait(1.5)
+	game.args.erase("raceauto")
+	if game.challenge_on():
+		game.quit_challenge()
+	await wait(1.0)
+	game.police.clear()
+	return placed[0]
+
+func _do_step(sp: Array, chaos: bool) -> void:
+	var c = game.campaign
+	var kind := String(sp[0])
+	match kind:
+		"tutorial":
+			await wait(2.0)
+			if game.tutorial.active:
+				game.tutorial.skip()
+		"goto":
+			var gr: Dictionary = c.route()
+			var at: Vector3 = c.anchor(String(sp[1]))
+			if gr.is_empty() or (gr["pos"] as Vector3).distance_to(at) > 2.0:
+				_issue("goto %s: the GPS isn't pointing there" % sp[1])
+			await _drive_to(at, Vector3(float(sp[2]) * 0.4, 0, 0))
+		"race":
+			var tries := 0
+			if chaos and not has_meta("lost_one"):
+				set_meta("lost_one", true)
+				await _run_race(String(sp[1]), true)
+				check(c.s == int(get_meta("cur_s", 0)) and String(c._step()[0]) == "race", "quitting a race mid-way doesn't count")
+			while c.st == "on" and String(c._step()[0]) == "race" and tries < 2:
+				tries += 1
+				var pl := await _run_race(String(sp[1]))
+				note("race %s: %s" % [sp[1], ("P%d" % pl) if pl > 0 else "DNF"])
+				await wait(1.0)
+			if c.st == "on" and not c._step().is_empty() and String(c._step()[0]) == "race":
+				_issue("race %s: no podium/win after 2 tries (need P%d)" % [sp[1], int(sp[2])])
+				c.on_race(String(sp[1]), int(sp[2]))
+				_forced += 1
+		"zone":
+			var zp: Vector3 = c.anchor("zone:" + String(sp[1]))
+			await _drive_to(zp)
+			game.start_challenge_now("zone", String(sp[1]))
+			await wait(3.0)
+			if game.zone.is_empty():
+				_issue("zone %s didn't start" % sp[1])
+			else:
+				game.zone_pts = float(sp[2]) + 50.0      # (the bot can't drift: the score as if it had)
+				game.zone_t = 0.05
+			await wait(2.0)
+		"trial":
+			game.start_challenge_now("trial", String(sp[1]))
+			await wait(3.0)
+			if game.trial.is_empty():
+				_issue("trial %s didn't start" % sp[1])
+			else:
+				var md: Array = game.trial["medals"]
+				game.trial_t = float(md[md.size() - 1]) - 0.5 if game.trial["kind"] == "time" else 0.0
+				game.trial_pts = float(md[0]) + 10.0
+				game._finish_trial()
+			await wait(2.0)
+		"fight":
+			var fid := String(sp[1])
+			if not game.fights.showing(fid):
+				_issue("fight %s isn't up when the story wants it" % fid)
+			await _walk_to(game.fights.spots[fid])
+			var tries2 := 0
+			while not game.fights.won(fid) and tries2 < 4:
+				tries2 += 1
+				var r: Dictionary = await _bout(fid, false)
+				note("fight %s: %s" % [fid, r.get("res", "?")])
+			if not game.fights.won(fid):
+				_issue("fight %s: the bot lost 4 times" % fid)
+				var fw: Dictionary = game.save.data.get("fights", {})
+				fw[fid] = true
+				game.save.data["fights"] = fw
+				_forced += 1
+		"heist":
+			for k in int(sp[1]):
+				await _do_heist()
+		"bank":
+			await _need_cash(maxi(int(sp[1]), 1), true)
+			var bk: Dictionary = game.bank.banks[0]
+			await _walk_to(bk["door"])
+			await wait(0.5)
+			game.bank.deposit()
+		"upgrade":
+			var up := false
+			for u in ["engine", "tyres", "turbo", "steering", "nitrous"]:
+				var cost: int = game.save.upgrade_cost(u)
+				if cost > 0:
+					await _need_cash(cost)
+					await _drive_to(game.shops.door_of("customs"), game.shops.shops["customs"]["front"] * 6.0)
+					game.open_shop("customs")
+					await wait(0.5)
+					if game.state != game.GARAGE:
+						_issue("couldn't get into Customs (state %d)" % game.state)
+					game.ui._buy_upgrade(u)
+					game.close_garage(game.DRIVE)
+					await wait(1.0)
+					up = true
+					break
+			if not up:
+				_issue("nothing to upgrade")
+		"buy_car":
+			var lv: int = Progress.level(game.save)
+			var pick := {}
+			for cd in CARS.LIST:
+				if not game.save.owns(cd["id"]) and lv >= Progress.car_level(String(cd["id"])) and (pick.is_empty() or int(cd["price"]) < int(pick["price"])):
+					pick = cd
+			if pick.is_empty():
+				_issue("buy_car: no car for sale at level %d" % lv)
+				pick = CARS.LIST[1]
+				_give_level(Progress.car_level(String(pick["id"])))
+			note("buying the %s for %s at level %d" % [pick["name"], K.money(int(pick["price"])), lv])
+			await _need_cash(int(pick["price"]))
+			await _drive_to(game.shops.door_of("customs"), game.shops.shops["customs"]["front"] * 6.0)
+			game.open_shop("customs")
+			await wait(0.5)
+			game.ui.g_index = CARS.index_of(String(pick["id"]))
+			game.ui._garage_action()
+			game.close_garage(game.DRIVE)
+			await wait(1.0)
+		"buy_gun":
+			var lv2: int = Progress.level(game.save)
+			var gun := {}
+			for w in Weapons.LIST:
+				if not (game.save.data.get("guns", ["pistol"]) as Array).has(w["id"]) and lv2 >= int(w["lvl"]) and (gun.is_empty() or int(w["price"]) < int(gun["price"])):
+					gun = w
+			if gun.is_empty():
+				_issue("buy_gun: nothing the Armory sells at level %d" % lv2)
+				gun = Weapons.LIST[1]
+			note("buying the %s for %s at level %d" % [gun["id"], K.money(int(gun["price"])), lv2])
+			await _need_cash(int(gun["price"]))
+			await _drive_to(game.shops.door_of("armory"), game.shops.shops["armory"]["front"] * 6.0)
+			game.open_shop("armory")
+			await wait(0.5)
+			if game.state != game.GARAGE:
+				_issue("couldn't get into the Armory (state %d)" % game.state)
+			var s = game.save.data
+			if not s.has("guns"):
+				s["guns"] = ["pistol"]
+			s["coins"] = int(s["coins"]) - int(gun["price"])
+			(s["guns"] as Array).append(gun["id"])
+			game.close_garage(game.DRIVE)
+			await wait(1.0)
+		"property":
+			var pid := String(sp[1])
+			var tg: Array = game.property.props[pid]["def"]["targets"]
+			var need := int(tg[int(sp[2])])
+			await _need_cash(need - int(game.property.props[pid]["node"].get("invested")))
+			var pc: Vector2 = game.property.props[pid]["plot"]["c"]
+			await _walk_to(Vector3(pc.x, 0, pc.y))
+			var guard := 0
+			while int(game.property.props[pid]["node"].get("invested")) < need and guard < 12:
+				guard += 1
+				await wait(1.0)
+				var before := int(game.property.props[pid]["node"].get("invested"))
+				game.property._pay()
+				await wait(2.0)
+				if int(game.property.props[pid]["node"].get("invested")) == before:
+					_issue("property %s: paying didn't build (btn id %s, cost %s, coins %d)" % [pid, str(game.property._btn.get_meta("id", "")), str(game.property._btn.get_meta("cost", "")), int(game.save.data["coins"])])
+					break
+		"pay":
+			await _need_cash(int(sp[1]))
+			await _drive_to(c.anchor(String(sp[2])), Vector3(5, 0, 5))
+			await wait(1.5)
+		"wanted":
+			await wait(1.0)
+		"escape":
+			if chaos and not has_meta("busted_once"):
+				set_meta("busted_once", true)
+				await wait(2.0)
+				game.police._busted()
+				await wait_until(func(): return game.state == game.DRIVE and game.police.heat == 0, 30.0)
+				var back := await wait_until(func(): return game.police.heat > 0, 15.0)
+				check(back, "busted mid-escape: the police come back for you")
+			await _escape()
+		"scene":
+			await wait(0.5)
+		_:
+			_issue("no bot for step %s" % kind)
+
+## Lose them: drive off somewhere far and quiet, out of sight, and wait.
+func _escape() -> void:
+	var c = game.campaign
+	var hide_spots := [Vector3(300, 0, -260), Vector3(-480, 0, -300), Vector3(420, 0, 420)]
+	var me: Vector3 = game.you().global_position
+	var far: Vector3 = hide_spots[0]
+	for h in hide_spots:
+		if h.distance_to(me) > far.distance_to(me):
+			far = h
+	# (on the move between quiet spots, like someone actually getting away, not parked waiting)
+	var got := false
+	for k in 8:
+		await _drive_to(hide_spots[(hide_spots.find(far) + k) % hide_spots.size()])
+		got = await wait_until(func(): return c._escaped or c.st != "on" or String(c._step()[0]) != "escape", 20.0)
+		if got:
+			break
+		if game.state != game.DRIVE:
+			await wait_until(func(): return game.state == game.DRIVE, 30.0)      # (busted: let them book you)
+	if not got:
+		_issue("couldn't lose %d-star heat by hiding (bot)" % game.police.heat)
+		game.police_escaped(0, game.police.heat)
+		game.police.clear()
+		_forced += 1
+	await wait(1.0)
+
+func _do_heist() -> void:
+	var hs: Dictionary = {}
+	for sf in game.heist.safes:
+		if not game.heist._cracked(sf):
+			hs = sf
+			break
+	if hs.is_empty():
+		_issue("no uncracked safe left")
+		return
+	var front: Vector3 = (hs["node"] as Node3D).global_transform * Vector3(0, 0.5, 3.0)
+	await _drive_to(front, Vector3(6, 0, 6))
+	await _on_foot()
+	game.foot.place(front, float(hs["yaw"]))
+	await wait(1.0)
+	game.heist.tick(0.1)
+	if game.heist.near.is_empty():
+		_issue("by a safe but no START HEIST (heists open: %s)" % game.campaign.allows("heists"))
+		return
+	var h0: float = game.save.stat("heists")
+	game.heist.start()
+	await wait(1.0)
+	game.foot.place(game.heist.drill.global_position + Vector3(1.0, 0.5, 0), 0.0)
+	await wait(1.0)
+	game.foot.place(front, float(hs["yaw"]))
+	await wait(1.5)
+	var guard := 0
+	while game.heist.state != game.heist.CRACKED and guard < 8:
+		guard += 1
+		gunplay_heal()
+		game.police.bust = 0.0
+		if game.heist.state == game.heist.DEFEND:
+			game.heist.drill_t = maxf(game.heist.drill_t, game.heist.defend_t - 0.5) if game.heist.break_at < 0.0 else game.heist.break_at + 0.1
+		elif game.heist.state == game.heist.FETCH:
+			game.foot.place(game.heist.drill.global_position + Vector3(1.0, 0.5, 0), 0.0)
+			await wait(1.0)
+			game.foot.place(front, float(hs["yaw"]))
+		await wait(1.5)
+	var safe_in: Vector3 = (hs["node"] as Node3D).global_transform * Vector3(0, 0.5, 1.6)
+	guard = 0
+	while game.heist.state != game.heist.ESCAPE and game.heist.state != game.heist.IDLE and guard < 8:
+		guard += 1
+		gunplay_heal()
+		if game.foot == null:
+			await _on_foot()
+		game.foot.place(safe_in, float(hs["yaw"]))
+		await wait(1.0)
+		if game.foot == null:
+			break
+		if game.heist.state == game.heist.STASH:
+			game.foot.place(game.car.global_position + Vector3(2.2, 0.5, 0), 0.0)
+			await wait(1.0)
+	game.police.clear()
+	await wait(1.0)
+	if game.foot == null:
+		await _on_foot()
+	game.foot.place(game.heist._drop_at() + Vector3(0, 0.5, 0), 0.0)
+	await wait(2.0)
+	if game.save.stat("heists") <= h0:
+		_issue("heist didn't complete (state %d)" % game.heist.state)
+		game.save.add_stat("heists", 1)
+		_forced += 1
+	game.police.clear()
+	await wait(1.0)
+
+func gunplay_heal() -> void:
+	game.gunplay.hp = game.gunplay.MAX_HP
+
+func _storyrun() -> void:
+	var c = game.campaign
+	var run := String(game.args.get("run", "skip"))
+	var watch := run == "watch"
+	var chaos := run == "chaos"
+	var stop_ch := int(game.args.get("stop_ch", "99"))
+	god = true
+	check(c.on, "story mode on")
+	note("run %s: starting at mission %d (%s), legacy %s, level %d, coins %d" % [run, c.m, c.mission().get("id", "-"), c.legacy, Progress.level(game.save), int(game.save.data["coins"])])
+	game.start_drive()
+	var t_all: float = game.time
+	var per: Array = []
+	var guard := 0
+	while not c.finished() and guard < 60:
+		guard += 1
+		var md: Dictionary = c.mission()
+		var mi: int = c.m
+		var t0: float = game.time
+		var start := String(md["start"])
+		# getting it going
+		if c.st == "wait":
+			if start == "auto":
+				pass
+			elif start == "call":
+				var rang := await wait_until(func(): return game.cutscene.active or c.st == "on", 70.0)
+				if not rang:
+					_issue("%s: the call never came (free %s, heat %d, state %d)" % [md["id"], c._free(), game.police.heat, game.state])
+					c._start_mission()
+			else:
+				await wait_until(func(): return c.beacon.visible or float(game.ui._cine_t) <= 0.0, 10.0)
+				var gr: Dictionary = c.route()
+				var at: Vector3 = c.anchor(start)
+				if gr.is_empty() or (gr["pos"] as Vector3).distance_to(at) > 2.0:
+					_issue("%s: GPS isn't on the mission's start" % md["id"])
+				if start.begins_with("fight:"):
+					await _walk_to(at + Vector3(6, 0, 0))
+				else:
+					await _drive_to(at, Vector3(8, 0, 6))
+			await _scene(watch)
+			var on := await wait_until(func(): return c.st == "on" or c.m != mi, 20.0)
+			if not on:
+				_issue("%s: never got going (st %s, free %s)" % [md["id"], c.st, c._free()])
+				c._start_mission()
+				await _scene(false)
+		# its steps
+		var sg := 0
+		while c.m == mi and c.st == "on" and sg < 12:
+			sg += 1
+			var sp: Array = c._step()
+			if sp.is_empty():
+				break
+			set_meta("cur_s", c.s)
+			var si: int = c.s
+			if String(game.args.get("stop_at", "")) == "%s:%d" % [md["id"], si]:
+				await wait(1.5)
+				note("quitting mid-mission: %s step %d (%s), heat %d" % [md["id"], si, sp[0], game.police.heat])
+				game._save_now()
+				return
+			if String(sp[0]) == "scene":
+				await _scene(watch)
+			else:
+				await _do_step(sp, chaos)
+			var moved := await wait_until(func(): return c.m != mi or c.s != si, 8.0)
+			if not moved:
+				_issue("%s step %d (%s) didn't complete" % [md["id"], si, sp[0]])
+				_forced += 1
+				c._next_step()
+				await _scene(false)
+		check(c.m != mi, "%s done" % md["id"])
+		per.append([md["id"], game.time - t0])
+		note("%s done in %.0f s (level %d, coins %d, cash %d)" % [md["id"], game.time - t0, Progress.level(game.save), int(game.save.data["coins"]), game.bank.cash()])
+		if c.chapter() > stop_ch:
+			note("stopping after chapter %d (mission %d next)" % [stop_ch, c.m])
+			game._save_now()
+			break
+	if c.finished():
+		check(not c.gated() and c.marker_open("race", "southshore") and c.allows("property:mansion"), "story over: everything open")
+		await wait(6.0)
+		check(c.goal() == "" and c.route().is_empty(), "no goal or GPS left after the end")
+	note("run %s: %d missions, %.0f s game time, %d grind races, %d forced" % [run, per.size(), game.time - t_all, _grinds, _forced])
+	for i in _issues:
+		note("ISSUE " + String(i))
