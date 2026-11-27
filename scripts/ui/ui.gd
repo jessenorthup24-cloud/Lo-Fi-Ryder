@@ -2182,8 +2182,8 @@ func _next_msg() -> void:
 		_msg_busy = false
 		return
 	_msg_busy = true
-	if game.state != game.DRIVE or overlay.visible or not hud.visible:
-		# (in a shop, the map, the pause menu: the text waits till you're back out)
+	if game.state != game.DRIVE or overlay.visible or not hud.visible or (start_card != null and is_instance_valid(start_card)):
+		# (in a shop, the map, the pause menu, a challenge's card up: the text waits till it's clear)
 		get_tree().create_timer(1.0, false).timeout.connect(_next_msg)
 		return
 	var m: Array = _msgs.pop_front()
@@ -2415,7 +2415,38 @@ func start_card_show(info: Dictionary, animate := true) -> void:
 	if int(info["medal"]) > 0:
 		nr.add_child(Icon.new("trophy", [K.LINE, Color("b98b62"), Color("b3b8bd"), Color("d4b25c")][int(info["medal"])], 28))
 	vb.add_child(nr)
+	if String(info.get("story", "")) != "":
+		# (who they are and why they want you: a street fight's opponent)
+		var st := K.label(String(info["story"]), 17, K.INK, 550, HORIZONTAL_ALIGNMENT_LEFT)
+		st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		st.custom_minimum_size = Vector2(500, 0)
+		st.add_theme_color_override("font_color", Color(1, 1, 1, 0.82))
+		var gap := Control.new()
+		gap.custom_minimum_size = Vector2(0, 4)
+		vb.add_child(gap)
+		vb.add_child(st)
 	vb.add_child(K.label(info["info"], 17, K.INK_SOFT, 600, HORIZONTAL_ALIGNMENT_LEFT))
+	if info.has("chips"):
+		# a choice along the bottom (a street fight's bet)
+		var cr := HBoxContainer.new()
+		cr.add_theme_constant_override("separation", 8)
+		var csp := Control.new()
+		csp.custom_minimum_size = Vector2(0, 8)
+		vb.add_child(csp)
+		vb.add_child(cr)
+		var labels: Array = info["chips"]
+		for k in labels.size():
+			var on2: bool = int(info["chip"]) == k
+			var ch := K.button(String(labels[k]), col if on2 else K.CREAM, col.darkened(0.3) if on2 else K.LINE_DK, 18, 0, 46)
+			if not on2:
+				ch.add_theme_color_override("font_color", K.INK_SOFT)
+			var k2 := k
+			var cset: Callable = info["set_chip"]
+			_tap(ch, func():
+				if k2 != int(info["chip"]):
+					game.sfx("select", -8.0, 1.1 + k2 * 0.1)
+					cset.call(k2))
+			cr.add_child(ch)
 	if String(info.get("warn", "")) != "":
 		vb.add_child(K.label(info["warn"], 17, Color("d0503a"), 700, HORIZONTAL_ALIGNMENT_LEFT))
 	if info.has("diff"):

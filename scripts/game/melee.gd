@@ -335,8 +335,14 @@ func _land(foot: CharacterBody3D, def: Dictionary, tgt: Dictionary) -> void:
 		var rocked := int(f["hits"]) >= 3
 		f["atk"] = {}
 		f["left"] = 0
-		f["phase"] = "circle"
-		f["cool"] = maxf(float(f["cool"]), 0.7 * float(prof["recover"]))
+		var solo := (f["pr"] as Dictionary).has("solo")
+		if not solo:
+			f["phase"] = "circle"
+			f["cool"] = maxf(float(f["cool"]), 0.7 * float(prof["recover"]))
+		else:
+			# (a street fighter shakes it off and keeps coming: they're here to fight)
+			f["phase"] = "press"
+			f["left"] = randi_range(1, int(prof["combo"]))
 		# (the good ones fire straight back as soon as they've shaken it off)
 		if randf() < float(prof.get("counter", 0.2)) * 0.5:
 			f["cool"] = 0.0
@@ -349,7 +355,7 @@ func _land(foot: CharacterBody3D, def: Dictionary, tgt: Dictionary) -> void:
 			if av and is_instance_valid(av):
 				av.play_once("fight_center_block", 0.15, 0.5, 1.3, true, 0.05)
 		else:
-			f["stun"] = (1.0 if rocked else (0.55 if heavy else 0.4)) * float(prof["recover"])
+			f["stun"] = (1.0 if rocked else (0.55 if heavy else 0.4)) * float(prof["recover"]) * (0.6 if solo else 1.0)
 			if rocked:
 				push *= 1.8
 				f["hits"] = 0

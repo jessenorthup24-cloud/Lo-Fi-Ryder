@@ -2302,6 +2302,7 @@ func _build_markers() -> void:
 	fights.build_spots()
 	for fd in Fights.FIGHTERS:
 		_marker("fight", fd["id"], fights.spots[fd["id"]], Color("ffb020"), "Street fight: " + String(fd["nick"]), 4.5)
+		island.map_marker(fights.spots[fd["id"]], Color("ffb020"), 9.0)
 
 func _zone_start(z: Dictionary) -> Vector3:
 	var c: Vector3 = z["pos"]
@@ -4071,12 +4072,18 @@ func _foot_cam(dt: float) -> void:
 	aim_kick = lerpf(aim_kick, 0.0, 1.0 - exp(-dt * 9.0))
 	# in a fist fight: the view eases round onto whoever you're squared up to (not snapped: still yours to drag)
 	var mf: Vector3 = melee.focus() if melee else Vector3.INF
-	if mf != Vector3.INF and look_t > 0.6:
+	# a street fight: the camera's locked on your opponent from the start (no dragging it off them)
+	var fight_lock: Vector3 = fights.focus() if fights else Vector3.INF
+	if fight_lock != Vector3.INF:
+		mf = fight_lock
+		look_yaw_t = lerp_angle(look_yaw_t, 0.0, 1.0 - exp(-dt * 6.0))
+		look_pitch_t = lerpf(look_pitch_t, 0.0, 1.0 - exp(-dt * 6.0))
+	if mf != Vector3.INF and (look_t > 0.6 or fight_lock != Vector3.INF):
 		var md: Vector3 = mf - foot.global_position
 		# (a three-quarter view of the two of you: off to your right-rear, not straight down the line
 		# between you, where you'd block them from view)
 		var mwant := atan2(-md.x, -md.z) + 0.75 - look_yaw_t
-		foot_yaw = lerp_angle(foot_yaw, mwant, 1.0 - exp(-dt * 2.2))
+		foot_yaw = lerp_angle(foot_yaw, mwant, 1.0 - exp(-dt * (5.0 if fight_lock != Vector3.INF else 2.2)))
 	# locked on: the view drifts onto them (the reticle settles on the one you're shooting)
 	if gunplay.lock_pos != Vector3.INF and ak > 0.3 and gunplay.manual_t <= 0.0:
 		var d: Vector3 = gunplay.lock_pos - cam.global_position
