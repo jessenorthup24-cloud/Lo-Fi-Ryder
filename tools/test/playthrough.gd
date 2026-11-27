@@ -115,6 +115,8 @@ func _run() -> void:
 			await _gore()
 		"carhit":
 			await _carhit()
+		"fear":
+			await _fear()
 		"mapper":
 			await _mapper()
 		"ram":
@@ -1868,3 +1870,40 @@ func _carhit() -> void:
 	await snap("you_down")
 	await wait(4.0)
 	check(foot.down_t <= 0.0 and not game.gunplay.dying, "and back up")
+
+
+## Shoot someone (not dead): they run from you and keep running, no waving, no turning back; the people
+## round them are frightened too (some on the phone once they're clear).
+func _fear() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.5)
+	game.toggle_foot()
+	await wait(0.5)
+	var foot: Node3D = game.foot
+	var pr := _gore_target(foot)
+	foot.place((pr["pos"] as Vector3) + Vector3(4.0, 0.3, 0.0), PI * 0.5)
+	await wait(1.5)
+	pr["friendly"] = true
+	var r := await _shoot_bone(pr, "LeftUpLeg", 15.0)
+	check(r == 1 and pr.get("victim", false) and float(pr.get("fear", 0.0)) > 100.0, "shot: a victim, terrified")
+	var d0: float = (pr["pos"] as Vector3).distance_to(foot.global_position)
+	var waved := false
+	var faced := 0
+	for k in 40:
+		await wait(0.25)
+		if float(pr.get("wave", 0.0)) > 0.1:
+			waved = true
+		var to: Vector3 = foot.global_position - (pr["pos"] as Vector3)
+		var fwd := Vector3(-sin(float(pr["face"])), 0, -cos(float(pr["face"])))
+		if fwd.dot(to.normalized()) > 0.7:
+			faced += 1
+	var d1: float = (pr["pos"] as Vector3).distance_to(foot.global_position)
+	check(d1 > d0 + 6.0 or pr.get("leave", false) or pr["gone"], "ran off (%.0f -> %.0f m)" % [d0, d1])
+	check(not waved, "no waving at you")
+	check(faced <= 2, "didn't turn round to look at you (%d)" % faced)
+	var scared := 0
+	for p2 in game.island.people.list:
+		if not p2["gone"] and float(p2.get("fear", 0.0)) > 0.0:
+			scared += 1
+	note("frightened about: %d" % scared)

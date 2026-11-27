@@ -613,7 +613,8 @@ func _provoke(pr: Dictionary) -> void:
 
 func _flee_and_call(pr: Dictionary) -> void:
 	pr["fled"] = true
-	game.island.people.panic(pr["pos"], 2.0)
+	game.island.people.panic(pr["pos"], 12.0)
+	game.island.people.scare(pr, true)
 	calls.append({"t": randf_range(3.0, 5.0), "pos": pr["pos"], "pr": pr})
 
 func _calls_tick(dt: float) -> void:

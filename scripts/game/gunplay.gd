@@ -277,6 +277,9 @@ func _find_aim(you: CharacterBody3D) -> void:
 				lock_pos = p
 	if lock_pos != Vector3.INF:
 		aim_point = lock_pos
+		# a gun on someone: they don't stand there, they run (or cower)
+		if lock is Dictionary and (lock as Dictionary).has("pose") and float((lock as Dictionary).get("fear", 0.0)) <= 0.0:
+			game.island.people.scare(lock)
 		return
 	# free aim: down the middle of the screen, from the camera, to whatever it meets (or far off)
 	var q := PhysicsRayQueryParameters3D.create(from + fwd * 2.0, from + fwd * rng, 1 | 2 | 16 | 256)
@@ -480,6 +483,7 @@ func _hit_person(pr: Dictionary, d: Vector3, dmg: float, at: Vector3) -> int:
 	var gr: int = game.gore.shoot_person(pr, d, dmg, at)
 	if gr >= 0:
 		return gr
+	game.island.people.scare(pr, true)
 	pr["hp"] = float(pr.get("hp", PERSON_HP)) - dmg
 	if float(pr["hp"]) <= 0.0:
 		_kill_person(pr, d, dmg)
@@ -857,26 +861,62 @@ func _officers_tick(dt: float, you: CharacterBody3D) -> void:
 			continue
 		if not o.has("sta"):
 			o["sta"] = Sta.make()
-		if d > 11.0:
+		# how they fight: run in; in range, keep their distance and sidestep as they shoot (no standing still in
+		# the open); badly hurt, back to cover behind their car, crouched, up now and then to fire
+		var ok: float = Sta.k(o["sta"]) * (0.55 if (float(o["hp"]) < OFFICER_HP * Sta.HURT_AT or o.get("leg_hurt", false)) else 1.0)
+		var tn := to.normalized() if d > 0.01 else Vector3.FORWARD
+		var left := Vector3(tn.z, 0, -tn.x)
+		var can_fire := true
+		var cover := _cover_spot(o, yp)
+		av.crouch = false
+		if float(o["hp"]) < OFFICER_HP * 0.5 and cover != Vector3.INF:
+			var tc: Vector3 = cover - n.global_position
+			tc.y = 0.0
+			if tc.length() > 0.7:
+				want = tc.normalized() * 4.0 * ok
+				can_fire = false
+				Sta.use(o["sta"], 6.0 * dt)
+			else:
+				o["peek_t"] = float(o.get("peek_t", 0.0)) - dt
+				if float(o["peek_t"]) <= -1.1:
+					o["peek_t"] = randf_range(1.2, 2.2)
+				av.crouch = float(o["peek_t"]) > 0.0
+				can_fire = not av.crouch
+				Sta.tick(o["sta"], dt, 1.0)
+			av.aim_at(yp + Vector3(0, 1.0, 0) if can_fire else Vector3.INF, true, dt)
+		elif d > 13.0:
 			# running after you: it wears them out (then a jog); shot up, a hobble
 			Sta.use(o["sta"], 8.0 * dt)
-			var ok: float = Sta.k(o["sta"]) * (0.55 if (float(o["hp"]) < OFFICER_HP * Sta.HURT_AT or o.get("leg_hurt", false)) else 1.0)
-			want = to.normalized() * 4.6 * ok
+			want = tn * 4.6 * ok
+			can_fire = d < 20.0 and randf() < 0.5
 			av.aim_at(Vector3.INF, true, dt)
 		else:
-			Sta.tick(o["sta"], dt, 1.0)
-			av.play("holding-both", 1.0)
+			Sta.tick(o["sta"], dt, 0.6)
+			o["side_t"] = float(o.get("side_t", 0.0)) - dt
+			if float(o["side_t"]) <= 0.0:
+				o["side"] = -1.0 if randf() < 0.5 else 1.0
+				o["side_t"] = randf_range(1.2, 2.8)
+			var radial := 0.0
+			if d < 7.0:
+				radial = -1.7
+			elif d > 11.5:
+				radial = 1.5
+			if o.get("blocked", false):
+				radial = 2.2          # (can't see you from here: in closer)
+			want = (tn * radial + left * float(o.get("side", 1.0)) * 1.6) * ok
 			av.aim_at(yp + Vector3(0, 1.0, 0), true, dt)
 		n.velocity.x = lerpf(n.velocity.x, want.x, 1.0 - exp(-dt * 8.0))
 		n.velocity.z = lerpf(n.velocity.z, want.z, 1.0 - exp(-dt * 8.0))
 		n.velocity.y = 0.0 if n.is_on_floor() else n.velocity.y - 16.0 * dt
 		n.move_and_slide()
 		av.rotation.y = atan2(-to.x, -to.z) + PI
-		if d > 11.0:
-			# (the run at the pace they're really making: the feet match the ground going by)
-			av.locomote(Vector2(0, Vector2(n.velocity.x, n.velocity.z).length()), 0.2)
+		# (the feet at the pace and the way they're really going, facing you: a run, a sidestep, a back-pedal)
+		var hv := Vector3(n.velocity.x, 0, n.velocity.z)
+		av.locomote(Vector2(hv.dot(left), hv.dot(tn)), 0.2)
 		o["cool"] = float(o["cool"]) - dt
-		if d < 32.0 and float(o["cool"]) <= 0.0:
+		var from0 := n.global_position + Vector3(0, 1.3, 0)
+		o["blocked"] = not _clear(from0, yp + Vector3(0, 1.0, 0))
+		if d < 32.0 and float(o["cool"]) <= 0.0 and can_fire and not o["blocked"]:
 			o["cool"] = randf_range(0.9, 1.6)
 			var from := n.global_position + Vector3(0, 1.3, 0)
 			# who they shoot at: you, or one of your crew if they're nearer
@@ -904,6 +944,20 @@ func _officers_tick(dt: float, you: CharacterBody3D) -> void:
 						game.allies.hurt(ally, OFFICER_SHOT, from)
 				else:
 					_tracer(from, aim + Vector3(randf_range(-1.4, 1.4), randf_range(-0.4, 0.8), randf_range(-1.4, 1.4)))
+
+## Cover for a hurt officer: the far side of their own car from you (if it's near).
+func _cover_spot(o: Dictionary, you_p: Vector3) -> Vector3:
+	var u = o.get("unit")
+	if not (u is Dictionary) or not is_instance_valid(u.get("car")):
+		return Vector3.INF
+	var cp: Vector3 = (u["car"] as Node3D).global_position
+	if cp.distance_to((o["node"] as Node3D).global_position) > 30.0:
+		return Vector3.INF
+	var away := cp - you_p
+	away.y = 0.0
+	var spot := cp + away.normalized() * 2.4
+	spot.y = game.island.height_at(spot.x, spot.z)
+	return spot
 
 func _officer_out(u: Dictionary, k: int) -> void:
 	var uc: Node3D = u["car"]

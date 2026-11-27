@@ -290,6 +290,10 @@ func _place_live(pr: Dictionary, base: Vector3, t: float) -> void:
 			av.locomote(Vector2(0, spd), 0.2)
 	elif float(pr.get("flee", 0.0)) > 0.0:
 		av.play("terrified")
+	elif pr.get("phoning", false):
+		av.play("phone")
+	elif float(pr.get("fear", 0.0)) > 0.0:
+		av.play("terrified")
 	elif pr.has("path"):
 		av.play("idle")
 	elif float(pr["wave"]) > 0.4 and pr.get("friendly", false):
@@ -307,6 +311,9 @@ func _seat() -> float:
 ## Returns true when someone near the road starts waving (the car can honk back).
 func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 	cheer_t = maxf(0.0, cheer_t - dt)
+	for pr in list.duplicate():
+		if pr.get("leave", false):
+			vanish(pr, null)          # (a victim well away and out of sight: gone off home)
 	_live_tick(dt, car_pos)
 	var honk := false
 	for pr in list:
@@ -335,16 +342,20 @@ func tick(dt: float, car_pos: Vector3, car_vel: Vector3, t: float) -> bool:
 		var d: Vector3 = car_pos - pr["pos"]
 		d.y = 0
 		var dist := d.length()
+		# afraid (they've seen violence, been shot at, been shot): away from you, and nothing friendly
+		if float(pr.get("fear", 0.0)) > 0.0:
+			_afraid(pr, dt, d, dist, walking)
 		if dist > 60.0:
 			if walking and dist < 160.0:
 				_place(pr, t)
 			continue
+		var afraid: bool = float(pr.get("fear", 0.0)) > 0.0
 		if pr["pose"] != "lie":
 			# watch the car go by
-			if dist < 26.0 and not walking and not pr.get("talk_to", false) and pr["pose"] != "sit":
+			if dist < 26.0 and not walking and not pr.get("talk_to", false) and pr["pose"] != "sit" and not afraid:
 				pr["face"] = lerp_angle(pr["face"], atan2(-d.x, -d.z), 1.0 - exp(-dt * 4.0))
-			var want_wave := 1.0 if dist < 18.0 and pr.get("friendly", false) else 0.0
-			if cheer_t > 0.0 and cheer_pos.distance_to(pr["pos"]) < 30.0:
+			var want_wave := 1.0 if dist < 18.0 and pr.get("friendly", false) and not afraid else 0.0
+			if cheer_t > 0.0 and cheer_pos.distance_to(pr["pos"]) < 30.0 and not afraid:
 				want_wave = 1.0
 				pr["cheering"] = true
 				if pr["vy"] == 0.0 and pr["y"] == 0.0 and randf() < dt * 3.0:
@@ -465,8 +476,64 @@ func flinch(pr: Dictionary, d: Vector3) -> void:
 	pr["flinch_ax"] = ax.normalized()
 	pr["flinch"] = 1.0
 
+## Frightened by you: they get away from you and keep away (no friendly wave, no turning round to watch),
+## for a minute or so; a victim (shot, beaten) for as long as they're about, limping if they're hurt, and
+## once they're well clear they're gone (off home, to hospital). Those who only saw it stop at a distance
+## and get on the phone.
+func scare(pr: Dictionary, victim := false) -> void:
+	if pr["gone"] or pr.get("down", false):
+		return
+	pr["fear"] = 9999.0 if victim else maxf(float(pr.get("fear", 0.0)), randf_range(45.0, 90.0))
+	pr["friendly"] = false
+	pr["wave"] = 0.0
+	pr["talk_to"] = false
+	if victim:
+		pr["victim"] = true
+	if pr["pose"] == "sit":
+		pr["pose"] = "stand"           # (up off the bench)
+		pr["y"] = 0.0
+
+## Each frame they're afraid: near you (or close to where it happened), running away, re-aimed as you move;
+## far enough, the witnesses stop and phone it in, the victims carry on away and are gone once out of sight.
+func _afraid(pr: Dictionary, dt: float, d: Vector3, dist: float, walking: bool) -> void:
+	pr["fear"] = float(pr["fear"]) - dt
+	pr["wave"] = 0.0
+	var away := -d.normalized() if dist > 0.1 else Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)).normalized()
+	var victim: bool = pr.get("victim", false)
+	var near := dist < (45.0 if victim else 32.0)
+	if near:
+		pr["flee"] = maxf(float(pr.get("flee", 0.0)), 1.2)
+		pr["phoning"] = false
+		if walking:
+			var path: PackedVector3Array = pr["path"]
+			var cum: PackedFloat32Array = pr["cum"]
+			var k := 0
+			while k < cum.size() - 2 and cum[k + 1] < float(pr["d"]):
+				k += 1
+			var along := (path[k + 1] - path[k]).normalized()
+			pr["wdir"] = 1.0 if along.dot(away) >= 0.0 else -1.0
+		else:
+			# (a little wander in it, not a straight line: people run, they don't glide)
+			var wob := sin(float(pr.get("phase", 0.0)) + float(pr["fear"]) * 1.7) * 0.35
+			pr["flee_v"] = away.rotated(Vector3.UP, wob) * (4.6 if not pr.get("hurt", false) else 2.4)
+	else:
+		pr["flee"] = 0.0
+		if victim:
+			# well away, and out of sight: they've gone (home, to hospital)
+			if dist > 70.0 and not pr.has("live"):
+				pr["leave"] = true
+			elif not walking:
+				pr["flee"] = 1.0
+				pr["flee_v"] = away * (1.3 if pr.get("hurt", false) else 1.8)
+		elif not walking and pr["pose"] == "stand":
+			pr["phoning"] = true
+			pr["face"] = lerp_angle(float(pr["face"]), atan2(d.x, d.z), 1.0 - exp(-dt * 2.0))       # (turned away from you)
+	if float(pr["fear"]) <= 0.0:
+		pr["fear"] = 0.0
+		pr["phoning"] = false
+
 ## Something awful just happened at `at`: everyone within r runs off (walkers hurry away along their way;
-## people standing about run a few metres away from it).
+## people standing about run a few metres away from it), and they're frightened a good while after.
 func panic(at: Vector3, r: float) -> void:
 	for pr in list:
 		if pr["gone"] or pr.get("down", false) or pr.has("ride") or pr["pose"] == "lie":
@@ -477,6 +544,7 @@ func panic(at: Vector3, r: float) -> void:
 			continue
 		pr["flee"] = randf_range(2.5, 4.5)
 		pr["wave"] = 0.0
+		scare(pr)
 		var away := d.normalized() if d.length() > 0.1 else Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)).normalized()
 		pr["flee_v"] = away * randf_range(3.5, 5.0)
 		if pr.has("path"):

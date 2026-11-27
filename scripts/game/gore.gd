@@ -68,7 +68,9 @@ func shoot_person(pr: Dictionary, d: Vector3, raw: float, at: Vector3) -> int:
 	if off.ends_with("leg") or off.ends_with("shin"):
 		_to_crawler(pr, av, d, int(hb[0]))
 	else:
-		game.island.people.panic(pr["pos"], 3.0)
+		# shot: terrified, away from you for good (limping, if it was a leg), and everyone round them too
+		game.island.people.panic(pr["pos"], 22.0)
+		game.island.people.scare(pr, true)
 	game.police.heat_pts += 0.1
 	return 1
 
