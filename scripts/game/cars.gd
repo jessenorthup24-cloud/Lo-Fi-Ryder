@@ -3,6 +3,7 @@ extends RefCounted
 ## power / speed / grip: 1.0 = the Sunny Bug. drift: above 1 the tail lets go more easily.
 ## drifter: a drift car, the only kind that goes into drift mode on the handbrake (everything else is a road
 ## car: weighty, real grip, a handbrake that just locks the back wheels). mass: heavier (trucks) or lighter.
+## travel: how far its wheels hang (metres; 0.28 normally). offroad: its grip on grass, dirt and sand.
 
 const LIST := [
 	{"id": "bug", "name": "Sunny Bug", "price": 0, "model": "13_4", "power": 1.0, "speed": 1.0, "grip": 1.0, "drift": 1.05, "mass": 0.95, "engine": "small", "pitch": 1.15},
@@ -20,6 +21,9 @@ const LIST := [
 	{"id": "bushwhacker", "name": "Bushwhacker", "price": 10200, "model": "ds_ute", "power": 1.26, "speed": 1.04, "grip": 1.1, "drift": 1.18, "mass": 1.15, "engine": "truck", "pitch": 0.94},
 	{"id": "mail", "name": "Grand Tourer", "price": 11200, "model": "6_1", "power": 1.3, "speed": 1.12, "grip": 1.1, "drift": 1.1, "mass": 1.05, "engine": "v8", "pitch": 1.02},
 	{"id": "tractor", "name": "Sky Dart", "price": 13000, "model": "7_1", "power": 1.3, "speed": 1.12, "grip": 1.1, "drift": 1.18, "engine": "small", "pitch": 1.3},
+	# the Lo-Fi Crawler: a rock crawler on solid axles and long coil-overs (its own model, tools/cars/bake_glb_car.gd
+	# FRONT_Z): heavy, slow at the top end, flexes over anything and bites in the dirt
+	{"id": "crawler", "name": "Lo-Fi Crawler", "price": 14000, "model": "crawler", "power": 1.3, "speed": 0.92, "grip": 1.08, "drift": 1.0, "mass": 1.4, "travel": 0.46, "offroad": 1.35, "engine": "truck", "pitch": 0.82},
 	{"id": "firetruck", "name": "Redline", "price": 15000, "model": "11_1", "power": 1.38, "speed": 1.15, "grip": 1.12, "drift": 1.15, "engine": "small", "pitch": 1.35},
 	{"id": "bus", "name": "Yellow Jacket", "price": 17000, "model": "1_1", "power": 1.36, "speed": 1.12, "grip": 1.06, "drift": 1.3, "mass": 1.1, "engine": "v8", "pitch": 0.95},
 	{"id": "dump", "name": "Bluebolt", "price": 19000, "model": "2_1", "power": 1.42, "speed": 1.18, "grip": 1.14, "drift": 1.15, "engine": "small", "pitch": 1.4},

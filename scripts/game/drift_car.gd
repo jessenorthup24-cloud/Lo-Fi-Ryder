@@ -145,6 +145,10 @@ var roof_t := 0.0            # lying on its roof or side, touching the ground (c
 var _air_free := {"gas": false, "brake": false, "steer": false}
 const GEARS := [0.0, 8.5, 15.0, 22.0, 29.5, 37.0, 46.0, 60.0]
 const TRAVEL := 0.28
+var travel := TRAVEL         # how far a wheel drops (a crawler's hang much further: it flexes over rocks)
+var offroad_k := 1.0         # grip off the road (a crawler's tyres bite in the dirt)
+# ---- a crawler's solid axles and coil-overs, moved with the wheels (cars_meta "rig")
+var rig := {}
 const REST := 0.32           # ray starts this far above the wheel centre
 
 func setup(def: Dictionary, mat: Material, isl: Node, paint := 0) -> void:
@@ -178,6 +182,22 @@ func setup(def: Dictionary, mat: Material, isl: Node, paint := 0) -> void:
 		wheels.append({"mount": Vector3(sp.x, sp.y + REST, sp.z), "home": sp, "r": float(info["r_f"] if i < 2 else info["r_r"]),
 			"front": i < 2, "left": sp.x < 0.0, "len": REST, "last": REST, "contact": false, "spin": 0.0, "load": 0.0,
 			"slip": 0.0, "surf": 1})
+	rig = {}
+	if info.has("rig"):
+		var rg: Dictionary = info["rig"]
+		rig = {"axles": [], "springs": [], "tops": rg["spring_tops"], "len": float(rg["spring_len"]), "at": [rg["axle_f_at"], rg["axle_r_at"]]}
+		for k in ["axle_f", "axle_r"]:
+			var am := MeshInstance3D.new()
+			am.mesh = rg[k]
+			am.material_override = mat
+			add_child(am)
+			(rig["axles"] as Array).append(am)
+		for k in 4:
+			var sm := MeshInstance3D.new()
+			sm.mesh = rg["spring"]
+			sm.material_override = mat
+			add_child(sm)
+			(rig["springs"] as Array).append(sm)
 	# a box for the body, sitting above the wheels so the springs do the work
 	var w: float = info["width"]
 	var l: float = info["length"]
@@ -227,6 +247,8 @@ func tune(def: Dictionary, up: Dictionary, tun := {}) -> void:
 		neon_node = make_neon(info, NEON[ni], body_node.material_override if body_node else null)
 		add_child(neon_node)
 	can_drift = bool(def.get("drifter", false))
+	travel = float(def.get("travel", TRAVEL))
+	offroad_k = float(def.get("offroad", 1.0))
 	weighty = not can_drift
 	# road cars: real weight. More mass and more of it to swing round (slower to turn in, it leans into
 	# corners and dives under braking), softer springs, and less shove from the engine for that weight
@@ -557,13 +579,13 @@ func _physics_process(dt: float) -> void:
 		var wd: Dictionary = wheels[i]
 		var r: float = wd["r"]
 		var origin: Vector3 = xf * (wd["mount"] as Vector3)
-		var q := PhysicsRayQueryParameters3D.create(origin, origin - up * (REST + TRAVEL + r), 1 | 2)
+		var q := PhysicsRayQueryParameters3D.create(origin, origin - up * (REST + travel + r), 1 | 2)
 		q.exclude = [get_rid()]
 		var hit := space.intersect_ray(q)
 		wd["last"] = wd["len"]
 		if hit.is_empty():
 			wd["contact"] = false
-			wd["len"] = move_toward(float(wd["len"]), REST + TRAVEL, dt * 3.0)
+			wd["len"] = move_toward(float(wd["len"]), REST + travel, dt * 3.0)
 			wd["load"] = 0.0
 			continue
 		grounded += 1
@@ -602,6 +624,7 @@ func _physics_process(dt: float) -> void:
 				g = 1.0
 		var offroad := s in OFFROAD
 		if offroad:
+			g *= offroad_k
 			g *= 1.0 + 0.12 * ride - 0.08 * camber     # lifted bites in the dirt; slammed with camber slips
 		wd["surf"] = s
 		if not wd["front"]:
@@ -936,7 +959,7 @@ func _wheel_vis(dt: float) -> void:
 		var wd: Dictionary = wheels[i]
 		var wn: MeshInstance3D = wheel_nodes[i]
 		var home: Vector3 = wd["home"]
-		var drop: float = clampf(float(wd["len"]) - REST, -0.2, TRAVEL)
+		var drop: float = clampf(float(wd["len"]) - REST, -0.2, travel)
 		var b := Basis()
 		if wd["front"]:
 			b = Basis(Vector3.UP, -vis_steer)
@@ -947,6 +970,38 @@ func _wheel_vis(dt: float) -> void:
 			b = b * Basis(Vector3(0, 0, 1), lean) * Basis(Vector3.UP, sin(float(wd["spin"])) * deg_to_rad(4.0) * absf(bent))
 		b = b * Basis(Vector3.RIGHT, -float(wd["spin"]))
 		wn.transform = Transform3D(b, home - Vector3(0, drop, 0))
+	if not rig.is_empty():
+		_rig_vis()
+
+## A crawler's solid axles: each one a beam from wheel to wheel, so when one side climbs a rock the axle
+## tilts (articulation); and the coil-overs, from the body (leaning with it) down to the axle, stretching
+## and squashing as they go.
+func _rig_vis() -> void:
+	var axles: Array = rig["axles"]
+	var springs: Array = rig["springs"]
+	var tops: Array = rig["tops"]
+	for ax in 2:
+		var wl: Dictionary = wheels[ax * 2]
+		var wr: Dictionary = wheels[ax * 2 + 1]
+		var pl: Vector3 = (wheel_nodes[ax * 2] as Node3D).position
+		var pr: Vector3 = (wheel_nodes[ax * 2 + 1] as Node3D).position
+		var at: Vector3 = rig["at"][ax]
+		var tilt := atan2(pr.y - pl.y, pr.x - pl.x)
+		var mid := (pl + pr) * 0.5
+		var hub: float = (float((wl["home"] as Vector3).y) + float((wr["home"] as Vector3).y)) * 0.5
+		var ab := Basis(Vector3(0, 0, 1), tilt)
+		var axf := Transform3D(ab, Vector3(at.x, mid.y + (at.y - hub), at.z))
+		(axles[ax] as Node3D).transform = axf
+		for sd in 2:
+			var si := ax * 2 + sd
+			var top: Vector3 = body_node.transform * (tops[si] as Vector3)
+			var bot: Vector3 = axf * Vector3((tops[si] as Vector3).x, 0.0, 0.0)
+			var span := top - bot
+			var ln := maxf(span.length(), 0.05)
+			var yax := span / ln
+			var xax := Vector3.BACK.cross(yax).normalized() if absf(yax.z) < 0.95 else Vector3.RIGHT
+			var zax := xax.cross(yax)
+			(springs[si] as Node3D).transform = Transform3D(Basis(xax, yax * (ln / float(rig["len"])), zax), top)
 
 
 ## A wheel leaning in at the top by camber (0..1 of CAMBER_MAX).

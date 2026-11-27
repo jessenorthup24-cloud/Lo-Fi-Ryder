@@ -239,6 +239,70 @@ func _run() -> void:
 			await snap("sway_brake")
 			game.held["brake"] = false
 			game.wheel_idx = -1
+		"crawler":
+			game.args["drive"] = true
+			game.start_drive()
+			await wait(1.5)
+			game.save.data["car"] = "crawler"
+			game.car_changed()
+			await wait(1.0)
+			var c = game.car
+			check(not c.rig.is_empty() and (c.rig["axles"] as Array).size() == 2 and (c.rig["springs"] as Array).size() == 4, "the crawler has its axles and springs")
+			check(c.travel > 0.4 and c.weighty and not c.can_drift, "long travel, a road car (travel %.2f)" % c.travel)
+			await snap("crawler_parked")
+			# off the road, up the grass: one side up a kerb, the axle tilts
+			await _strip(0.0)
+			game.held["gas"] = true
+			await wait(4.0)
+			check(c.speed > 8.0, "it gets going (%.1f m/s)" % c.speed)
+			game.held["gas"] = false
+			var ax: Node3D = c.rig["axles"][0]
+			note("front axle tilt %.1f deg, spring scale %.2f" % [rad_to_deg(ax.transform.basis.get_euler().z), (c.rig["springs"][0] as Node3D).transform.basis.y.length()])
+			await snap("crawler_driving")
+			# rough ground: the wheels hang and the axles articulate
+			var rough: Vector3 = game.campaign.anchor("place:Pinewood Pass")
+			c.place(game.on_ground(Transform3D(Basis(), rough + Vector3(0, 0.8, 0))))
+			await wait(2.0)
+			var tilt_max := 0.0
+			game.held["gas"] = true
+			for k in 40:
+				await wait(0.1)
+				tilt_max = maxf(tilt_max, absf(rad_to_deg((c.rig["axles"][0] as Node3D).transform.basis.get_euler().z)))
+			game.held["gas"] = false
+			note("off-road: axle articulation up to %.1f deg" % tilt_max)
+			check(c.global_transform.basis.y.y > 0.6, "still on its wheels off-road")
+			# a rock under the front left wheel, at a crawl: the front axle tilts round it
+			await _strip(0.0)
+			var fl: Vector3 = c.global_transform * (c.wheels[0]["home"] as Vector3)
+			var rock := StaticBody3D.new()
+			var rs := CollisionShape3D.new()
+			var rb := BoxShape3D.new()
+			rb.size = Vector3(1.2, 0.5, 1.6)
+			rs.shape = rb
+			rock.add_child(rs)
+			var rm := MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			bm.size = rb.size
+			rm.mesh = bm
+			rock.add_child(rm)
+			game.add_child(rock)
+			var fwd: Vector3 = -c.global_transform.basis.z
+			rock.global_position = Vector3(fl.x, game.island.height_at(fl.x, fl.z) + 0.25, fl.z) + fwd * 2.6
+			game.held["gas"] = true
+			var tmax := 0.0
+			for k in 50:
+				await wait(0.06)
+				if c.speed > 2.5:
+					game.held["gas"] = false
+				elif c.speed < 1.2:
+					game.held["gas"] = true
+				tmax = maxf(tmax, absf(rad_to_deg((c.rig["axles"][0] as Node3D).transform.basis.get_euler().z)))
+				if k == 30:
+					await snap("crawler_rock")
+			game.held["gas"] = false
+			note("over the rock: front axle tilted up to %.1f deg" % tmax)
+			check(tmax > 5.0, "the solid axle articulates over a rock (%.1f deg)" % tmax)
+			rock.queue_free()
 		"racebug":
 			game.args["drive"] = true
 			game.start_drive()

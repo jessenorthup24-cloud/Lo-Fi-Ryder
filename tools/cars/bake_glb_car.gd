@@ -10,12 +10,18 @@ extends SceneTree
 ##   An FBX works too, coloured from its swatch sheet (the Designersoup cars):
 ##   GLB=/path/car.fbx PALETTE=/path/palette.png KEY=wedge LEN=4.2 godot --headless --path . -s tools/cars/bake_glb_car.gd
 ## Expects the glTF's front along -X, its left along +Z, wheel nodes named Wheel_Front_L and so on.
+## FRONT_Z=1: a car facing -Z already, its wheels as Spin_FL / Spin_FR / Spin_RL / Spin_RR (under Travel_ and
+## Steer_ nodes), with solid axles (Axle_Front, Axle_Rear) and coil-overs (Spring_FL ...) as their own parts:
+## those are baked separately (<key>_axle_f.res, <key>_axle_r.res, <key>_spring.res) for the game to move
+## (the Lo-Fi Crawler: GLB=/path/crawler.glb KEY=crawler LEN=4.8 FRONT_Z=1 NOTEX=1 ...)
 
 const OUT := "res://assets/cars/"
 const GAME_SCALE := 2.6       # models.gd CAR_SCALE: the game grows the toy-size meta by this
 const PAD := 8
 
 var key := ""
+var front_z := false
+var extras := {}               # FRONT_Z: axle and spring parts by name -> [MeshInstance3D, Transform3D in the car's space]
 var to_game := Transform3D()    # glTF metres -> toy size, facing -Z
 var atlas_rects := {}           # Texture2D rid -> Rect2 (in atlas pixels)
 var atlas: Image
@@ -23,6 +29,7 @@ var atlas: Image
 func _init() -> void:
 	var path := OS.get_environment("GLB")
 	key = OS.get_environment("KEY")
+	front_z = OS.get_environment("FRONT_Z") != ""
 	var want_len := float(OS.get_environment("LEN")) if OS.get_environment("LEN") != "" else 4.2
 	print("BAKE start ", path)
 	var fbx := path.get_extension().to_lower() == "fbx"
@@ -61,8 +68,8 @@ func _init() -> void:
 		var ab: AABB = (bp[1] as Transform3D) * (bp[0] as MeshInstance3D).mesh.get_aabb()
 		lo = lo.min(ab.position)
 		hi = hi.max(ab.end)
-	var s := want_len / (hi.x - lo.x) / GAME_SCALE
-	to_game = Transform3D(Basis(Vector3.UP, -PI * 0.5).scaled(Vector3.ONE * s), Vector3.ZERO)
+	var s := want_len / ((hi.z - lo.z) if front_z else (hi.x - lo.x)) / GAME_SCALE
+	to_game = Transform3D((Basis() if front_z else Basis(Vector3.UP, -PI * 0.5)).scaled(Vector3.ONE * s), Vector3.ZERO)
 	if not notex:
 		_build_atlas(body_parts)
 	# the body
@@ -73,6 +80,8 @@ func _init() -> void:
 	for side in [["Front_L", "_wl"], ["Front_R", "_wr"]]:
 		var g: Node3D = wheel_groups[side[0]]
 		var parts := []
+		if g is MeshInstance3D:
+			parts.append([g, Transform3D()])        # (FRONT_Z: the wheel node is its own mesh)
 		for c in g.get_children():
 			if c is MeshInstance3D:
 				parts.append([c, (c as MeshInstance3D).transform])
@@ -90,6 +99,27 @@ func _init() -> void:
 	var lift: float = wr - float((to_game * (wheel_groups["Front_L"] as Node3D).get_meta("at")).y)
 	if absf(lift) > 0.001:
 		push_warning("wheel centres not at tyre radius: lift %.3f (not applied)" % lift)
+	# FRONT_Z: the axles and a coil-over, each round its own pivot (the node's origin), and where they sit
+	if not extras.is_empty():
+		var rig := {}
+		for pr in [["Axle_Front", "_axle_f", "axle_f"], ["Axle_Rear", "_axle_r", "axle_r"], ["Spring_FL", "_spring", "spring"]]:
+			if not extras.has(pr[0]):
+				continue
+			var e: Array = extras[pr[0]]
+			var em := _bake([[e[0], Transform3D()]], false, true)
+			ResourceSaver.save(em, OUT + key + String(pr[1]) + ".res", ResourceSaver.FLAG_COMPRESS)
+			var at3: Vector3 = to_game * (e[1] as Transform3D).origin
+			rig[pr[2]] = [snappedf(at3.x, 0.001), snappedf(at3.y, 0.001), snappedf(at3.z, 0.001)]
+		var tops := []
+		for nm2 in ["Spring_FL", "Spring_FR", "Spring_RL", "Spring_RR"]:
+			if extras.has(nm2):
+				var t3: Vector3 = to_game * ((extras[nm2] as Array)[1] as Transform3D).origin
+				tops.append([snappedf(t3.x, 0.001), snappedf(t3.y, 0.001), snappedf(t3.z, 0.001)])
+		rig["spring_tops"] = tops
+		if extras.has("Spring_FL"):
+			var sab: AABB = ((extras["Spring_FL"] as Array)[0] as MeshInstance3D).mesh.get_aabb()
+			rig["spring_len"] = snappedf(sab.size.y * to_game.basis.get_scale().y, 0.0001)
+		info["rig"] = rig
 	var bab := bm.get_aabb()
 	info["aabb"] = [snappedf(bab.position.x, 0.001), snappedf(bab.position.y, 0.001), snappedf(bab.position.z, 0.001), snappedf(bab.size.x, 0.001), snappedf(bab.size.y, 0.001), snappedf(bab.size.z, 0.001)]
 	info["verts"] = bm.surface_get_array_len(0)
@@ -107,6 +137,17 @@ func _walk(n: Node, xf: Transform3D, wheels: Dictionary, body: Array) -> void:
 	for c in n.get_children():
 		var cx := xf * (c as Node3D).transform if c is Node3D else xf
 		var nm := String(c.name)
+		if front_z and nm.begins_with("Spin_"):
+			var corner := {"FL": "Front_L", "FR": "Front_R", "RL": "Rear_L", "RR": "Rear_R"}
+			(c as Node3D).set_meta("at", cx.origin)
+			wheels[corner[nm.trim_prefix("Spin_")]] = c
+			continue
+		if front_z and (nm.begins_with("Axle_") or nm.begins_with("Spring_")):
+			extras[nm] = [c, cx]
+			continue
+		if front_z and nm.begins_with("Steer_"):
+			_walk(c, cx, wheels, body)
+			continue
 		if nm.begins_with("Wheel_") and c.get_child_count() > 0:
 			var k := nm.trim_prefix("Wheel_")
 			(c as Node3D).set_meta("at", cx.origin)

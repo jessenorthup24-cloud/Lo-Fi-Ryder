@@ -839,6 +839,19 @@ static func _pack_car(def: Dictionary) -> Dictionary:
 	for w in meta["wheels"]:
 		spots.append(Vector3(w[0], w[1], w[2]) * sc)
 	var ab: Array = meta["aabb"]
+	var out := _pack_car_base(k, meta, sc, wl, wr, spots, ab)
+	# a crawler: its solid axles and a coil-over, moved by the car (drift_car.gd _rig_vis)
+	if meta.has("rig"):
+		var rg: Dictionary = meta["rig"]
+		var tops := []
+		for t in rg["spring_tops"]:
+			tops.append(Vector3(t[0], t[1], t[2]) * sc)
+		out["rig"] = {"axle_f": scaled(load("res://assets/cars/%s_axle_f.res" % k), sc), "axle_r": scaled(load("res://assets/cars/%s_axle_r.res" % k), sc),
+			"spring": scaled(load("res://assets/cars/%s_spring.res" % k), sc), "spring_tops": tops, "spring_len": float(rg["spring_len"]) * sc,
+			"axle_f_at": Vector3(rg["axle_f"][0], rg["axle_f"][1], rg["axle_f"][2]) * sc, "axle_r_at": Vector3(rg["axle_r"][0], rg["axle_r"][1], rg["axle_r"][2]) * sc}
+	return out
+
+static func _pack_car_base(k: String, meta: Dictionary, sc: float, wl: Mesh, wr: Mesh, spots: Array, ab: Array) -> Dictionary:
 	return {"body": scaled(load("res://assets/cars/%s_body.res" % k), sc), "wheel_f": wl, "wheel_r": wl, "wheel_fr": wr, "wheel_rr": wr,
 		"wheels": spots, "r_f": float(meta["r"]) * sc, "r_r": float(meta["r"]) * sc, "ride": 0.0,
 		"top": (float(ab[1]) + float(ab[4])) * sc, "front": float(ab[2]) * sc, "back": (float(ab[2]) + float(ab[5])) * sc,
