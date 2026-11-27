@@ -94,6 +94,8 @@ func _run() -> void:
 			await _campaign()
 		"fightsim":
 			await _fightsim()
+		"notices":
+			await _notices()
 		"places":
 			for pl in game.island.places:
 				print("PLACE %s %s r%.0f" % [pl["name"], pl["pos"], float(pl.get("r", 0))])
@@ -826,7 +828,7 @@ func _tutor() -> void:
 	await wait(1.0)
 	await snap("tut_shop")
 	check(game.tutorial.step_id() == "shop", "coach: to Lo-Fi Customs (step %s)" % game.tutorial.step_id())
-	check(game.story.step >= 2 and game.ui._msgs.is_empty() and not game.ui._msg_busy, "story moved on quietly, no texts (step %d)" % game.story.step)
+	check(game.story.step >= 2 and game.ui._nq.is_empty() and (game.ui._ncur.is_empty() or String(game.ui._ncur.get("key", "")).begins_with("toast:")), "story moved on quietly, no texts (step %d)" % game.story.step)
 	game.police.clear()
 	game.open_shop("customs")
 	await wait(1.5)
@@ -1325,3 +1327,54 @@ func _fightsim() -> void:
 				wins += 1
 			rows.append("%s %.0fs you%.0f them%.0f p%d %s" % [r["res"], float(r.get("t", 0)), float(r.get("hp", 0)), float(r.get("their", 0)), int(r.get("punches", 0)), r.get("ms", "")])
 		print("SIM %s: %d/%d wins | %s" % [id, wins, n, " ; ".join(rows)])
+
+## Pop-ups take turns: a pile of them at once shows one at a time; a tap dismisses the one that's up.
+func _up_count() -> int:
+	var n := 0
+	for c in game.ui.get_children():
+		if c is Control and (c as Control).visible and (c.has_meta("out") or c == game.ui._ncur.get("node")):
+			n += 1
+	for c in game.ui.hud.get_children():
+		if c is Control and c.has_meta("out") and not c.has_meta("going"):
+			n += 1
+	return n
+
+func _notices() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(2.0)
+	var ui = game.ui
+	ui.text_msg("Jay", "First text")
+	ui.text_msg("Mo", "Second text")
+	ui.toast("A toast", "coin")
+	ui.level_up(5, 1000, [["car", "Something"]])
+	ui.heist_done(5000)
+	ui.toast("A toast", "coin")          # (the same again: not twice)
+	await wait(0.5)
+	check(ui._nq.size() == 4, "five pop-ups at once: one up, four waiting (%d waiting)" % ui._nq.size())
+	var most := 0
+	for k in 20:
+		most = maxi(most, _up_count())
+		await wait(0.25)
+	check(most <= 1, "never more than one on screen (most %d)" % most)
+	# a tap dismisses the one that's up
+	var cur: Control = ui._ncur.get("node")
+	var before: int = ui._nq.size()
+	var ev := InputEventMouseButton.new()
+	ev.pressed = true
+	ev.button_index = MOUSE_BUTTON_LEFT
+	cur.gui_input.emit(ev)
+	await wait(0.6)
+	check(not is_instance_valid(cur) or cur.has_meta("going"), "tapped: it's dismissed")
+	check(ui._nq.size() < before, "and the next one comes up (%d -> %d waiting)" % [before, ui._nq.size()])
+	await snap("notice")
+	var cleared := await wait_until(func(): return ui._nq.is_empty() and ui._ncur.is_empty(), 30.0)
+	check(cleared, "all shown in turn and gone")
+	# a challenge's card up: they wait
+	game.pause()
+	ui.text_msg("Jay", "While paused")
+	await wait(1.5)
+	check(ui._ncur.is_empty() and ui._nq.size() == 1, "paused: the text waits")
+	game.resume()
+	await wait(1.0)
+	check(not ui._ncur.is_empty(), "back in: it comes up")

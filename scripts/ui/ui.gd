@@ -1221,6 +1221,9 @@ func heist_hud(title: String, sub: String, frac: float, alarm: bool) -> void:
 
 ## The money's home: HEIST COMPLETE, and the take.
 func heist_done(amount: int) -> void:
+	notice(func(): return _heist_card(amount), 3.2)
+
+func _heist_card(amount: int) -> Dictionary:
 	var lay := Control.new()
 	lay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	lay.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1244,10 +1247,9 @@ func heist_done(amount: int) -> void:
 	tw.set_parallel(true)
 	tw.tween_property(lay, "modulate:a", 1.0, 0.35)
 	tw.tween_property(big, "scale", Vector2.ONE, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.set_parallel(false)
-	tw.tween_interval(2.6)
-	tw.tween_property(lay, "modulate:a", 0.0, 0.7)
-	tw.tween_callback(lay.queue_free)
+	lay.set_meta("out", func(t2: Tween):
+		t2.tween_property(lay, "modulate:a", 0.0, 0.5))
+	return {"node": lay, "tap": big}
 
 func busted_fx(fine: int, word := "BUSTED", line := "") -> void:
 	var lay := Control.new()
@@ -1994,6 +1996,7 @@ var _xp_pending := 0           # XP gained lately, shown as one "+N XP" once it 
 var _xp_pend_t := 0.0
 
 func _process(dt: float) -> void:
+	_cine_t = maxf(0.0, _cine_t - dt)
 	if game == null or game.save == null or lvl_badge == null:
 		return
 	_lvl_t -= dt
@@ -2050,6 +2053,9 @@ func _xp_pop(n: int) -> void:
 ## Level up: a card in the middle of the screen. The level number bursts in, then what you got (the cash,
 ## a pack of car cards) and anything that's opened up with it.
 func level_up(lv: int, cash: int, unlocks: Array) -> void:
+	notice(func(): return _level_card(lv, cash, unlocks), 3.6 + 0.4 * mini(unlocks.size(), 4))
+
+func _level_card(lv: int, cash: int, unlocks: Array) -> Dictionary:
 	lvl_badge.scale = Vector2.ONE * 1.6
 	var bt := lvl_badge.create_tween()
 	bt.tween_property(lvl_badge, "scale", Vector2.ONE, 0.6).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
@@ -2097,9 +2103,9 @@ func level_up(lv: int, cash: int, unlocks: Array) -> void:
 	var tw := card.create_tween()
 	tw.tween_property(card, "modulate:a", 1.0, 0.18)
 	tw.parallel().tween_property(card, "scale", Vector2.ONE, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.tween_interval(3.2 + 0.4 * shown)
-	tw.tween_property(card, "modulate:a", 0.0, 0.4)
-	tw.tween_callback(root.queue_free)
+	_notice_x(card)
+	root.set_meta("out", func(t2: Tween):
+		t2.tween_property(root, "modulate:a", 0.0, 0.3))
 	big.scale = Vector2.ONE * 2.2
 	var tb := big.create_tween()
 	tb.tween_property(big, "scale", Vector2.ONE, 0.55).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT).set_delay(0.12)
@@ -2121,6 +2127,7 @@ func level_up(lv: int, cash: int, unlocks: Array) -> void:
 		ct.tween_property(bit, "position", to, randf_range(1.0, 1.6)).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 		ct.tween_property(bit, "rotation", randf_range(-8, 8), 1.6)
 		ct.tween_property(bit, "modulate:a", 0.0, 0.6).set_delay(1.0)
+	return {"node": root, "tap": card}
 
 func _reward_chip(icon: String, text: String, col: Color) -> Control:
 	var p := PanelContainer.new()
@@ -2135,8 +2142,6 @@ func _reward_chip(icon: String, text: String, col: Color) -> Control:
 # ------------------------------------------------------------------ the story
 
 var goal_lbl: Label
-var _msgs: Array = []          # texts waiting their turn
-var _msg_busy := false
 
 ## What you're meant to be doing: a line under where you are, top left.
 # ------------------------------------------------------------------ the first ride's coach (tutorial.gd)
@@ -2171,58 +2176,133 @@ func story_goal(text: String) -> void:
 		goal_lbl.modulate.a = 0.0
 		goal_lbl.create_tween().tween_property(goal_lbl, "modulate:a", 1.0, 0.5)
 
+# ------------------------------------------------------------------ notices: one at a time, tap to dismiss
+
+## Everything that pops up over the game (a friend's text, a toast, a level-up, a heist done) waits its
+## turn: one on screen at a time, gone after a while or the moment you tap it. They hold off while a menu,
+## a challenge's card or a title card is up. A toast cuts in at the front of the line (it's about now).
+var _nq: Array = []            # {build: Callable -> {node, tap}, hold, hud, key}
+var _ncur: Dictionary = {}     # the one up: {node, tap, key, tw}
+var _cine_t := 0.0             # a title card's up: nothing else for now
+var _npump := false
+
+func notice(build: Callable, hold: float, front := false, key := "", needs_hud := true) -> void:
+	if key != "":
+		if String(_ncur.get("key", "")) == key:
+			return
+		for e in _nq:
+			if String(e["key"]) == key:
+				return
+	var e := {"build": build, "hold": hold, "hud": needs_hud, "key": key}
+	if front:
+		_nq.push_front(e)
+	else:
+		_nq.append(e)
+	_notice_pump()
+
+func _notice_blocked(e: Dictionary) -> bool:
+	if _cine_t > 0.0:
+		return true
+	if not bool(e["hud"]):
+		return false
+	return game.state != game.DRIVE or overlay.visible or not hud.visible or (start_card != null and is_instance_valid(start_card)) \
+		or (phone_layer != null and phone_layer.visible)
+
+func _notice_pump() -> void:
+	if not _ncur.is_empty() and is_instance_valid(_ncur["node"]):
+		return
+	_ncur = {}
+	if _nq.is_empty():
+		return
+	if _notice_blocked(_nq[0]):
+		if not _npump:
+			_npump = true
+			get_tree().create_timer(0.4, false).timeout.connect(func():
+				_npump = false
+				_notice_pump())
+		return
+	var e: Dictionary = _nq.pop_front()
+	var made: Dictionary = (e["build"] as Callable).call()
+	var node: Control = made["node"]
+	var tap: Control = made.get("tap", node)
+	tap.mouse_filter = Control.MOUSE_FILTER_STOP
+	tap.gui_input.connect(func(ev: InputEvent):
+		if (ev is InputEventMouseButton and ev.pressed) or (ev is InputEventScreenTouch and ev.pressed):
+			_notice_dismiss(node))
+	# (a long line waiting: each one's up a bit less)
+	var hold := float(e["hold"]) * (0.65 if _nq.size() >= 3 else 1.0)
+	_ncur = {"node": node, "key": e["key"]}
+	get_tree().create_timer(hold, false).timeout.connect(func(): _notice_dismiss(node))
+
+func _notice_dismiss(node: Control) -> void:
+	if not is_instance_valid(node) or node.has_meta("going"):
+		return
+	node.set_meta("going", true)
+	var out: Callable = node.get_meta("out") if node.has_meta("out") else Callable()
+	var tw := node.create_tween()
+	if out.is_valid():
+		out.call(tw)
+	else:
+		tw.tween_property(node, "modulate:a", 0.0, 0.2)
+	tw.tween_callback(func():
+		node.queue_free()
+		if _ncur.get("node") == node:
+			_ncur = {}
+		get_tree().create_timer(0.12, false).timeout.connect(_notice_pump))
+
+## A small ✕ in the corner of a notice: tap it (or anywhere on it) to dismiss.
+func _notice_x(parent: Control) -> void:
+	var x := K.label("✕", 15, Color(1, 1, 1, 0.45), 700)
+	x.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	x.position = Vector2(-26, 6)
+	x.size = Vector2(20, 20)
+	x.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(x)
+
 ## A text from a friend: a bubble that slides down from the top (one at a time), a buzz.
 func text_msg(from: String, text: String) -> void:
-	_msgs.append([from, text])
-	if not _msg_busy:
-		_next_msg()
+	notice(func(): return _text_card(from, text), clampf(1.6 + text.length() * 0.045, 2.6, 5.5))
 
-func _next_msg() -> void:
-	if _msgs.is_empty():
-		_msg_busy = false
-		return
-	_msg_busy = true
-	if game.state != game.DRIVE or overlay.visible or not hud.visible or (start_card != null and is_instance_valid(start_card)):
-		# (in a shop, the map, the pause menu, a challenge's card up: the text waits till it's clear)
-		get_tree().create_timer(1.0, false).timeout.connect(_next_msg)
-		return
-	var m: Array = _msgs.pop_front()
+func _text_card(from: String, text: String) -> Dictionary:
 	var card := PanelContainer.new()
 	card.add_theme_stylebox_override("panel", K.box(Color(0.07, 0.065, 0.1, 0.92), 22, 0, Color.TRANSPARENT, 14))
-	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var hb := HBoxContainer.new()
 	hb.add_theme_constant_override("separation", 12)
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(hb)
 	var face := PanelContainer.new()
 	face.custom_minimum_size = Vector2(46, 46)
 	face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	face.add_theme_stylebox_override("panel", K.box(Color("5cc8ff"), 23, 0, Color.TRANSPARENT, 0))
-	face.add_child(K.label(String(m[0]).substr(0, 1), 26, Color.WHITE, 800))
+	face.add_child(K.label(from.substr(0, 1), 26, Color.WHITE, 800))
 	hb.add_child(face)
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 0)
+	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(vb)
-	vb.add_child(K.label(String(m[0]), 17, Color("5cc8ff"), 800, HORIZONTAL_ALIGNMENT_LEFT))
-	var tl := K.label(String(m[1]), 20, Color.WHITE, 600, HORIZONTAL_ALIGNMENT_LEFT)
+	vb.add_child(K.label(from, 17, Color("5cc8ff"), 800, HORIZONTAL_ALIGNMENT_LEFT))
+	var tl := K.label(text, 20, Color.WHITE, 600, HORIZONTAL_ALIGNMENT_LEFT)
 	tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	tl.custom_minimum_size = Vector2(520, 0)
 	vb.add_child(tl)
 	add_child(card)
+	_notice_x(card)
 	card.reset_size()
 	var vs := _vs()
 	card.position = Vector2((vs.x - card.size.x) * 0.5, -card.size.y - 10.0)
 	game.sfx("radio_chirp", -10.0, 1.4)
 	game.buzz(25, 0.4)
-	var tw := card.create_tween()
-	tw.tween_property(card, "position:y", 104.0, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.tween_interval(clampf(1.6 + String(m[1]).length() * 0.045, 2.6, 5.5))
-	tw.tween_property(card, "position:y", -card.size.y - 10.0, 0.3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tw.tween_callback(func():
-		card.queue_free()
-		_next_msg())
+	card.create_tween().tween_property(card, "position:y", 104.0, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	card.set_meta("out", func(tw: Tween):
+		tw.tween_property(card, "position:y", -card.size.y - 10.0, 0.25).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN))
+	return {"node": card}
 
 ## The opening: letterbox bars, the title and a line, over the town.
 func intro_card(title_txt: String, sub: String) -> void:
+	_cine_t = 3.8
+	if not _ncur.is_empty() and is_instance_valid(_ncur["node"]):
+		_notice_dismiss(_ncur["node"])
 	var root := Control.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2266,10 +2346,57 @@ func intro_card(title_txt: String, sub: String) -> void:
 	tw.chain().tween_callback(root.queue_free)
 
 func toast(text: String, icon := "", col := K.PAPER, icol := K.INK, hold := 2.2) -> void:
-	# (the same one already up: not stacked twice)
+	if game != null and game.state == game.DRIVE and not overlay.visible:
+		# out in the world: it takes its turn with the other notices (at the front: it's about now)
+		notice(func(): return _toast_card(text, icon, col, icol), hold + 0.3, true, "toast:" + text)
+		return
+	# in a menu or a shop: straight up (feedback on what you just pressed), replacing any before it
 	for c in toasts.get_children():
 		if c.get_meta("text", "") == text and not c.is_queued_for_deletion():
 			return
+		c.queue_free()
+	_toast_legacy(text, icon, col, icol, hold)
+
+## A toast in the line of notices: the same dark pill, at the top in the middle.
+func _toast_card(text: String, icon: String, col: Color, icol: Color) -> Dictionary:
+	var p := _toast_pill(text, icon, col, icol)
+	add_child(p)
+	_notice_x(p)
+	p.reset_size()
+	var vs := _vs()
+	p.position = Vector2((vs.x - p.size.x) * 0.5, 150.0)
+	p.pivot_offset = p.size * 0.5
+	p.modulate.a = 0.0
+	p.scale = Vector2(0.86, 0.86)
+	var t := p.create_tween()
+	t.tween_property(p, "modulate:a", 1.0, 0.18)
+	t.parallel().tween_property(p, "scale", Vector2.ONE, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	p.set_meta("out", func(tw: Tween):
+		tw.tween_property(p, "modulate:a", 0.0, 0.22)
+		tw.parallel().tween_property(p, "scale", Vector2(0.94, 0.94), 0.22))
+	return {"node": p}
+
+func _toast_pill(text: String, icon: String, col: Color, icol: Color) -> PanelContainer:
+	var tinted := col.a > 0.95 and col.get_luminance() > 0.08 and col != K.PAPER
+	var p := PanelContainer.new()
+	var sb := K.box(Color(0.06, 0.055, 0.085, 0.86), 36, 0, Color.TRANSPARENT, 20)
+	sb.set_border_width_all(1)
+	sb.border_color = Color(col, 0.6) if tinted else Color(1, 1, 1, 0.14)
+	icol = col if tinted else K.INK
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
+	sb.content_margin_right = 34
+	p.add_theme_stylebox_override("panel", sb)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 10)
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(hb)
+	if icon != "":
+		hb.add_child(Icon.new(icon, icol, 34))
+	hb.add_child(K.label(text, 24, K.INK, 600))
+	return p
+
+func _toast_legacy(text: String, icon := "", col := K.PAPER, icol := K.INK, hold := 2.2) -> void:
 	# (always a dark glass pill: the toast's own colour goes to its icon and a faint edge)
 	var tinted := col.a > 0.95 and col.get_luminance() > 0.08 and col != K.PAPER
 	var p := PanelContainer.new()
