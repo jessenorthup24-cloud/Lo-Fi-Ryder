@@ -608,10 +608,10 @@ func _build_hud() -> void:
 	ctl["right"] = _pad("right", Vector2(230, -210), Vector2(170, 170), true, K.PAPER)
 	_build_wheel()
 	# pedals, bottom right
-	ctl["brake"] = _pad("brake", Vector2(-420, -210), Vector2(130, 170), false, K.PAPER)
-	ctl["gas"] = _pad("gas", Vector2(-270, -250), Vector2(150, 210), false, K.PAPER)
-	ctl["hand"] = _pad("hand", Vector2(-420, -360), Vector2(130, 120), false, K.PAPER)
-	ctl["nos"] = _pad("nos", Vector2(-270, -380), Vector2(150, 116), false, Color("cfe9ff"))
+	ctl["gas"] = _pad("gas", Vector2(-172, -244), Vector2(136, 212), false, K.PAPER)
+	ctl["brake"] = _pad("brake", Vector2(-322, -204), Vector2(134, 172), false, K.PAPER)
+	ctl["hand"] = _pad("hand", Vector2(-322, -340), Vector2(134, 120), false, K.PAPER)
+	ctl["nos"] = _pad("nos", Vector2(-168, -380), Vector2(128, 124), false, Color("cfe9ff"))
 	ctl["cruise"] = _pad("cruise", Vector2(-528, -356), Vector2(92, 92), false, K.PAPER)
 	ctl["cruise"].visible = false        # (cruise is a tap on the speedo now)
 	# the door: out of the car, or into it (both ways, the same spot)
@@ -619,16 +619,17 @@ func _build_hud() -> void:
 	_place(ctl["door"], Control.PRESET_TOP_RIGHT, Vector2(-404, 80))     # (you start in the car: EXIT up by the phone)
 	# on foot: a stick on the left, jump and sprint on the right
 	ctl["stick"] = _pad("stick", Vector2(60, -300), Vector2(240, 240), true, K.PAPER)
-	ctl["jump"] = _pad("jump", Vector2(-214, -256), Vector2(132, 132), false, K.PAPER)
-	ctl["sprint"] = _pad("sprint", Vector2(-372, -204), Vector2(120, 120), false, K.PAPER)
-	ctl["crouch"] = _pad("crouch", Vector2(-198, -384), Vector2(100, 100), false, K.PAPER)     # (above jump)
-	ctl["fire"] = _pad("fire", Vector2(-424, -392), Vector2(160, 160), false, K.PAPER)
+	# the right thumb's cluster: the main button (punch, or fire) in the corner, the rest on an arc round it
+	ctl["fire"] = _pad("fire", _arc(0, 0, 150), Vector2(150, 150), false, K.PAPER)
+	ctl["jump"] = _pad("jump", _arc(270, 132, 98), Vector2(98, 98), false, K.PAPER)
+	ctl["sprint"] = _pad("sprint", _arc(180, 132, 98), Vector2(98, 98), false, K.PAPER)
+	ctl["crouch"] = _pad("crouch", _arc(225, 140, 76), Vector2(76, 76), false, K.PAPER)
 	ctl["swap"] = _pad("swap", Vector2(-566, -372), Vector2(96, 96), false, K.PAPER)       # (the weapon wheel)
 	_place(ctl["swap"], Control.PRESET_TOP_RIGHT, Vector2(-316, 248))      # (up by the minimap, under the phone and camera)
-	ctl["block"] = _pad("block", Vector2(-566, -372), Vector2(116, 116), false, K.PAPER)     # (in a fight: guard, held a dodge)
+	ctl["block"] = _pad("block", _arc(318, 134, 90), Vector2(90, 90), false, K.PAPER)     # (in a fight: hold for your guard)
 	ctl["block"].visible = false
-	ctl["reload"] = _pad("reload", Vector2(-540, -226), Vector2(92, 92), false, K.PAPER)
-	ctl["aim"] = _pad("aim", Vector2(-652, -470), Vector2(100, 100), false, K.PAPER)     # (left of the door)
+	ctl["reload"] = _pad("reload", _arc(318, 134, 80), Vector2(80, 80), false, K.PAPER)
+	ctl["aim"] = _pad("aim", _arc(150, 250, 76), Vector2(76, 76), false, K.PAPER)
 	for k in FOOT_PADS:
 		ctl[k].visible = false
 	ctl["aim"].visible = false
@@ -723,6 +724,12 @@ func _build_hud() -> void:
 ## A big touch control. It isn't a Button: main reads touches on it directly, so several work at once.
 ## Each is drawn as what it is: see-through arrows to steer, a gas and a brake pedal, a handbrake lever,
 ## the nitrous canister (showing what's left in it) and the cruise control.
+## The right thumb's cluster: the top-left (from the bottom right corner) of a button `size` across whose
+## middle is `r` out from the main button's at `deg` (0 right, 90 down, 180 left, 270 up).
+const CLUSTER := Vector2(-196, -186)
+func _arc(deg: float, r: float, size: float) -> Vector2:
+	return CLUSTER + Vector2.from_angle(deg_to_rad(deg)) * r - Vector2(size, size) * 0.5
+
 func _pad(name: String, pos: Vector2, size: Vector2, left_side: bool, _col: Color) -> Control:
 	var p := Control.new()
 	if left_side:
@@ -754,6 +761,33 @@ func _fist(c: Control, cc: Vector2, col: Color, k := 1.0) -> void:
 		c.draw_line(Vector2(x, r.position.y + 2.0 * k), Vector2(x, r.position.y + 12.0 * k), dk, 2.0 * k)
 	c.draw_line(r.position + Vector2(3, 16) * k, r.position + Vector2(24, 16) * k, dk, 2.5 * k)
 	c.draw_rect(Rect2(cc + Vector2(-10, 11) * k, Vector2(20, 9) * k), col)
+
+## A pedal: a tall rounded slab of the smoked glass (the accent filling it while it's held).
+func _pedal(c: Control, on: bool, accent: Color) -> Rect2:
+	var r := Rect2(Vector2(4, 4), c.size - Vector2(8, 8))
+	if on:
+		r = r.grow(-3.0)
+	var rad := minf(r.size.x, r.size.y) * 0.26
+	var sh := StyleBoxFlat.new()
+	sh.bg_color = Color(0, 0, 0, 0.2)
+	sh.set_corner_radius_all(int(rad))
+	sh.anti_aliasing = true
+	c.draw_style_box(sh, Rect2(r.position + Vector2(0, 3), r.size))
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(accent, 0.36) if on else Color(0.055, 0.05, 0.08, 0.5)
+	sb.set_corner_radius_all(int(rad))
+	sb.border_color = Color(accent, 0.95) if on else Color(1, 1, 1, 0.22)
+	sb.set_border_width_all(2 if on else 1)
+	sb.anti_aliasing = true
+	c.draw_style_box(sb, r)
+	c.draw_line(r.position + Vector2(rad, 6), Vector2(r.end.x - rad, r.position.y + 6), Color(1, 1, 1, 0.08), 3.0)
+	return r
+
+## A small caption in a pad (letter-spaced caps, quiet).
+func _cap(c: Control, text: String, at: Vector2, col := Color(1, 1, 1, 0.72)) -> void:
+	var f := K.font_spaced(700, 2)
+	var w := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+	c.draw_string(f, at + Vector2(-w * 0.5, 4), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
 
 func _pad_text(c: Control, text: String, at: Vector2, size: int, col: Color) -> void:
 	var f := K.font(750)
@@ -797,144 +831,127 @@ func _tag(c: Control, text: String, at: Vector2, size: int, bg: Color, fg := K.S
 	_sticker(c, _rbox(Rect2(at - Vector2(w * 0.5, size * 0.75), Vector2(w, size * 1.3)), size * 0.45), bg, 3.0, 3.0)
 	c.draw_string(f, at - Vector2(w * 0.5 - 8.0, -size * 0.32), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, fg)
 
-## The on-foot controls and the door: dark glass discs with white line icons (the lo-fi night look).
-func _draw_glass_disc(c: Control, r: float, on: bool, lit := true) -> Vector2:
+## The on-foot controls and the door: discs of smoked glass with clean white line icons, no captions (the
+## icons say it), the main one bigger with the accent round it (K.disc: the HUD's one button look).
+func _draw_glass_disc(c: Control, r: float, on: bool, lit := true, accent := K.CORAL) -> Vector2:
 	var cc := c.size * 0.5
-	c.draw_circle(cc, r, Color(0.06, 0.055, 0.09, 0.62 if lit else 0.35))
-	c.draw_arc(cc, r, 0, TAU, 48, Color(1, 1, 1, 0.3 if lit else 0.12), 1.5, true)
-	if on:
-		c.draw_circle(cc, r, Color(1.0, 0.31, 0.55, 0.3))
+	K.disc(c, cc, r, on, accent, lit)
 	return cc
+
+const _ICON_W := 3.2
+func _chev(c: Control, at: Vector2, d: Vector2, w: float, h: float, col: Color, th := _ICON_W) -> void:
+	var n := Vector2(-d.y, d.x)
+	c.draw_polyline(PackedVector2Array([at - d * h * 0.5 + n * w * 0.5, at + d * h * 0.5, at - d * h * 0.5 - n * w * 0.5]), col, th, true)
 
 func _draw_foot_pad(c: Control, name: String) -> void:
 	var on: bool = c.get_meta("on")
-	var w := Color(1, 1, 1, 0.92)
+	var w := Color(1, 1, 1, 0.94)
+	var R := c.size.x * 0.46
 	match name:
 		"stick":
 			var cc := c.size * 0.5
-			var R := c.size.x * 0.42
-			c.draw_circle(cc, R, Color(0.06, 0.055, 0.09, 0.32))
-			c.draw_arc(cc, R, 0, TAU, 64, Color(1, 1, 1, 0.28), 1.5, true)
-			for k in 4:
-				var a := TAU * k / 4.0
-				var d := Vector2(cos(a), sin(a))
-				var tip := cc + d * (R - 12)
-				c.draw_polyline(PackedVector2Array([tip - d * 8 + d.orthogonal() * 7, tip, tip - d * 8 - d.orthogonal() * 7]), Color(1, 1, 1, 0.4), 2.0, true)
+			var SR := c.size.x * 0.4
+			c.draw_circle(cc, SR, Color(0.055, 0.05, 0.08, 0.26))
+			c.draw_arc(cc, SR, 0, TAU, 72, Color(1, 1, 1, 0.16), 1.5, true)
 			var kv: Vector2 = c.get_meta("knob", Vector2.ZERO)
-			var kp := cc + Vector2(kv.x, -kv.y) * R
-			c.draw_circle(kp, R * 0.36, Color(0.1, 0.09, 0.14, 0.75))
-			c.draw_arc(kp, R * 0.36, 0, TAU, 40, Color(1.0, 0.31, 0.55, 0.9 if kv.length() > 0.05 else 0.45), 2.0, true)
+			var kp := cc + Vector2(kv.x, -kv.y) * SR
+			# (the way you're pushing: a lit arc on the rim)
+			if kv.length() > 0.05:
+				var ka := atan2(-kv.y, kv.x)
+				c.draw_arc(cc, SR, ka - 0.5, ka + 0.5, 20, Color(K.CORAL, 0.9), 3.0, true)
+			K.disc(c, kp, SR * 0.34, kv.length() > 0.05)
 		"jump":
-			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
-			c.draw_polyline(PackedVector2Array([cc + Vector2(-16, 8), cc + Vector2(0, -10), cc + Vector2(16, 8)]), w, 4.0, true)
-			c.draw_polyline(PackedVector2Array([cc + Vector2(-16, 20), cc + Vector2(0, 2), cc + Vector2(16, 20)]), Color(1, 1, 1, 0.45), 3.0, true)
-			_pad_text(c, "JUMP", cc + Vector2(0, 44), 13, Color(1, 1, 1, 0.7))
+			var cc := _draw_glass_disc(c, R, on)
+			_chev(c, cc + Vector2(0, -6), Vector2(0, -1), 28, 13, w)
+			_chev(c, cc + Vector2(0, 8), Vector2(0, -1), 28, 13, Color(1, 1, 1, 0.45))
 		"crouch":
-			# a figure ducking under a bar; lit while you're crouched
 			var lit: bool = c.get_meta("lit", false)
-			var cc := _draw_glass_disc(c, c.size.x * 0.46, on or lit)
-			if lit:
-				c.draw_arc(cc, c.size.x * 0.46 - 2.0, 0, TAU, 48, Color(1.0, 0.31, 0.55, 0.9), 3.0, true)
-			c.draw_line(cc + Vector2(-20, -16), cc + Vector2(20, -16), Color(1, 1, 1, 0.45), 3.0)
-			c.draw_circle(cc + Vector2(6, -5), 5.0, w)
-			c.draw_polyline(PackedVector2Array([cc + Vector2(2, 0), cc + Vector2(-8, 6), cc + Vector2(-2, 14), cc + Vector2(-10, 18)]), w, 3.5, true)
-			c.draw_polyline(PackedVector2Array([cc + Vector2(-8, 6), cc + Vector2(6, 12), cc + Vector2(4, 18)]), w, 3.5, true)
-			_pad_text(c, "CROUCH", cc + Vector2(0, 36), 12, Color(1, 1, 1, 0.7))
+			var cc := _draw_glass_disc(c, R, on or lit)
+			_chev(c, cc + Vector2(0, -6), Vector2(0, 1), 24, 11, w)
+			c.draw_line(cc + Vector2(-13, 10), cc + Vector2(13, 10), w, _ICON_W, true)
 		"sprint":
-			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
-			for k in 2:
-				var x := -10.0 + k * 14.0
-				c.draw_polyline(PackedVector2Array([cc + Vector2(x - 6, -12), cc + Vector2(x + 6, 0), cc + Vector2(x - 6, 12)]), w, 4.0, true)
-			_pad_text(c, "RUN", cc + Vector2(0, 40), 13, Color(1, 1, 1, 0.7))
+			var cc := _draw_glass_disc(c, R, on)
+			_chev(c, cc + Vector2(-6, 0), Vector2(1, 0), 24, 11, w)
+			_chev(c, cc + Vector2(7, 0), Vector2(1, 0), 24, 11, Color(1, 1, 1, 0.55))
 		"fire":
-			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
-			c.draw_circle(cc, c.size.x * 0.46, Color(1.0, 0.31, 0.55, 0.22 if not on else 0.45))
+			var cc := c.size * 0.5
+			# the main button: bigger, a ring of the accent round it
+			c.draw_arc(cc, R + 4.0, 0, TAU, 72, Color(K.CORAL, 0.55 if not on else 0.95), 3.0, true)
+			K.disc(c, cc, R, on)
 			if c.get_meta("fist", false):
-				# empty hands: a fist
-				_fist(c, cc, w)
-				_pad_text(c, "PUNCH", cc + Vector2(0, 58), 14, Color(1, 1, 1, 0.75))
+				_fist(c, cc, w, 1.15)
 			else:
-				c.draw_arc(cc, 22.0, 0, TAU, 32, w, 3.0, true)
+				c.draw_arc(cc, 20.0, 0, TAU, 36, w, 3.0, true)
 				for k in 4:
-					var a := TAU * k / 4.0
-					var dv := Vector2(cos(a), sin(a))
-					c.draw_line(cc + dv * 14.0, cc + dv * 32.0, w, 3.0)
-				c.draw_circle(cc, 3.5, w)
-				_pad_text(c, "FIRE", cc + Vector2(0, 58), 14, Color(1, 1, 1, 0.75))
+					var dv := Vector2.from_angle(TAU * k / 4.0)
+					c.draw_line(cc + dv * 11.0, cc + dv * 30.0, w, 3.0, true)
+				c.draw_circle(cc, 3.0, w)
 		"block":
-			# two forearms up in a guard; a tap blocks, held it's a dodge
-			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
-			for sx in [-1.0, 1.0]:
-				var p0 := cc + Vector2(sx * 9.0, 18.0)
-				var p1 := cc + Vector2(sx * 7.0, -10.0)
-				c.draw_line(p0, p1, w, 9.0, true)
-				c.draw_circle(p1 + Vector2(0, -4), 7.5, w)
-			_pad_text(c, "BLOCK", cc + Vector2(0, 46), 13, Color(1, 1, 1, 0.8))
-			_pad_text(c, "hold", cc + Vector2(0, 62), 10, Color(1, 1, 1, 0.5))
+			# a shield; held: your guard's up
+			var cc := _draw_glass_disc(c, R, on, true, Color("7fd6ff"))
+			var sh := PackedVector2Array([cc + Vector2(0, -19), cc + Vector2(15, -13), cc + Vector2(14, 3), cc + Vector2(0, 19),
+				cc + Vector2(-14, 3), cc + Vector2(-15, -13), cc + Vector2(0, -19)])
+			c.draw_polyline(sh, w, _ICON_W, true)
+			c.draw_line(cc + Vector2(0, -12), cc + Vector2(0, 12), Color(1, 1, 1, 0.45), 2.0, true)
 		"swap":
 			# the gun you've out (or a hand), its rounds under it; ticks round the rim: there's a wheel
-			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
+			var cc := _draw_glass_disc(c, R, on)
 			for k in 12:
-				var a := TAU * k / 12.0
-				var dv := Vector2(cos(a), sin(a))
-				c.draw_line(cc + dv * (c.size.x * 0.46 - 6.0), cc + dv * (c.size.x * 0.46 - 2.0), Color(1, 1, 1, 0.3), 2.0)
+				var dv := Vector2.from_angle(TAU * k / 12.0)
+				c.draw_line(cc + dv * (R - 7.0), cc + dv * (R - 3.0), Color(1, 1, 1, 0.28), 2.0)
 			var lines := String(c.get_meta("txt", "")).split("\n")
 			var gid := String(c.get_meta("gid", "pistol"))
 			if gid == "":
-				_fist(c, cc + Vector2(0, -4), w, 0.8)
+				_fist(c, cc + Vector2(0, -2), w, 0.8)
 			else:
 				gun_glyph(c, gid, cc + Vector2(0, -8), 22.0, w)
 			if lines.size() > 1 and lines[1] != "":
-				c.draw_string(K.font(600), cc + Vector2(-50, 24), lines[1], HORIZONTAL_ALIGNMENT_CENTER, 100, 13, Color(1, 1, 1, 0.75))
+				c.draw_string(K.font(650), cc + Vector2(-50, 24), lines[1], HORIZONTAL_ALIGNMENT_CENTER, 100, 13, Color(1, 1, 1, 0.75))
 		"aim":
 			var lit: bool = c.get_meta("set", false)
-			var cc := _draw_glass_disc(c, c.size.x * 0.46, on or lit)
-			var ac := Color(1.0, 0.45, 0.6) if lit else w
-			c.draw_arc(cc, 15.0, 0, TAU, 28, ac, 2.5, true)
+			var cc := _draw_glass_disc(c, R, on or lit)
 			for k in 4:
-				var a := TAU * k / 4.0
-				var dv := Vector2(cos(a), sin(a))
-				c.draw_line(cc + dv * 9.0, cc + dv * 22.0, ac, 2.5)
-			_pad_text(c, "AIM", cc + Vector2(0, 40), 12, Color(1, 1, 1, 0.75))
+				var q := Vector2.from_angle(TAU * k / 4.0 + PI * 0.25) * 15.0
+				var t := Vector2(-q.y, q.x).normalized()
+				c.draw_polyline(PackedVector2Array([cc + q + t * 7.0, cc + q, cc + q - Vector2(q.x, 0).normalized() * 0.0 - t * 7.0]), w, 2.6, true)
+			c.draw_circle(cc, 3.0, w)
 		"reload":
 			# round arrows; a ring fills while the new magazine goes in; it pulses when you're empty
 			var empty: bool = c.get_meta("empty", false)
 			var prog: float = c.get_meta("prog", 0.0)
-			var cc := _draw_glass_disc(c, c.size.x * 0.46, on)
+			var cc := _draw_glass_disc(c, R, on)
 			var rc := Color(1.0, 0.45, 0.6) if empty else w
 			if empty:
 				var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.008)
-				c.draw_arc(cc, c.size.x * 0.46, 0, TAU, 48, Color(K.CORAL, 0.4 + 0.5 * pulse), 3.0, true)
+				c.draw_arc(cc, R, 0, TAU, 48, Color(K.CORAL, 0.4 + 0.5 * pulse), 3.0, true)
 			for half in 2:
 				var a0 := -PI * 0.15 + half * PI
-				c.draw_arc(cc, 16.0, a0, a0 + PI * 0.72, 16, rc, 3.0, true)
+				c.draw_arc(cc, 14.0, a0, a0 + PI * 0.72, 16, rc, 2.8, true)
 				var tip := a0 + PI * 0.72
-				var tp := cc + Vector2(cos(tip), sin(tip)) * 16.0
+				var tp := cc + Vector2(cos(tip), sin(tip)) * 14.0
 				var tg := Vector2(-sin(tip), cos(tip))
 				var nr := Vector2(cos(tip), sin(tip))
-				c.draw_colored_polygon(PackedVector2Array([tp + tg * 7.0, tp + nr * 6.0, tp - nr * 6.0]), rc)
+				c.draw_colored_polygon(PackedVector2Array([tp + tg * 6.0, tp + nr * 5.0, tp - nr * 5.0]), rc)
 			if prog > 0.0:
-				c.draw_arc(cc, c.size.x * 0.46 - 1.5, -PI * 0.5, -PI * 0.5 + TAU * prog, 48, K.CORAL, 4.0, true)
-			_pad_text(c, "RELOAD", cc + Vector2(0, 40), 12, Color(1, 1, 1, 0.75))
+				c.draw_arc(cc, R - 1.5, -PI * 0.5, -PI * 0.5 + TAU * prog, 48, K.CORAL, 4.0, true)
 		"door":
 			var foot: bool = c.get_meta("foot", false)
 			var near: bool = c.get_meta("near", false)
-			var cc := _draw_glass_disc(c, c.size.x * 0.46, on, not foot or near)
-			# in the car: a door with an arrow out; on foot: a little car (lit when you're by yours)
-			if not foot:
-				c.draw_rect(Rect2(cc + Vector2(-14, -16), Vector2(18, 32)), w, false, 3.0)
-				c.draw_line(cc + Vector2(-2, 0), cc + Vector2(18, 0), w, 3.5)
-				c.draw_polyline(PackedVector2Array([cc + Vector2(11, -7), cc + Vector2(18, 0), cc + Vector2(11, 7)]), w, 3.5, true)
-			else:
-				var a := 1.0 if near else 0.4
-				var cw := Color(1, 1, 1, a)
-				c.draw_rect(Rect2(cc + Vector2(-18, -2), Vector2(36, 12)), cw, false, 3.0)
-				c.draw_polyline(PackedVector2Array([cc + Vector2(-11, -2), cc + Vector2(-6, -12), cc + Vector2(7, -12), cc + Vector2(12, -2)]), cw, 3.0, true)
-				c.draw_circle(cc + Vector2(-10, 12), 4.0, cw)
-				c.draw_circle(cc + Vector2(10, 12), 4.0, cw)
 			var steal: bool = c.get_meta("steal", false)
-			_pad_text(c, "EXIT" if not foot else ("STEAL" if steal else "ENTER"), cc + Vector2(0, 40), 12 if not steal else 14,
-				Color("ff6b80") if steal else Color(1, 1, 1, 0.7 if (not foot or near) else 0.35))
+			var cc := _draw_glass_disc(c, R, on, not foot or near, Color("ff6b80") if steal else K.CORAL)
+			# in the car: a door with an arrow out; on foot: a little car (and STEAL, if it isn't yours)
+			if not foot:
+				c.draw_rect(Rect2(cc + Vector2(-13, -15), Vector2(16, 30)), w, false, 2.8)
+				c.draw_line(cc + Vector2(-1, 0), cc + Vector2(17, 0), w, 3.0, true)
+				_chev(c, cc + Vector2(13, 0), Vector2(1, 0), 13, 7, w, 3.0)
+			else:
+				var cw := Color(1, 1, 1, 1.0 if near else 0.4)
+				c.draw_rect(Rect2(cc + Vector2(-17, -1), Vector2(34, 11)), cw, false, 2.8)
+				c.draw_polyline(PackedVector2Array([cc + Vector2(-10, -1), cc + Vector2(-5, -11), cc + Vector2(6, -11), cc + Vector2(11, -1)]), cw, 2.8, true)
+				c.draw_circle(cc + Vector2(-9, 12), 3.5, cw)
+				c.draw_circle(cc + Vector2(9, 12), 3.5, cw)
+			if steal:
+				_tag(c, "STEAL", cc + Vector2(0, R + 12), 12, Color("ff6b80"), Color.WHITE)
 
 func _draw_pad(c: Control, name: String) -> void:
 	if name in FOOT_PADS or name == "door" or name == "block":
@@ -944,94 +961,48 @@ func _draw_pad(c: Control, name: String) -> void:
 	var on: bool = c.get_meta("on")
 	match name:
 		"left", "right":
-			# ghost chevrons: just there enough to find with a thumb
 			var d := -1.0 if name == "left" else 1.0
-			var cx := s * 0.5
-			for k in 3:
-				var ox := cx.x + d * (k - 1) * 22.0
-				var pts := PackedVector2Array([Vector2(ox - d * 14, cx.y - 34), Vector2(ox + d * 14, cx.y), Vector2(ox - d * 14, cx.y + 34)])
-				var a := (0.85 if on else 0.42) * (0.55 + 0.22 * k)
-				c.draw_polyline(pts, Color(K.STK_INK, a * 0.6), 13.0, true)
-				c.draw_polyline(pts, Color(K.STK_PAPER, a), 8.0, true)
+			var cc := s * 0.5
+			K.disc(c, cc, minf(s.x, s.y) * 0.4, on)
+			_chev(c, cc + Vector2(-5 * d, 0), Vector2(d, 0), 30, 14, Color(1, 1, 1, 0.94), 3.5)
+			_chev(c, cc + Vector2(9 * d, 0), Vector2(d, 0), 30, 14, Color(1, 1, 1, 0.45), 3.5)
 		"gas":
-			# a drilled aluminium sport pedal on its hinge: tips back when your foot's on it
-			var tilt := 0.86 if on else 1.0
-			var hinge := Vector2(s.x * 0.5, s.y - 40)
-			var ph := (s.y - 58) * tilt
-			var top := hinge.y - ph
-			var pl := PackedVector2Array([Vector2(24, top), Vector2(s.x - 24, top), Vector2(s.x - 14, hinge.y), Vector2(14, hinge.y)])
-			_sticker(c, pl, Color("dfe1e3") if not on else Color("c9f0d6"), 3.0 if on else 6.0)
-			# rubber strips and drilled holes
+			var r := _pedal(c, on, Color("3fd26b"))
 			for k in 3:
-				var x := 40.0 + k * (s.x - 80.0) / 2.0
-				c.draw_line(Vector2(x, top + 12), Vector2(x + (x - s.x * 0.5) * 0.08, hinge.y - 12), K.STK_INK, 10.0, true)
-			for row in 4:
-				var y := top + 18.0 + row * (ph - 30.0) / 3.0
-				for k in 2:
-					var x2 := 40.0 + (k + 0.5) * (s.x - 80.0) / 2.0
-					c.draw_circle(Vector2(x2, y), 4.0, Color("9a9ea4"))
-			# the hinge
-			_sticker(c, _rbox(Rect2(Vector2(30, hinge.y - 6), Vector2(s.x - 60, 16)), 8), Color("6f6a64"), 2.0, 3.0)
-			_tag(c, "GAS", Vector2(s.x * 0.5, s.y - 12), 18, Color("8fe0a8") if on else K.STK_PAPER)
+				_chev(c, r.get_center() + Vector2(0, 18 - k * 17), Vector2(0, -1), 34, 15, Color(1, 1, 1, 0.94 - k * 0.25), 3.6)
+			_cap(c, "GAS", Vector2(r.get_center().x, r.end.y - 14))
 		"brake":
-			# a wide brake pedal, grooved rubber over steel
-			var tilt2 := 0.84 if on else 1.0
-			var hinge2 := Vector2(s.x * 0.5, s.y - 40)
-			var ph2 := (s.y - 58) * tilt2
-			var top2 := hinge2.y - ph2
-			var pl2 := _rbox(Rect2(Vector2(10, top2), Vector2(s.x - 20, ph2)), 16)
-			_sticker(c, pl2, Color("3a3734") if not on else Color("5a2d28"), 3.0 if on else 6.0)
-			var y2 := top2 + 14.0
-			while y2 < hinge2.y - 10.0:
-				c.draw_line(Vector2(22, y2), Vector2(s.x - 22, y2), Color(1, 1, 1, 0.16), 4.0)
-				y2 += 11.0
-			_sticker(c, _rbox(Rect2(Vector2(28, hinge2.y - 4), Vector2(s.x - 56, 14)), 7), Color("6f6a64"), 2.0, 3.0)
-			_tag(c, "BRAKE", Vector2(s.x * 0.5, s.y - 12), 16, Color("f19a8c") if on else K.STK_PAPER)
+			var r := _pedal(c, on, Color("ff5c7a"))
+			c.draw_line(r.get_center() + Vector2(-18, -14), r.get_center() + Vector2(18, -14), Color(1, 1, 1, 0.94), 5.0, true)
+			_chev(c, r.get_center() + Vector2(0, 4), Vector2(0, 1), 34, 15, Color(1, 1, 1, 0.94), 3.6)
+			_chev(c, r.get_center() + Vector2(0, 20), Vector2(0, 1), 34, 15, Color(1, 1, 1, 0.5), 3.6)
+			_cap(c, "BRAKE", Vector2(r.get_center().x, r.end.y - 14))
 		"hand":
-			# the handbrake: a stitched leather boot, the lever, a red button on the end; pulled up when held
-			var piv := Vector2(36, s.y - 26)
-			var ang := deg_to_rad(-52.0 if on else -18.0)
-			var dirv := Vector2(cos(ang), sin(ang))
-			var nrm := Vector2(-dirv.y, dirv.x)
-			var tip := piv + dirv * (s.x - 52)
-			var arm := PackedVector2Array([piv + nrm * 9, tip + nrm * 9, tip - nrm * 9, piv - nrm * 9])
-			_sticker(c, arm, Color("d9dbde"), 5.0)
-			var grip := PackedVector2Array([piv + dirv * (s.x * 0.42) + nrm * 12, tip + nrm * 12, tip - nrm * 12, piv + dirv * (s.x * 0.42) - nrm * 12])
-			_sticker(c, grip, Color("3a3734"), 2.0, 3.0)
-			c.draw_circle(tip + dirv * 4, 12.0, K.STK_INK)
-			c.draw_circle(tip + dirv * 4, 8.5, Color("ef6a55") if not on else Color("ffb3a6"))
-			var boot := PackedVector2Array([Vector2(8, s.y - 8), Vector2(18, s.y - 40), Vector2(58, s.y - 40), Vector2(70, s.y - 8)])
-			_sticker(c, boot, Color("5b4636"), 3.0, 3.0)
-			for k in 4:
-				var yb := s.y - 34 + k * 7
-				c.draw_line(Vector2(20 - k, yb), Vector2(56 + k, yb), Color("c9a27e"), 2.0)
-			_tag(c, "DRIFT", Vector2(s.x - 30, s.y - 12), 15, Color("f2b84b") if on else K.STK_PAPER)
+			# the handbrake: a slide (a sweeping arrow, its back end kicked out)
+			var r := _pedal(c, on, Color("f2b84b"))
+			var cc := r.get_center() + Vector2(0, -6)
+			c.draw_arc(cc + Vector2(0, 10), 22.0, PI * 1.05, PI * 1.85, 18, Color(1, 1, 1, 0.94), 3.4, true)
+			var tip := cc + Vector2(0, 10) + Vector2.from_angle(PI * 1.85) * 22.0
+			_chev(c, tip + Vector2(2, 2), Vector2(0.6, 0.8).normalized(), 12, 7, Color(1, 1, 1, 0.94), 3.2)
+			for k in 3:
+				c.draw_line(cc + Vector2(-22 + k * 4, 14 + k * 5), cc + Vector2(-12 + k * 4, 14 + k * 5), Color(1, 1, 1, 0.4), 2.4, true)
+			_cap(c, "DRIFT", Vector2(r.get_center().x, r.end.y - 12))
 		"nos":
-			# the nitrous bottle: blue with a red valve, a gauge for what's left, and an arming switch
+			# nitrous: a disc with what's left round its rim; armed, it glows blue
 			var v: float = c.get_meta("v")
-			var bw := 50.0
-			var bx := 22.0
-			var body := Rect2(Vector2(bx, 30), Vector2(bw, s.y - 38))
+			var cc := s * 0.5
+			var rr := minf(s.x, s.y) * 0.44
+			var blue := Color("4fb6ff")
 			if on:
-				c.draw_circle(body.get_center(), 52.0, Color(0.35, 0.75, 1.0, 0.25))
-			_sticker(c, _rbox(Rect2(Vector2(bx + bw * 0.3, 14), Vector2(bw * 0.4, 20)), 4), Color("c9ccd2"), 3.0, 3.0)
-			_sticker(c, _rbox(Rect2(Vector2(bx + bw * 0.12, 4), Vector2(bw * 0.76, 12)), 6), Color("ef6a55"), 2.0, 3.0)
-			_sticker(c, _rbox(body, 20), Color("3a7bd5"))
-			_sticker(c, _rbox(Rect2(Vector2(bx + 4, body.position.y + body.size.y * 0.36), Vector2(bw - 8, 22)), 4), K.STK_PAPER, 0.0, 2.5)
-			c.draw_string(K.font(800), Vector2(bx + 8, body.position.y + body.size.y * 0.36 + 17), "NOS", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, K.STK_INK)
-			c.draw_line(body.position + Vector2(9, 10), body.position + Vector2(9, body.size.y * 0.3), Color(1, 1, 1, 0.5), 4.0)
-			# the gauge
-			var gc := Vector2(s.x - 40, 40)
-			c.draw_circle(gc + Vector2(2, 3), 22.0, Color(0, 0, 0, 0.25))
-			c.draw_circle(gc, 22.0, K.STK_INK)
-			c.draw_circle(gc, 18.5, K.STK_PAPER)
-			c.draw_arc(gc, 13.0, PI * 0.75, PI * 2.25, 16, Color("ef6a55"), 3.0)
-			c.draw_arc(gc, 13.0, PI * 0.75 + PI * 1.5 * 0.2, PI * 2.25, 16, Color("54b87a"), 3.0)
-			var na := PI * 0.75 + PI * 1.5 * clampf(v, 0.0, 1.0)
-			c.draw_line(gc, gc + Vector2(cos(na), sin(na)) * 15.0, K.STK_INK, 3.0, true)
-			c.draw_circle(gc, 3.0, K.STK_INK)
-			# on/off, plain: a tag under the gauge
-			_tag(c, "ON" if on else "OFF", Vector2(s.x - 40, s.y - 22), 14, Color("7fd0ff") if on else K.STK_PAPER)
+				c.draw_circle(cc, rr + 10.0, Color(blue, 0.18))
+			K.disc(c, cc, rr, on, blue)
+			c.draw_arc(cc, rr + 5.0, PI * 0.5, PI * 0.5 + TAU, 64, Color(1, 1, 1, 0.12), 4.0, true)
+			if v > 0.001:
+				c.draw_arc(cc, rr + 5.0, -PI * 0.5, -PI * 0.5 + TAU * clampf(v, 0.0, 1.0), 64, blue, 4.0, true)
+			var f := K.font(800)
+			var tw := f.get_string_size("NOS", HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+			c.draw_string(f, cc + Vector2(-tw * 0.5, 4), "NOS", HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(1, 1, 1, 0.95))
+			_cap(c, "ON" if on else "TAP", cc + Vector2(0, 22), Color(blue, 0.95) if on else Color(1, 1, 1, 0.45))
 		"cruise":
 			# a dash button with a little green LCD: the speed it's holding
 			var r := minf(s.x, s.y) * 0.5 - 6
@@ -1482,22 +1453,22 @@ func _build_wheel() -> void:
 		var a: float = wheel.get_meta("a")
 		var on: bool = wheel.get_meta("on")
 		var c := _wheel_hub()
-		var r := 176.0
-		var rim := Color(K.STK_PAPER, 0.8 if on else 0.62)
-		var edge := Color(K.STK_INK, 0.55)
-		# the rim (the top half, turned)
-		wheel.draw_arc(c, r, PI + a - 0.15, TAU + a + 0.15, 48, edge, 40.0, true)
-		wheel.draw_arc(c, r, PI + a - 0.13, TAU + a + 0.13, 48, rim, 34.0, true)
+		var r := 172.0
+		var glass := Color(0.055, 0.05, 0.08, 0.62 if on else 0.5)
+		var edge := Color(1, 1, 1, 0.3 if on else 0.2)
+		# the rim (the top half, turned): a band of smoked glass with a hairline either side
+		wheel.draw_arc(c, r, PI + a - 0.15, TAU + a + 0.15, 56, Color(0, 0, 0, 0.18), 30.0, true)
+		wheel.draw_arc(c, r, PI + a - 0.13, TAU + a + 0.13, 56, glass, 26.0, true)
+		wheel.draw_arc(c, r + 13.0, PI + a - 0.13, TAU + a + 0.13, 56, edge, 1.5, true)
+		wheel.draw_arc(c, r - 13.0, PI + a - 0.13, TAU + a + 0.13, 56, edge, 1.5, true)
 		# spokes and the hub
-		for sp_a in [a - 0.38, a + PI + 0.38]:      # (two spokes, angled up a little so they show)
+		for sp_a in [a - 0.38, a + PI + 0.38]:
 			var dirv := Vector2.from_angle(sp_a)
-			wheel.draw_line(c + dirv * 40.0, c + dirv * (r - 14.0), edge, 22.0, true)
-			wheel.draw_line(c + dirv * 40.0, c + dirv * (r - 14.0), rim, 16.0, true)
-		wheel.draw_circle(c, 52.0, edge)
-		wheel.draw_circle(c, 46.0, rim)
+			wheel.draw_line(c + dirv * 44.0, c + dirv * (r - 13.0), glass, 12.0, true)
+		K.disc(wheel, c, 44.0, on)
 		# the mark at the top, so you can see how far it's turned
 		var top := c + Vector2.from_angle(-PI * 0.5 + a) * r
-		wheel.draw_circle(top, 13.0, Color("ff5c7a")))
+		wheel.draw_circle(top, 8.0, K.CORAL))
 	hud.add_child(wheel)
 
 func _wheel_hub() -> Vector2:
@@ -1562,7 +1533,7 @@ func set_foot(on: bool) -> void:
 		_social_prompt({})
 	# in the car, EXIT sits up top by the phone; on foot ENTER's down by your thumb
 	if on:
-		_place(ctl["door"], Control.PRESET_BOTTOM_RIGHT, Vector2(-528, -470))
+		_place(ctl["door"], Control.PRESET_BOTTOM_RIGHT, _arc(135, 152, 92))      # (on foot: down by your thumb, below-left of the main button)
 	else:
 		_place(ctl["door"], Control.PRESET_TOP_RIGHT, Vector2(-404, 80))
 	group_btn.position = Vector2(-376, 94) if on else Vector2(-480, 94)

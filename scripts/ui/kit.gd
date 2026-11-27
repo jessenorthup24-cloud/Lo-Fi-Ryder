@@ -248,6 +248,17 @@ static func squishy(b: Control) -> void:
 		b.button_up.connect(func():
 			b.create_tween().tween_property(b, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT))
 
+## The HUD's one button look: a disc of dark smoked glass, a soft shadow under it, a faint sheen across
+## the top and a hairline rim; pressed (or on), it fills with the accent and the rim lights. Drawn as circles
+## (a StyleBoxFlat as round as it is wide leaves a hairline seam down the middle on some phones).
+static func disc(ci: CanvasItem, cc: Vector2, r: float, on := false, accent := CORAL, lit := true) -> void:
+	ci.draw_circle(cc + Vector2(0, r * 0.06 + 1.5), r + 1.0, Color(0, 0, 0, 0.2 if lit else 0.1))
+	ci.draw_circle(cc, r, Color(0.055, 0.05, 0.08, 0.6 if lit else 0.34))
+	if on:
+		ci.draw_circle(cc, r, Color(accent, 0.34))
+	ci.draw_arc(cc, r - r * 0.09, PI * 1.18, PI * 1.82, 24, Color(1, 1, 1, 0.09 if lit else 0.04), maxf(2.0, r * 0.05), true)
+	ci.draw_arc(cc, r - 0.75, 0, TAU, maxi(32, int(r)), Color(accent, 0.95) if on else Color(1, 1, 1, 0.22 if lit else 0.1), 2.5 if on else 1.5, true)
+
 ## Round icon button (pause, settings…).
 static func round_button(icon: String, bg := PAPER, dk := LINE, d := 96.0, icol := INK) -> Button:
 	var b := Button.new()
@@ -257,13 +268,10 @@ static func round_button(icon: String, bg := PAPER, dk := LINE, d := 96.0, icol 
 		bg = PAPER
 	if icol.get_luminance() < 0.3:
 		icol = INK
-	var normal := _glass(Color(bg, minf(bg.a, 0.62)), int(d * 0.5), false)
-	var pressed := _glass(Color(bg.darkened(0.2), 0.8), int(d * 0.5), false)
-	b.add_theme_stylebox_override("normal", normal)
-	b.add_theme_stylebox_override("hover", normal)
-	b.add_theme_stylebox_override("pressed", pressed)
-	b.add_theme_stylebox_override("hover_pressed", pressed)
-	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	for st in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
+		b.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+	b.draw.connect(func():
+		disc(b, b.size * 0.5, minf(b.size.x, b.size.y) * 0.5 - 1.0, b.get_draw_mode() == BaseButton.DRAW_PRESSED or b.get_draw_mode() == BaseButton.DRAW_HOVER_PRESSED))
 	var ic := Icon.new(icon, icol, d * 0.46)
 	ic.color2 = SHADE            # (the cut-outs in an icon: dark, so a white icon keeps its details)
 	ic.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
