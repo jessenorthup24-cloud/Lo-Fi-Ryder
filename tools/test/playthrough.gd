@@ -109,6 +109,10 @@ func _run() -> void:
 			await _ground()
 		"props":
 			await _props()
+		"blood":
+			await _blood()
+		"gore":
+			await _gore()
 		"mapper":
 			await _mapper()
 		"ram":
@@ -1695,3 +1699,132 @@ func _props() -> void:
 		await wait(1.0)
 		shown += 1
 		await snap("%s_%d" % [p["kind"], shown])
+
+
+## For the eye: blood (drops and pools) in front of you, on grass and on the road.
+func _blood() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.5)
+	game.toggle_foot()
+	await wait(1.0)
+	var f: Node3D = game.foot
+	var fwd := Vector3(-sin(f.facing), 0, -cos(f.facing))
+	var p: Vector3 = f.global_position + fwd * 3.0
+	for k in 4:
+		game.fx.splat(p + Vector3(-1.5 + k * 1.0, 0, 0), 0.9, 0.0)
+	# (colour test: the last two, green and a painted red)
+	var ls: Array = game.fx.live_splats
+	if ls.size() >= 2:
+		game.fx.splats.multimesh.set_instance_color(int(ls[ls.size() - 1]["s"]), Color.GREEN)
+		game.fx.splats.multimesh.set_instance_color(int(ls[ls.size() - 2]["s"]), Color(0.36, 0.012, 0.025, 0.7))
+	game.fx.blood(p + Vector3(0, 1.2, 0), fwd, 30, 3.0)
+	await wait(0.15)
+	await snap("blood")
+	if game.args.has("nodetail"):
+		(game.fx.splats.material_override as ShaderMaterial).set_shader_parameter("ground_detail", 0.0)
+		await wait(0.3)
+		await snap("blood_nodetail")
+
+
+## Guns on people: where it hits, a leg off (they crawl), finishing a crawler, a head shot, an arm off.
+func _gore_target(foot: Node3D) -> Dictionary:
+	var best := {}
+	var bd := INF
+	for pr in game.island.people.list:
+		if pr["gone"] or pr.get("down", false) or pr["pose"] != "stand" or pr.has("ride"):
+			continue
+		var d: float = (pr["pos"] as Vector3).distance_to(foot.global_position)
+		if d < bd:
+			bd = d
+			best = pr
+	return best
+
+func _shoot_bone(pr: Dictionary, bone: String, raw: float, shots := 1) -> int:
+	var av = pr.get("live")
+	if av == null or not is_instance_valid(av):
+		return -9
+	var sk: Skeleton3D = av.skel
+	var bp: Vector3 = sk.global_transform * sk.get_bone_global_pose(sk.find_bone(bone)).origin
+	var from: Vector3 = (pr["pos"] as Vector3) + Vector3(3.0, 1.2, 0.0)
+	var d := (bp - from).normalized()
+	game.gore.new_shot()
+	var r := 0
+	for k in shots:
+		r = maxi(r, game.gunplay._ray(from, d, 30.0, raw, game.foot, from))
+	return r
+
+func _gore() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.5)
+	game.toggle_foot()
+	await wait(0.5)
+	var foot: Node3D = game.foot
+	var gs = game.gore
+	var pr := _gore_target(foot)
+	check(not pr.is_empty(), "someone about")
+	foot.place((pr["pos"] as Vector3) + Vector3(4.0, 0.3, 0.0), PI * 0.5)
+	await wait(1.5)
+	pr["flee"] = 0.0
+	check(pr.has("live"), "they're a full character up close")
+	# a leg: hit, they limp; then off at the knee, and they crawl
+	var r := await _shoot_bone(pr, "LeftUpLeg", 15.0)
+	check(r == 1 and pr.get("hurt", false), "shot in the leg: hurt, limping (r %d)" % r)
+	var tries := 0
+	while gs.crawlers.is_empty() and tries < 6 and not pr.get("down", false):
+		pr["hp"] = 100.0
+		await _shoot_bone(pr, "LeftLeg", 65.0)
+		tries += 1
+		await wait(0.2)
+	check(gs.stats["severed"] >= 1 and gs.crawlers.size() == 1, "a leg off: down and crawling (severed %d, crawlers %d)" % [gs.stats["severed"], gs.crawlers.size()])
+	check(gs.gibs.size() >= 1, "the leg's lying there")
+	if not gs.crawlers.is_empty():
+		var c: Dictionary = gs.crawlers[0]
+		var p0: Vector3 = c["pos"]
+		await wait(3.0)
+		_look(c["pos"])
+		await wait(0.5)
+		await snap("crawler")
+		check((c["pos"] as Vector3).distance_to(p0) > 0.4, "crawling away (%.1f m)" % (c["pos"] as Vector3).distance_to(p0))
+		var cp: Vector3 = (c["pos"] as Vector3) + Vector3(0, 0.25, 0)
+		var from: Vector3 = cp + Vector3(3.0, 1.0, 0.5)
+		var rr: int = game.gunplay._ray(from, (cp - from).normalized(), 30.0, 60.0, game.foot, from)
+		check(rr == 2 and gs.crawlers.is_empty(), "shot again: finished (r %d)" % rr)
+	# a head shot
+	await wait(1.0)
+	var pr2 := _gore_target(foot)
+	foot.place((pr2["pos"] as Vector3) + Vector3(4.0, 0.3, 0.0), PI * 0.5)
+	await wait(1.5)
+	pr2["flee"] = 0.0
+	var k0: int = gs.stats["kills"]
+	var r2 := await _shoot_bone(pr2, "Head", 60.0)
+	check(r2 == 2 and gs.stats["kills"] == k0 + 1, "a head shot kills (r %d)" % r2)
+	_look(pr2["pos"])
+	await wait(0.6)
+	await snap("headshot")
+	# an arm off (and they run, holding what's left)
+	await wait(1.0)
+	var pr3 := _gore_target(foot)
+	foot.place((pr3["pos"] as Vector3) + Vector3(4.0, 0.3, 0.0), PI * 0.5)
+	await wait(1.5)
+	pr3["flee"] = 0.0
+	var s0: int = gs.stats["severed"]
+	for k in 6:
+		if int(gs.stats["severed"]) > s0 or pr3.get("down", false):
+			break
+		pr3["hp"] = 100.0
+		await _shoot_bone(pr3, "RightForeArm", 70.0)
+		await wait(0.2)
+	check(int(gs.stats["severed"]) > s0, "an arm off")
+	_look(pr3["pos"])
+	await wait(0.5)
+	await snap("arm_off")
+	note("gore stats %s" % str(gs.stats))
+
+
+func _look(p: Vector3) -> void:
+	var to: Vector3 = p - game.foot.global_position
+	game.foot_yaw = atan2(-to.x, -to.z)
+	game.look_yaw = 0.0
+	game.look_yaw_t = 0.0

@@ -45,6 +45,8 @@ var _hole_mat: StandardMaterial3D
 var _trace_mat: StandardMaterial3D
 var _burnt_mat: StandardMaterial3D
 var _recoil := 0.0
+var _drift := 0.0              # which way the climb's wandering
+var bloom := 0.0               # 0..1: shots fired lately (the spread opens up; the crosshair shows it)
 var _mag_swapped := false
 var dying := false              # you're down (a ragdoll), WASTED on its way
 var holstered := false          # the gun's put away (the swap button cycles to it; FIRE or AIM draws again)
@@ -171,6 +173,7 @@ func tick(dt: float, fire_tap: bool, fire_held: bool, aim_on: bool, reload: bool
 	hurt_t += dt
 	flash.light_energy = maxf(0.0, flash.light_energy - dt * 30.0)
 	_recoil = move_toward(_recoil, 0.0, dt * (9.0 if bool(weapon.get("auto", false)) else 5.0))
+	bloom = move_toward(bloom, 0.0, dt * (1.6 if shot_t < 5.8 else 0.6))
 	if hurt_t > 5.0:
 		hp = minf(MAX_HP, hp + REGEN * dt)
 	aiming = aim_on or fire_held or cool > -0.5
@@ -287,6 +290,21 @@ func _clear(a: Vector3, b: Vector3) -> bool:
 
 # ------------------------------------------------------------------ firing
 
+## How open the spread is (0 steady .. 1+): the shots fired lately, moving, crouched, locked on.
+func spread_k() -> float:
+	var you: CharacterBody3D = game.foot
+	var mv := 0.0
+	if you:
+		mv = clampf(Vector2(you.velocity.x, you.velocity.z).length() / 4.6, 0.0, 1.0) * 0.55
+		if you.get("crouch"):
+			mv -= 0.15
+	var k := 0.25 + bloom + mv
+	if lock != null:
+		k -= 0.12
+	if aim_k < 0.5:
+		k += 0.3
+	return clampf(k, 0.05, 1.6)
+
 func _fire(you: CharacterBody3D) -> void:
 	shot_t = 6.0
 	cool = 1.0 / float(weapon["rate"])
@@ -311,19 +329,26 @@ func _fire(you: CharacterBody3D) -> void:
 	var punch: float = float(weapon["dmg"]) * float(weapon["pellets"])
 	var kick: float = (clampf(punch / 2400.0, 0.004, 0.02) if auto else clampf(punch / 900.0, 0.012, 0.11)) * rk
 	game.aim_kick = minf(game.aim_kick + kick, 0.09 if auto else 0.2)
+	# the climb: the muzzle walks up (and a little to the side) shot after shot, and you have to pull it
+	# back down; it settles back by itself once you stop. Heavier rounds climb more, a brake or a grip less.
+	var climb := clampf(punch / 1500.0, 0.006, 0.05) * rk * (1.0 if auto else 0.7)
+	game.recoil_pitch = minf(game.recoil_pitch + climb * randf_range(0.8, 1.15), 0.22)
+	_drift = clampf(_drift + randf_range(-1.0, 1.0) * 0.6, -1.0, 1.0)
+	game.recoil_yaw = clampf(game.recoil_yaw + climb * 0.45 * _drift, -0.08, 0.08)
+	bloom = minf(1.0, bloom + (0.09 if auto else 0.32) * rk * clampf(punch / 30.0, 0.6, 1.6))
 	game.shake = maxf(game.shake, 0.015 if auto else 0.04 + kick * 0.5)
 	# a buzz in the hands with every shot: a tap for the SMG, a thump for the shotgun and the sniper
 	game.buzz(int(clampf(8.0 + punch * 0.4, 10.0, 55.0)), clampf(0.25 + punch / 140.0, 0.3, 1.0))
 	var hit_any := false
 	var killed := false
+	game.gore.new_shot()
 	for k in int(weapon["pellets"]):
-		var sp: float = float(weapon["spread"]) * (0.5 if lock != null else 1.0) * (float(weapon.get("hip", 1.0)) if aim_k < 0.5 else 1.0)
+		var sp: float = float(weapon["spread"]) * (0.5 if lock != null else 1.0) * (float(weapon.get("hip", 1.0)) if aim_k < 0.5 else 1.0) * (0.55 + spread_k() * 0.75)
 		var d := (aim_dir + Vector3(randf_range(-sp, sp), randf_range(-sp, sp) * 0.6, randf_range(-sp, sp))).normalized()
 		var r: int = _ray(chest, d, float(weapon["range"]), float(weapon["dmg"]) * randf_range(0.85, 1.15), you, muzzle)
 		hit_any = hit_any or r > 0
 		killed = killed or r > 1
 	if hit_any:
-		# (no marker on the screen: the blood and the body tell you)
 		game.sfx("kill_ding" if killed else "hit_tick", -10.0 if killed else -14.0)
 	# shots fired where anyone can hear: people scatter, and the police get a call (suppressed: only those
 	# close by notice, and the police mostly don't hear about it)
@@ -340,19 +365,28 @@ func _ray(from: Vector3, d: Vector3, rng: float, dmg: float, you: Node3D, muzzle
 	q.exclude = [you.get_rid(), game.car.get_rid()]       # (not your own car, parked behind you)
 	var hit: Dictionary = game.get_world_3d().direct_space_state.intersect_ray(q)
 	var end: Vector3 = hit["position"] if not hit.is_empty() else to
-	# people aren't physics bodies: the nearest one along the shot, before whatever it hit
+	# people aren't physics bodies: the nearest one along the shot, before whatever it hit (a body-sized
+	# upright capsule: the shot has to pass through the body, not just near it)
 	var best_pr := {}
 	var best_t := from.distance_to(end)
 	for pr in game.island.people.list:
 		if pr["gone"] or pr.get("down", false):
 			continue
-		var c: Vector3 = (pr["pos"] as Vector3) + Vector3(0, 0.85, 0)
-		var t := (c - from).dot(d)
-		if t < 0.3 or t > best_t:
+		var base: Vector3 = (pr["pos"] as Vector3) + Vector3(0, float(pr.get("y", 0.0)), 0)
+		var cb := (base + Vector3(0, 0.9, 0) - from).dot(d)
+		if cb < 0.3 or cb > best_t + 1.0:
 			continue
-		if (from + d * t).distance_to(c) < 0.6:
-			best_t = t
-			best_pr = pr
+		var cp := Geometry3D.get_closest_points_between_segments(from, from + d * (best_t + 1.0), base + Vector3(0, 0.12, 0), base + Vector3(0, 1.72, 0))
+		if (cp[0] as Vector3).distance_to(cp[1]) < (0.3 if pr.has("live") else 0.42):
+			var t := ((cp[0] as Vector3) - from).dot(d)
+			if t > 0.3 and t < best_t:
+				best_t = t
+				best_pr = pr
+	# someone crawling, low on the ground
+	var cw: Array = game.gore.crawler_on(from, d, best_t)
+	if not cw.is_empty():
+		_tracer(muzzle, from + d * float(cw[1]))
+		return game.gore.shoot_crawler(cw[0], d, dmg, from + d * float(cw[1]))
 	# the police helicopter (no body to hit: near enough the line counts)
 	var hl = game.police.heli
 	if best_pr.is_empty() and hl != null and is_instance_valid(hl) and not hl.downed:
@@ -440,8 +474,12 @@ func _tracer(a: Vector3, b: Vector3) -> void:
 
 # ------------------------------------------------------------------ people and officers
 
-## A person shot: blood, and they run; out of health, they go down.
+## A person shot: up close (a full character), gore.gd works out where it hit and what it does; further off,
+## blood, and they run; out of health, they go down.
 func _hit_person(pr: Dictionary, d: Vector3, dmg: float, at: Vector3) -> int:
+	var gr: int = game.gore.shoot_person(pr, d, dmg, at)
+	if gr >= 0:
+		return gr
 	pr["hp"] = float(pr.get("hp", PERSON_HP)) - dmg
 	if float(pr["hp"]) <= 0.0:
 		_kill_person(pr, d, dmg)
@@ -479,11 +517,34 @@ func _blood(p: Vector3, d: Vector3) -> void:
 	game.sfx("body_hit_%d" % randi_range(1, 3), -6.0, randf_range(0.95, 1.1))
 
 func _hit_officer(o: Dictionary, dmg: float, d: Vector3, at: Vector3) -> int:
+	var oav: Avatar = o["av"]
+	var hb: Array = oav._hit_bone(at, d)
+	var limb := oav.limb_of(int(hb[0]))
+	var raw := dmg
+	dmg *= float(game.gore.MULT.get(limb, 1.0))
 	o["hp"] = float(o["hp"]) - dmg
+	o["hit_bone"] = int(hb[0])
 	var n: CharacterBody3D = o["node"]
-	game.fx.blood(at, d, 16, 5.5)
+	game.fx.blood(at, d, 18 if limb == "head" else 14, 5.5)
 	game.sfx("body_hit_%d" % randi_range(1, 3), -6.0, randf_range(0.95, 1.1))
-	(o["av"] as Avatar).wound(at, d)
+	oav.wound(at, d)
+	if limb.ends_with("leg") or limb.ends_with("shin"):
+		o["leg_hurt"] = true             # (a hobble from here on)
+	if float(o["hp"]) > 0.0:
+		game.buzz(70 if limb == "head" else 32, 1.0 if limb == "head" else 0.65)
+		game.ui.hitmark("head" if limb == "head" else "hit")
+	elif raw >= 40.0 and limb != "torso" and randf() < 0.6:
+		# a heavy round: it comes off
+		var bn: String = Avatar.SEVER_AT.get(limb, "")
+		if bn != "":
+			var g := oav.make_gib(game.gore, bn, d * clampf(raw * 0.12, 2.5, 7.0))
+			if g:
+				game.gore.gibs.append({"rb": g, "t": 0.0})
+			oav.sever(limb)
+			game.ui.hitmark("sever")
+	if float(o["hp"]) <= 0.0:
+		game.ui.hitmark("kill")
+		game.buzz(100, 1.0)
 	if float(o["hp"]) > 0.0:
 		# hit: knocked back a step or two, the part that's hit snapping away from the shot, off their aim
 		# for a moment (they stagger, then come back up shooting)
@@ -492,7 +553,7 @@ func _hit_officer(o: Dictionary, dmg: float, d: Vector3, at: Vector3) -> int:
 		o["cool"] = maxf(float(o["cool"]), 0.85)
 		o["stagger"] = 0.45
 		return 1
-	_officer_down(o, d * clampf(dmg * 0.12, 3.5, 8.0) + Vector3(0, 0.8, 0))
+	_officer_down(o, d * clampf(raw * 0.12, 3.5, 8.0) + Vector3(0, 0.8, 0))
 	game.save.add_stat("cops_down", 1)
 	kills["police"] += 1
 	game.police.heat_pts += 0.6
@@ -510,7 +571,7 @@ func _officer_down(o: Dictionary, push: Vector3) -> void:
 	n.collision_mask = 0
 	n.set_meta("down", true)
 	game.heist.drop_cash(n.global_position + push.normalized() * 0.8, randi_range(8, 24) * 5)
-	(o["av"] as Avatar).go_limp(self, n.velocity * 0.5, push)
+	(o["av"] as Avatar).go_limp(self, n.velocity * 0.5, push * 0.6, int(o.get("hit_bone", -1)), push)
 	get_tree().create_timer(14.0).timeout.connect(func():
 		if is_instance_valid(n):
 			n.queue_free())
@@ -788,9 +849,8 @@ func _officers_tick(dt: float, you: CharacterBody3D) -> void:
 		if d > 11.0:
 			# running after you: it wears them out (then a jog); shot up, a hobble
 			Sta.use(o["sta"], 8.0 * dt)
-			var ok: float = Sta.k(o["sta"]) * (0.55 if float(o["hp"]) < OFFICER_HP * Sta.HURT_AT else 1.0)
+			var ok: float = Sta.k(o["sta"]) * (0.55 if (float(o["hp"]) < OFFICER_HP * Sta.HURT_AT or o.get("leg_hurt", false)) else 1.0)
 			want = to.normalized() * 4.6 * ok
-			av.play("sprint" if ok > 0.9 else "walk", 1.0 if ok > 0.9 else 1.25)
 			av.aim_at(Vector3.INF, true, dt)
 		else:
 			Sta.tick(o["sta"], dt, 1.0)
@@ -801,6 +861,9 @@ func _officers_tick(dt: float, you: CharacterBody3D) -> void:
 		n.velocity.y = 0.0 if n.is_on_floor() else n.velocity.y - 16.0 * dt
 		n.move_and_slide()
 		av.rotation.y = atan2(-to.x, -to.z) + PI
+		if d > 11.0:
+			# (the run at the pace they're really making: the feet match the ground going by)
+			av.locomote(Vector2(0, Vector2(n.velocity.x, n.velocity.z).length()), 0.2)
 		o["cool"] = float(o["cool"]) - dt
 		if d < 32.0 and float(o["cool"]) <= 0.0:
 			o["cool"] = randf_range(0.9, 1.6)

@@ -5,7 +5,7 @@ extends SceneTree
 ##   ADD="fight=/dir" godot --headless --path . -s tools/chars/add_bp_clips.gd
 
 const OUT := "res://assets/chars/bp_anims.res"
-const LOOPS := ["fight_idle", "laying_seizure", "tonic_seizure", "left_strafe_walking", "right_strafe_walking", "left_strafe", "right_strafe"]
+const LOOPS := ["zombie_crawl", "crawl_backwards", "crawling", "fight_idle", "laying_seizure", "tonic_seizure", "left_strafe_walking", "right_strafe_walking", "left_strafe", "right_strafe"]
 
 func _init() -> void:
 	var lib: AnimationLibrary = load(OUT)

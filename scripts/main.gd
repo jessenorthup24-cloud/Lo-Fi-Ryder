@@ -34,6 +34,7 @@ const Property := preload("res://scripts/game/property.gd")
 const Shops := preload("res://scripts/game/shops.gd")
 const Bank := preload("res://scripts/game/bank.gd")
 const StreetProps := preload("res://scripts/game/street_props.gd")
+const Gore := preload("res://scripts/game/gore.gd")
 const Allies := preload("res://scripts/game/allies.gd")
 const Story := preload("res://scripts/game/story.gd")
 const Tutorial := preload("res://scripts/game/tutorial.gd")
@@ -89,6 +90,8 @@ var look_t := 9.0           # since the last look drag
 var cam_zoom := 1.0
 var look_touches := {}      # touch index -> position
 var shake := 0.0
+var recoil_pitch := 0.0       # the muzzle climb (on foot, firing): up, settling back once you stop
+var recoil_yaw := 0.0         # and its drift to the side
 var aim_kick := 0.0           # a shot's kick to the camera (on foot), settling back
 var aim_toggle := false       # on foot: the AIM button's on
 var cam_kick := Vector3.ZERO      # the camera jolted by a knock (springs back)
@@ -170,6 +173,7 @@ var fights: Fights           # street fights for money: Mo's campaign of eight
 var heist: Heist             # the safes, the heists, dropped cash
 var property: Node3D        # the mansion and the garage you build up (property.gd)
 var shops: Node3D           # Lo-Fi Customs, the Armory, Lo-Fi Threads (shops.gd)
+var gore: Gore               # where a shot hits a person, limbs off, crawlers (gore.gd)
 var street_props: Node3D     # dumpsters, rubbish, papers, benches (street_props.gd)
 var bank: Bank              # cash on you vs banked: ATMs, the three banks, the bag you drop when you die
 var allies: Node3D          # your crew on foot, fighting beside you (allies.gd)
@@ -359,6 +363,10 @@ func _build_world() -> void:
 	bank.name = "Bank"
 	add_child(bank)
 	bank.build(self)
+	gore = Gore.new()
+	gore.name = "Gore"
+	add_child(gore)
+	gore.setup(self)
 	street_props = StreetProps.new()
 	street_props.name = "StreetProps"
 	add_child(street_props)
@@ -4116,6 +4124,10 @@ func _foot_cam(dt: float) -> void:
 	look_yaw = lerp_angle(look_yaw, look_yaw_t, 1.0 - exp(-dt * 16.0))
 	look_pitch = lerpf(look_pitch, look_pitch_t, 1.0 - exp(-dt * 16.0))
 	aim_kick = lerpf(aim_kick, 0.0, 1.0 - exp(-dt * 9.0))
+	# the climb settles back (slowly while you keep firing, quickly once you let go)
+	var rec_k := 2.2 if gunplay and gunplay.cool > -0.12 else 7.0
+	recoil_pitch = lerpf(recoil_pitch, 0.0, 1.0 - exp(-dt * rec_k))
+	recoil_yaw = lerpf(recoil_yaw, 0.0, 1.0 - exp(-dt * rec_k))
 	# in a fist fight: the view eases round onto whoever you're squared up to (not snapped: still yours to drag)
 	var mf: Vector3 = melee.focus() if melee else Vector3.INF
 	# a street fight: the camera's locked on your opponent from the start (no dragging it off them)
@@ -4145,9 +4157,9 @@ func _foot_cam(dt: float) -> void:
 	if body != Vector3.INF:
 		ak = gunplay.aim_k
 		foot_pitch = lerpf(foot_pitch, 0.7, 1.0 - exp(-dt * 2.0))
-	var yaw := foot_yaw + look_yaw
+	var yaw := foot_yaw + look_yaw + recoil_yaw
 	# (aiming, the drag tilts the view fully: up at a balcony, down at someone at your feet)
-	var pitch := clampf(foot_pitch + look_pitch * lerpf(0.6, 1.0, ak) - aim_kick, lerpf(-0.45, -1.05, ak), lerpf(1.1, 1.2, ak))
+	var pitch := clampf(foot_pitch + look_pitch * lerpf(0.6, 1.0, ak) - aim_kick - recoil_pitch, lerpf(-0.45, -1.05, ak), lerpf(1.1, 1.2, ak))
 	# (aiming: close over the right shoulder, at eye height, for the full-size characters)
 	var dist := lerpf(4.6 * cam_zoom, 2.4, ak)
 	_crouch_k = move_toward(_crouch_k, 1.0 if foot.crouch else 0.0, dt * 3.0)

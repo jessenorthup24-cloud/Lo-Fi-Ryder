@@ -27,6 +27,7 @@ var root_i := -1
 var torso_i := -1
 var root_rel := Transform3D()  # the root bone, from the trunk (skeleton space)
 var holder: Node3D
+var skip: Array = []           # bones gone (shot off): no bodies for them or anything below them
 
 ## Go limp: bodies made in `world` (an unscaled node), all moving at `vel`, with `push` on the trunk.
 static var _mat_fast: PhysicsMaterial
@@ -50,6 +51,10 @@ func start(sk: Skeleton3D, world: Node3D, vel: Vector3, push: Vector3) -> void:
 	var by_name := {}
 	var list: Array = []
 	for p in PARTS:
+		if String(p[0]) in skip or String(p[5]) in skip:
+			if not String(p[0]) in skip:
+				skip.append(String(p[0]))
+			continue
 		var bi := sk.find_bone(String(p[0]))
 		var ti := sk.find_bone(String(p[1]))
 		if bi < 0 or ti < 0:

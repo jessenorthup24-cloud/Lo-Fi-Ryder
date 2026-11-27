@@ -729,6 +729,124 @@ func hit(p: Vector3, d: Vector3, k := 1.0) -> void:
 	flinch(d)
 	aim.flinch = minf(1.0, 0.7 + 0.3 * k)
 
+# ------------------------------------------------------------------ dismemberment
+
+## What part a bone is: head, torso, larm, rarm, lleg (thigh), lshin, rleg, rshin.
+func limb_of(bi: int) -> String:
+	if skel == null or bi < 0:
+		return "torso"
+	var n := skel.get_bone_name(bi)
+	var side := "l" if n.begins_with("Left") else ("r" if n.begins_with("Right") else "")
+	if n.begins_with("Head") or n == "Neck":
+		return "head"
+	if side != "" and (n.contains("Arm") or n.contains("Hand") or n.contains("Shoulder")):
+		return side + "arm"
+	if side != "" and n.contains("UpLeg"):
+		return side + "leg"
+	if side != "" and (n.contains("Leg") or n.contains("Foot") or n.contains("Toe")):
+		return side + "shin"
+	return "torso"
+
+## The bone a part comes off at (the whole arm at the shoulder, the leg at the hip, the shin at the knee).
+const SEVER_AT := {"head": "Head", "larm": "LeftArm", "rarm": "RightArm", "lleg": "LeftUpLeg", "rleg": "RightUpLeg",
+	"lshin": "LeftLeg", "rshin": "RightLeg"}
+const LIMB_END := {"Head": "HeadTop_End", "LeftArm": "LeftHandMiddle1", "RightArm": "RightHandMiddle1",
+	"LeftUpLeg": "LeftToeBase", "RightUpLeg": "RightToeBase", "LeftLeg": "LeftToeBase", "RightLeg": "RightToeBase"}
+var severed := {}              # bone name -> true: shrunk to nothing from there down (a stump in its place)
+var _sever_mod: SkeletonModifier3D
+
+class SeverMod extends SkeletonModifier3D:
+	var bones: Array = []
+	func _process_modification() -> void:
+		var sk := get_skeleton()
+		if sk == null:
+			return
+		for b in bones:
+			sk.set_bone_pose_scale(b, Vector3.ONE * 0.001)
+
+## Off it comes: the limb (and all below it) gone from the body, a raw stump there. Returns the bone, or -1.
+func sever(part: String) -> int:
+	if skel == null or not SEVER_AT.has(part):
+		return -1
+	var bn: String = SEVER_AT[part]
+	if severed.has(bn) or (part.ends_with("shin") and severed.has(("Left" if part.begins_with("l") else "Right") + "UpLeg")):
+		return -1
+	var bi := skel.find_bone(bn)
+	if bi < 0:
+		return -1
+	severed[bn] = true
+	if _sever_mod == null:
+		_sever_mod = SeverMod.new()
+		skel.add_child(_sever_mod)
+	(_sever_mod as SeverMod).bones.append(bi)
+	skel.move_child(_sever_mod, -1)
+	# the stump: a raw end on the bone above, where this one joined it
+	var par := skel.get_bone_parent(bi)
+	if par >= 0:
+		var ba := BoneAttachment3D.new()
+		ba.bone_name = skel.get_bone_name(par)
+		skel.add_child(ba)
+		var mi := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		var r := 0.075 / maxf(sk_scale, 0.0001) * (1.25 if part == "head" or part.ends_with("leg") else 1.0)
+		sm.radius = r
+		sm.height = r * 1.6
+		sm.radial_segments = 10
+		sm.rings = 5
+		var mt := StandardMaterial3D.new()
+		mt.albedo_color = Color(0.42, 0.02, 0.03)
+		mt.roughness = 0.35
+		sm.material = mt
+		mi.mesh = sm
+		mi.position = skel.get_bone_rest(bi).origin
+		ba.add_child(mi)
+	return bi
+
+## The limb itself, loose: a copy of the body with only that limb left, in a box that tumbles. Under world.
+func make_gib(world: Node3D, bn: String, push: Vector3) -> RigidBody3D:
+	var bi := skel.find_bone(bn)
+	if bi < 0:
+		return null
+	var sg := skel.global_transform
+	var a: Vector3 = sg * skel.get_bone_global_pose(bi).origin
+	var ei := skel.find_bone(String(LIMB_END.get(bn, "")))
+	var b: Vector3 = (sg * skel.get_bone_global_pose(ei).origin) if ei >= 0 else a + Vector3(0, -0.4, 0)
+	var g: Skeleton3D = skel.duplicate()
+	for c in g.get_children():
+		if not (c is MeshInstance3D):
+			g.remove_child(c)
+			c.free()
+	for i in skel.get_bone_count():
+		g.set_bone_pose(i, skel.get_bone_pose(i))
+	# (the rest of the body shrunk away into the hips; the limb put back where it was)
+	g.set_bone_pose_scale(skel.find_bone("Hips"), Vector3.ONE * 0.001)
+	var rb := RigidBody3D.new()
+	rb.collision_layer = 32
+	rb.collision_mask = 1 | 2
+	rb.mass = 6.0 if bn.contains("Leg") else (4.0 if bn == "Head" else 3.0)
+	rb.linear_damp = 0.3
+	rb.angular_damp = 0.8
+	var seg := b - a
+	var ln := maxf(seg.length(), 0.15)
+	var yv := seg.normalized() if seg.length() > 0.01 else Vector3.UP
+	var xv := yv.cross(Vector3.FORWARD if absf(yv.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT).normalized()
+	var cs := CollisionShape3D.new()
+	var bx := BoxShape3D.new()
+	var th := 0.16 if bn == "Head" else (0.14 if bn.contains("Leg") else 0.1)
+	bx.size = Vector3(th, ln if bn != "Head" else 0.22, th)
+	cs.shape = bx
+	rb.add_child(cs)
+	world.add_child(rb)
+	rb.global_transform = Transform3D(Basis(xv, yv, xv.cross(yv)), (a + b) * 0.5)
+	rb.add_child(g)
+	g.global_transform = sg
+	g.set_bone_global_pose(bi, skel.get_bone_global_pose(bi))
+	for mi in g.find_children("*", "MeshInstance3D", true, false):
+		(mi as MeshInstance3D).extra_cull_margin = 4.0
+	rb.linear_velocity = push + Vector3(0, 2.0, 0)
+	rb.angular_velocity = Vector3(randf_range(-9, 9), randf_range(-6, 6), randf_range(-9, 9))
+	return rb
+
 ## Knocked by a hit from direction d (world): the upper body jolts back.
 func flinch(d: Vector3) -> void:
 	if aim == null or skel == null:
@@ -739,8 +857,9 @@ func flinch(d: Vector3) -> void:
 	aim.flinch_axis = ax.normalized()
 	aim.flinch = 1.0
 
-## Dead: limp, thrown at vel (and a push), the bodies made under `world` (an unscaled node).
-func go_limp(world: Node3D, vel: Vector3, push: Vector3) -> void:
+## Dead: limp, thrown at vel (and a push), the bodies made under `world` (an unscaled node). hit_bone /
+## hit_push: the part the shot hit takes its own knock too (a leg kicked out, the head snapped back).
+func go_limp(world: Node3D, vel: Vector3, push: Vector3, hit_bone := -1, hit_push := Vector3.ZERO) -> void:
 	if limp or skel == null:
 		return
 	# (an animation keeps playing underneath: the skeleton only runs its modifiers while something moves it)
@@ -751,8 +870,19 @@ func go_limp(world: Node3D, vel: Vector3, push: Vector3) -> void:
 		aim.flinch = 0.0
 	_aim_w = 0.0
 	limp = RagdollRig.new()
+	limp.skip = severed.keys()
 	skel.add_child(limp)
 	limp.start(skel, world, vel, push)
+	if _sever_mod:
+		skel.move_child(_sever_mod, -1)          # (after the ragdoll: what's gone stays gone)
+	if hit_bone >= 0 and hit_push != Vector3.ZERO:
+		var hb: int = hit_bone
+		# (the part's own body, or the nearest one up the limb that has one)
+		while hb >= 0 and not limp.bodies.has(hb):
+			hb = skel.get_bone_parent(hb)
+		var rb: RigidBody3D = limp.bodies.get(hb)
+		if rb:
+			rb.apply_central_impulse(hit_push * rb.mass)
 	# (the gun drops out of the hand: it'd only spin about on the arm)
 	if gun:
 		gun.visible = false

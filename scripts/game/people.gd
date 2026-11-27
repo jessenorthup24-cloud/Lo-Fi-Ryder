@@ -238,7 +238,7 @@ func _unlive(pr: Dictionary) -> void:
 	if av and is_instance_valid(av):
 		av.queue_free()
 
-func _place_live(pr: Dictionary, base: Vector3, _t: float) -> void:
+func _place_live(pr: Dictionary, base: Vector3, t: float) -> void:
 	if not is_instance_valid(pr["live"]):
 		pr.erase("live")
 		return
@@ -251,6 +251,21 @@ func _place_live(pr: Dictionary, base: Vector3, _t: float) -> void:
 		av.rotation.y = float(pr["face"]) + PI
 		return
 	av.hurt = pr.get("hurt", false)          # (beaten up: they limp)
+	# how they're really moving (measured, frame to frame): they face it, and the feet keep pace with it
+	var lt := float(pr.get("lv_t", t))
+	var dtt := t - lt
+	if dtt > 0.0001:
+		var mv: Vector3 = (base - (pr.get("lv_p", base) as Vector3)) / dtt
+		mv.y = 0.0
+		if mv.length() > 14.0:
+			mv = Vector3.ZERO          # (put somewhere: not a run)
+		pr["lv_v"] = (pr.get("lv_v", mv) as Vector3).lerp(mv, clampf(dtt * 12.0, 0.0, 1.0))
+	pr["lv_p"] = base
+	pr["lv_t"] = t
+	var vel: Vector3 = pr.get("lv_v", Vector3.ZERO)
+	var spd := vel.length()
+	if spd > 0.35 and pr["pose"] == "stand" and float(pr.get("exit_t", 0.0)) <= 0.0:
+		pr["face"] = lerp_angle(float(pr["face"]), atan2(-vel.x, -vel.z), 1.0 - exp(-maxf(dtt, 0.016) * 12.0))
 	var sitting: bool = pr["pose"] == "sit"
 	# (a sitter's origin is the seat; the character's is its feet)
 	av.global_position = base - Vector3(0, (SIT_LIFT + _seat()) if sitting else 0.0, 0)
@@ -265,12 +280,18 @@ func _place_live(pr: Dictionary, base: Vector3, _t: float) -> void:
 	if sitting:
 		av.play("cheer_sit" if (cheer_t > 0.0 and pr.get("cheering", false)) else "sit")
 		return
-	if float(pr.get("dodge_t", 0.0)) > 0.0:
-		av.play("sprint", 1.2, 0.15)       # (a quick jog out of the way)
+	var moving := spd > 0.35
+	if moving and (float(pr.get("dodge_t", 0.0)) > 0.0 or float(pr.get("flee", 0.0)) > 0.0 or pr.has("path")):
+		# walking or running at the pace they're really going (the blend picks the walk or the run and
+		# plays it at the speed that matches: no feet racing while they barely move)
+		if String(pr.get("act", "")) == "text_walk" and spd < 1.9 and float(pr.get("flee", 0.0)) <= 0.0:
+			av.play("text_walk", spd / 1.3)
+		else:
+			av.locomote(Vector2(0, spd), 0.2)
 	elif float(pr.get("flee", 0.0)) > 0.0:
-		av.play("sprint" if pr.has("path") or float(pr["flee"]) > 1.0 else "terrified")
+		av.play("terrified")
 	elif pr.has("path"):
-		av.play(String(pr.get("act", "walk")) if String(pr.get("act", "")).contains("walk") else "walk", 0.95)
+		av.play("idle")
 	elif float(pr["wave"]) > 0.4 and pr.get("friendly", false):
 		av.play("wave")
 	else:

@@ -1794,31 +1794,62 @@ func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> 
 	_wanted_update(game.police.hud(), 0.0)        # (the stars and the searching line, on foot too)
 	pressed_controls(game.held)
 
-## A shot landed: an X on the reticle (red, bigger, if it killed).
-func hit_marker(kill: bool) -> void:
-	_hit_t = 0.32 if kill else 0.18
-	_hit_kill = kill
+## A shot landed: a mark on the crosshair. kind: hit (white), head (amber, a ring), kill (red, bigger),
+## sever (red, a burst).
+var _hit_kind := "hit"
+const HIT_T := {"hit": 0.16, "head": 0.3, "kill": 0.36, "sever": 0.42}
+func hitmark(kind: String) -> void:
+	# (a kill or a limb outranks a plain hit landing in the same instant)
+	if _hit_t > 0.0 and HIT_T.get(_hit_kind, 0.0) > HIT_T.get(kind, 0.0) and kind == "hit":
+		return
+	_hit_kind = kind
+	_hit_t = HIT_T.get(kind, 0.2)
+	_hit_kill = kind == "kill" or kind == "sever"
 
+func hit_marker(kill: bool) -> void:
+	hitmark("kill" if kill else "hit")
+
+## The crosshair: three ticks round a dot (top, and either side below), spreading with the bloom (moving,
+## firing, the kick) and drawing in as you steady; red when it's locked on someone.
 func _draw_reticle() -> void:
 	var gp = game.gunplay
 	var c := Vector2(60, 60)
 	var locked: bool = gp.lock_pos != Vector3.INF
-	var col := Color(1.0, 0.3, 0.4, 0.95) if locked else Color(1, 1, 1, 0.92)
-	var ink := Color(0, 0, 0, 0.45)
-	# a dot (red when it's locked on), swelling a little with the kick
-	var r: float = 3.6 + gp._recoil * 1.6
-	reticle.draw_circle(c, r + 1.6, ink)
-	reticle.draw_circle(c, r, col)
+	var col := Color(1.0, 0.3, 0.4, 0.95) if locked else Color(1, 1, 1, 0.94)
+	var ink := Color(0, 0, 0, 0.5)
+	var gap: float = 7.0 + gp.spread_k() * 26.0
+	for k in 3:
+		var a := -PI * 0.5 + TAU * k / 3.0
+		var dv := Vector2(cos(a), sin(a))
+		var p0 := c + dv * gap
+		var p1 := c + dv * (gap + 11.0)
+		reticle.draw_line(p0, p1, ink, 6.0, true)
+		reticle.draw_line(p0, p1, col, 3.0, true)
+	reticle.draw_circle(c, 3.2, ink)
+	reticle.draw_circle(c, 2.0, col)
 	if _hit_t > 0.0:
-		var t := _hit_t / (0.32 if _hit_kill else 0.18)
-		var hc := Color(1.0, 0.18, 0.25, t) if _hit_kill else Color(1, 1, 1, t)
-		var r0 := 9.0 + (1.0 - t) * 4.0
-		var r1 := r0 + (14.0 if _hit_kill else 9.0)
+		var t: float = _hit_t / float(HIT_T.get(_hit_kind, 0.2))
+		var hc := Color(1, 1, 1, t)
+		match _hit_kind:
+			"head":
+				hc = Color(1.0, 0.72, 0.2, t)
+				reticle.draw_arc(c, 18.0 + (1.0 - t) * 14.0, 0, TAU, 32, Color(1.0, 0.72, 0.2, t * 0.8), 2.5, true)
+			"kill":
+				hc = Color(1.0, 0.18, 0.25, t)
+			"sever":
+				hc = Color(1.0, 0.12, 0.2, t)
+				for k in 8:
+					var sa := TAU * k / 8.0
+					var sv := Vector2(cos(sa), sin(sa))
+					reticle.draw_circle(c + sv * (20.0 + (1.0 - t) * 22.0), 3.0 * t + 0.5, Color(0.85, 0.05, 0.1, t))
+		var big := _hit_kind != "hit"
+		var r0 := 8.0 + (1.0 - t) * 5.0
+		var r1 := r0 + (15.0 if big else 9.0)
 		for k in 4:
 			var a := TAU * k / 4.0 + PI * 0.25
 			var dv := Vector2(cos(a), sin(a))
-			reticle.draw_line(c + dv * r0, c + dv * r1, Color(0, 0, 0, 0.5 * t), 6.0, true)
-			reticle.draw_line(c + dv * r0, c + dv * r1, hc, 3.0, true)
+			reticle.draw_line(c + dv * r0, c + dv * r1, Color(0, 0, 0, 0.5 * t), 6.5 if big else 5.5, true)
+			reticle.draw_line(c + dv * r0, c + dv * r1, hc, 3.5 if big else 2.6, true)
 
 func pressed_controls(held: Dictionary) -> void:
 	for k in ctl:

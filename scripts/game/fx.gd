@@ -170,7 +170,8 @@ func splat(p: Vector3, size := 0.5, grow := 0.25) -> void:
 		var old = live_splats.pop_front()
 		splats.release(old["s"])
 		s = splats.alloc()
-	splats.multimesh.set_instance_color(s, Color(0.46, 0.02, 0.035).lerp(Color(0.34, 0.01, 0.02), randf() * 0.6))
+	# (alpha 0.7: the toon shader takes it as painted, as is: an sRGB red this dark comes out black)
+	splats.multimesh.set_instance_color(s, Color(0.4, 0.014, 0.028, 0.7).lerp(Color(0.28, 0.008, 0.018, 0.7), randf() * 0.6))
 	var gy: float = ground.call(p.x, p.z) if ground.is_valid() else p.y
 	var b := Basis(Vector3.UP, randf() * TAU).scaled(Vector3(size * randf_range(0.8, 1.25), 1.0, size * randf_range(0.8, 1.25)))
 	var at := Vector3(p.x, gy + 0.05, p.z)
