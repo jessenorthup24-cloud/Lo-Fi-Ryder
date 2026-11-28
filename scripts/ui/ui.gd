@@ -2098,6 +2098,8 @@ func hud_update(d: Dictionary) -> void:
 		chal_main.text = "Get ready" if rc["counting"] else ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"][clampi(pl - 1, 0, 7)]
 		var rt := float(rc["t"])
 		chal_sub.text = "of %d · %d:%04.1f" % [int(rc["of"]), int(rt) / 60, fmod(rt, 60.0)]
+		if String(rc.get("ahead", "")) != "":
+			chal_sub.text += "\n" + String(rc["ahead"])
 	elif not z.is_empty():
 		chal_name.text = z["name"]
 		chal_main.text = K.fmt(int(d["zone_pts"]))

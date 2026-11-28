@@ -41,6 +41,19 @@ var room_w := ROOM
 var radii: Array = []
 const CP_GAP := 75.0        # metres between checkpoints
 const NAMES := ["Ruby", "Dash", "Mika", "Juno", "Oz", "Pepper", "Sol", "Kit", "Remy", "Tess"]
+## The regulars, each with a way of driving you get to know: the same name always drives the same way.
+const ROSTER := {"Ruby": "late", "Dash": "diver", "Mika": "defender", "Juno": "steady", "Oz": "late",
+	"Pepper": "diver", "Sol": "defender", "Kit": "steady", "Remy": "wild", "Tess": "steady"}
+## look: how far ahead it brakes for (s per m/s: less is later); ent: corner speed; err: a mistake a corner
+## (lock up and run wide, or a slide); gap: how close it follows before going for the pass
+const STYLES := {
+	"steady": {"tag": "clean and steady", "look": 0.35, "ent": 1.0, "err": 0.025, "gap": 9.0},
+	"late": {"tag": "brakes late", "look": 0.2, "ent": 1.03, "err": 0.06, "gap": 8.0},
+	"diver": {"tag": "dives up the inside", "look": 0.32, "ent": 1.0, "err": 0.045, "gap": 6.0},
+	"defender": {"tag": "covers the inside", "look": 0.35, "ent": 0.99, "err": 0.03, "gap": 9.0},
+	"wild": {"tag": "quick but messy", "look": 0.26, "ent": 1.05, "err": 0.12, "gap": 7.0},
+}
+const ERR_K := [1.5, 1.0, 0.45]          # (mistakes: more on Easy, few on Hard)
 const AI_LAYER := 8
 
 var game
@@ -545,6 +558,7 @@ func grid(player_car) -> void:
 			r["car"] = car
 			r["ai"] = true
 			r["name"] = names[slot % names.size()]
+			r["style"] = String(ROSTER.get(r["name"], "steady"))
 			# a spread of pace: the quickest a touch above the line's speeds, the slowest a little under
 			r["skill"] = float(dd["skill"][slot])
 			r["lane"] = 0.0          # (everyone drives the racing line: off it only to get past someone)
@@ -589,6 +603,8 @@ func tick(dt: float) -> void:
 			r["done"] = t
 			r["skill"] = 0.7
 			finished.append(r)
+			if game.args.has("racelog"):
+				print("FINISH %s t=%.1f s=%.0f length=%.0f laps=%d" % [r["name"], t, float(r["s"]), length, laps])
 	_ghosts(dt)
 	_you(dt)
 	_gates_tick()
@@ -599,6 +615,8 @@ func _drive(r: Dictionary, dt: float) -> void:
 	var v := c.linear_velocity.length()
 	var s := fposmod(float(r["s"]) + start_s, length)
 	var my_lat := (Vector2(pos.x, pos.z) - at(s)).dot(right(s))
+	var style := String(r.get("style", "steady"))
+	var st: Dictionary = STYLES[style]
 	# who's around: the car ahead in my path (to follow, or pass), and who's beside me (so I don't pull into them)
 	var want: float = r["lane"]
 	var follow_v := INF
@@ -622,9 +640,15 @@ func _drive(r: Dictionary, dt: float) -> void:
 	if not blocker.is_empty():
 		var ov := (blocker["car"] as RigidBody3D).linear_velocity.length()
 		# keep a gap of a couple of car lengths, closing it gently
-		follow_v = ov + clampf((block_ds - 9.0) * 0.5, -6.0, 4.0)
-		# pass on whichever side has room (and isn't someone already alongside)
-		for side in ([-1.0, 1.0] if my_lat < olat2 else [1.0, -1.0]):
+		follow_v = ov + clampf((block_ds - float(st["gap"])) * 0.5, -6.0, 4.0)
+		# pass on whichever side has room (and isn't someone already alongside); a diver goes for the inside
+		# of the bend coming up, whichever side it's on
+		var sides := [-1.0, 1.0] if my_lat < olat2 else [1.0, -1.0]
+		if style == "diver":
+			var turn := tangent(s + 30.0).dot(right(s))
+			if absf(turn) > 0.08:
+				sides = [signf(turn), -signf(turn)]
+		for side in sides:
 			var tl := clampf(olat2 + side * 2.7, -(room_w - 0.5), room_w - 0.5)
 			if absf(tl - olat2) < 2.3:
 				continue       # (no room that side: the kerb)
@@ -635,11 +659,51 @@ func _drive(r: Dictionary, dt: float) -> void:
 			if free:
 				want = tl
 				follow_v = INF if block_ds > 6.0 else follow_v
+				if style == "diver" and r["ai"]:
+					r["n_dive"] = int(r.get("n_dive", 0)) + (1 if not r.get("diving", false) else 0)
+					r["diving"] = true
 				break
-	# corners are taken on the line: tuck back in behind (unless already alongside and ahead)
+	if blocker.is_empty():
+		r["diving"] = false
+	# corners are taken on the line: tuck back in behind (unless already alongside and ahead, or a diver
+	# with its nose in)
 	var bend := speed_at(s + 18.0) < speed_at(s) - 2.0 or speed_at(s + 6.0) < 15.0
-	if bend and not (not blocker.is_empty() and block_ds < 3.0):
+	var committed := style == "diver" and not blocker.is_empty() and block_ds < 14.0
+	if bend and not (not blocker.is_empty() and block_ds < 3.0) and not committed:
 		want *= 0.2
+	# a defender, someone close behind with a bend coming: one move to cover the side they're looking at
+	if style == "defender" and r["ai"]:
+		var soon := speed_at(s + 35.0) < speed_at(s) - 3.0
+		if not soon and not bend:
+			r["def_used"] = false
+		elif not r.get("def_used", false) or r.has("def_lat"):
+			for o in racers:
+				if o == r:
+					continue
+				var ds := float(o["s"]) - float(r["s"])
+				if ds > -13.0 and ds < -1.5:
+					var oc: Node3D = o["car"]
+					var olat := (Vector2(oc.global_position.x, oc.global_position.z) - at(s + ds)).dot(right(s + ds))
+					if absf(olat - my_lat) > 0.9 and not r.has("def_lat"):
+						r["def_lat"] = clampf(olat, -(room_w - 0.8), room_w - 0.8)
+						r["def_used"] = true
+						r["n_defend"] = int(r.get("n_defend", 0)) + 1
+					break
+		if r.has("def_lat"):
+			want = float(r["def_lat"])
+			if not soon and not bend:
+				r.erase("def_lat")
+	# a mistake now and then, going into a corner: locked up and wide, or a slide
+	if bend and not r.get("was_bend", false) and r["ai"] and t > 2.0:
+		if randf() < float(st["err"]) * float(ERR_K[diff]):
+			r["oops"] = 1.4
+			r["oops_k"] = "wide" if randf() < (0.75 if style == "late" or style == "wild" else 0.45) else "slide"
+			r["n_oops"] = int(r.get("n_oops", 0)) + 1
+	r["was_bend"] = bend
+	var oops := ""
+	if float(r.get("oops", 0.0)) > 0.0:
+		r["oops"] = float(r["oops"]) - dt
+		oops = String(r["oops_k"])
 	r["lane_now"] = move_toward(float(r["lane_now"]), want, dt * 2.0)
 	# steer for a point ahead on the line (or beside it, but never off the street)
 	var la := 6.0 + v * 0.45
@@ -648,10 +712,15 @@ func _drive(r: Dictionary, dt: float) -> void:
 	var fwd := -c.global_transform.basis.z
 	var to := Vector3(tp.x - pos.x, 0, tp.y - pos.z)
 	var ang := atan2(fwd.z * to.x - fwd.x * to.z, fwd.x * to.x + fwd.z * to.z)
-	c.steer_in = clampf(-ang * 2.4, -1.0, 1.0)
+	c.steer_in = clampf(-ang * (1.4 if oops == "wide" else 2.4), -1.0, 1.0)
+	if oops == "slide":
+		c.steer_in = clampf(c.steer_in + sin(t * 9.0) * 0.35, -1.0, 1.0)
 	c.handbrake = 0.0
-	# hold the line's speed (looking a little ahead, so it brakes in time)
-	var vt := speed_at(s + v * 0.35 + 3.0) * float(r["skill"])
+	# hold the line's speed (looking a little ahead, so it brakes in time: a late braker looks less far)
+	var look := 0.1 if oops == "wide" else float(st["look"])
+	var vt := speed_at(s + v * look + 3.0) * float(r["skill"])
+	if bend:
+		vt *= float(st["ent"]) * (1.1 if oops == "wide" else 1.0)
 	# a little help for whoever's behind you, a little restraint for whoever's well ahead
 	var gap := float(r["s"]) - float(you["s"])
 	var band: Array = DIFF[diff]["band"]
@@ -665,12 +734,17 @@ func _drive(r: Dictionary, dt: float) -> void:
 	if v < vt - 0.6:
 		c.throttle = 1.0
 		c.brake = 0.0
+	elif style == "late" and v > vt + 0.6:
+		c.throttle = 0.0
+		c.brake = clampf((v - vt) / 2.5, 0.55, 1.0)          # (later, and harder, when it does)
 	elif v > vt + 1.2:
 		c.throttle = 0.0
 		c.brake = clampf((v - vt) / 4.0, 0.3, 1.0)
 	else:
 		c.throttle = 0.4
 		c.brake = 0.0
+	if oops == "slide":
+		c.throttle = minf(c.throttle, 0.3)
 	# nosed into something (a lamp post, a wall): back off it and go round, as anyone would. Twice in the
 	# same spot and it's put back on the line instead.
 	if float(r.get("backing", 0.0)) > 0.0:
@@ -882,8 +956,14 @@ func bust(car_node: Node) -> void:
 ## For the HUD.
 func hud() -> Dictionary:
 	var lap := clampi(int(floor(float(you["s"]) / length)) + 1, 1, laps)
+	var ahead := ""
+	var order := standings()
+	var i := order.find(you)
+	if i > 0 and state == 1:
+		var a: Dictionary = order[i - 1]
+		ahead = "%s ahead · %s" % [a["name"], STYLES[String(a.get("style", "steady"))]["tag"]]
 	return {"name": def["name"], "place": place_of(you), "of": racers.size(), "lap": lap, "laps": laps, "t": t,
-		"counting": state == 0}
+		"counting": state == 0, "ahead": ahead}
 
 ## Where the arrow should point: the next checkpoint (and the line ahead for the turn coming up).
 func guide() -> Array:

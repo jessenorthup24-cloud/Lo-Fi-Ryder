@@ -221,11 +221,51 @@ func _run() -> void:
 			await wait(2.0)
 			check(not game.in_marker.is_empty(), "stopped in it: the card comes up")
 			await snap("calm_stopped")
+		"rivals":
+			# the regulars: each drives their own way, and they make mistakes now and then
+			game.args["drive"] = true
+			game.start_drive()
+			await wait(1.0)
+			var oops := 0
+			var defend := 0
+			var dive := 0
+			for dk in [0, 1]:
+				game.save.data["settings"]["race_diff"] = dk
+				game.args["raceauto"] = true
+				game.begin_challenge("race", "downtown")
+				await wait_until(func(): return game.race != null and game.race.state == 1, 20.0)
+				var styled := true
+				for r in game.race.racers:
+					if r["ai"] and not game.race.STYLES.has(String(r.get("style", ""))):
+						styled = false
+				check(styled, "%s: every rival has a way of driving" % game.race.DIFF[dk]["name"])
+				var saw_ahead := false
+				var done := false
+				for i in 4800:
+					await wait(0.1)
+					if game.race == null or game.race.state == 2:
+						done = game.race != null
+						break
+					if String(game.race.hud().get("ahead", "")) != "":
+						saw_ahead = true
+				var rows := []
+				for r in game.race.standings():
+					oops += int(r.get("n_oops", 0))
+					defend += int(r.get("n_defend", 0))
+					dive += int(r.get("n_dive", 0))
+					rows.append("%s(%s) oops=%d def=%d dive=%d" % [r["name"], String(r.get("style", "you")), int(r.get("n_oops", 0)), int(r.get("n_defend", 0)), int(r.get("n_dive", 0))])
+				print("RIVALS %s: %s" % [game.race.DIFF[dk]["name"], " | ".join(rows)])
+				check(done, "%s: the race finishes (P%d)" % [game.race.DIFF[dk]["name"], game.race.place_of(game.race.you)])
+				check(saw_ahead, "the HUD names the car ahead and how they drive")
+				game.quit_challenge()
+				await wait(2.0)
+			check(oops > 0, "rivals make mistakes now and then (%d)" % oops)
+			check(defend + dive > 0, "they defend and dive for the inside (%d defences, %d dives)" % [defend, dive])
 		"racediff":
 			game.args["drive"] = true
 			game.start_drive()
 			await wait(1.0)
-			for dk in [0, 1, 2]:
+			for dk in ([0, 1, 2] if not game.args.has("diffs") else Array(String(game.args["diffs"]).split(",")).map(func(x): return int(x))):
 				game.save.data["settings"]["race_diff"] = dk
 				game.args["raceauto"] = true
 				game.begin_challenge("race", "downtown")
