@@ -1,0 +1,554 @@
+{
+ "tracks": [
+  {
+   "file": "holiznacc0_blue_skies.ogg",
+   "title": "Blue Skies",
+   "artist": "HoliznaCC0",
+   "album": "Happy Lo-Fi (Lofi Collection)",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/happy-lo-fi-lofi-collection",
+   "seconds": 175.5,
+   "station": "lofi"
+  },
+  {
+   "file": "holiznacc0_clouds.ogg",
+   "title": "Clouds",
+   "artist": "HoliznaCC0",
+   "album": "Happy Lo-Fi (Lofi Collection)",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/happy-lo-fi-lofi-collection",
+   "seconds": 229.6,
+   "station": "lofi"
+  },
+  {
+   "file": "holiznacc0_new_shoes.ogg",
+   "title": "New Shoes",
+   "artist": "HoliznaCC0",
+   "album": "Happy Lo-Fi (Lofi Collection)",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/happy-lo-fi-lofi-collection",
+   "seconds": 155.9,
+   "station": "lofi"
+  },
+  {
+   "file": "holiznacc0_poor_but_happy.ogg",
+   "title": "Poor, But Happy",
+   "artist": "HoliznaCC0",
+   "album": "Happy Lo-Fi (Lofi Collection)",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/happy-lo-fi-lofi-collection",
+   "seconds": 127.9,
+   "station": "lofi"
+  },
+  {
+   "file": "holiznacc0_puppy_love.ogg",
+   "title": "Puppy Love",
+   "artist": "HoliznaCC0",
+   "album": "Happy Lo-Fi (Lofi Collection)",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/happy-lo-fi-lofi-collection",
+   "seconds": 149.9,
+   "station": "lofi"
+  },
+  {
+   "file": "holiznacc0_city_in_the_rearview.ogg",
+   "title": "City In The Rearview",
+   "artist": "HoliznaCC0",
+   "album": "Chill Beats Collection",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/chill-beats-collection",
+   "seconds": 175.6,
+   "station": "lofi"
+  },
+  {
+   "file": "holiznacc0_autumn.ogg",
+   "title": "Autumn",
+   "artist": "HoliznaCC0",
+   "album": "Chill Beats Collection",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/chill-beats-collection",
+   "seconds": 169.8,
+   "station": "lofi"
+  },
+  {
+   "file": "holiznacc0_dream_pop.ogg",
+   "title": "Dream Pop",
+   "artist": "HoliznaCC0",
+   "album": "Chill Beats Collection",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/chill-beats-collection",
+   "seconds": 241.6,
+   "station": "lofi"
+  },
+  {
+   "file": "holiznacc0_families.ogg",
+   "title": "Families",
+   "artist": "HoliznaCC0",
+   "album": "Chill Beats Collection",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/chill-beats-collection",
+   "seconds": 143.9,
+   "station": "lofi"
+  },
+  {
+   "file": "omfgdude_chill_lofi.ogg",
+   "title": "Chill Lofi",
+   "artist": "omfgdude",
+   "album": "Chill lofi inspired",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/chill-lofi-inspired",
+   "seconds": 125.1,
+   "station": "lofi"
+  },
+  {
+   "file": "omfgdude_lofi_again.ogg",
+   "title": "Lofi Again",
+   "artist": "omfgdude",
+   "album": "Lofi again",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/lofi-again",
+   "seconds": 87.8,
+   "station": "lofi"
+  },
+  {
+   "file": "g_p_synthwave_type.ogg",
+   "title": "Synthwave Type",
+   "artist": "G_P",
+   "album": "synthwave_type",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/synthwavetype",
+   "seconds": 113.2,
+   "station": "neon"
+  },
+  {
+   "file": "the_cynic_project_synthwave_421k.ogg",
+   "title": "Synthwave 421k",
+   "artist": "The Cynic Project",
+   "album": "Calm Relax 1 (Synthwave 421k)",
+   "license": "CC0",
+   "page": "https://opengameart.org/node/97110",
+   "seconds": 474.2,
+   "station": "neon"
+  },
+  {
+   "file": "alex_mcculloch_synth_wave.ogg",
+   "title": "Synth Wave",
+   "artist": "Alex McCulloch",
+   "album": "Synth Wave",
+   "license": "CC0",
+   "page": "https://opengameart.org/node/131573",
+   "seconds": 102.4,
+   "station": "neon"
+  },
+  {
+   "file": "holizna_night_driving.ogg",
+   "title": "Night Driving",
+   "artist": "Holizna",
+   "album": "Relaxing Instrumentals",
+   "license": "CC0",
+   "page": "https://opengameart.org/node/161811",
+   "seconds": 131.3,
+   "station": "chill"
+  },
+  {
+   "file": "holizna_boredom.ogg",
+   "title": "Boredom",
+   "artist": "Holizna",
+   "album": "Relaxing Instrumentals",
+   "license": "CC0",
+   "page": "https://opengameart.org/node/161811",
+   "seconds": 170.6,
+   "station": "chill"
+  },
+  {
+   "file": "holizna_love.ogg",
+   "title": "Love",
+   "artist": "Holizna",
+   "album": "Relaxing Instrumentals",
+   "license": "CC0",
+   "page": "https://opengameart.org/node/161811",
+   "seconds": 187.9,
+   "station": "chill"
+  },
+  {
+   "file": "holizna_lost_in_your_eyes.ogg",
+   "title": "Lost In Your Eyes",
+   "artist": "Holizna",
+   "album": "Relaxing Instrumentals",
+   "license": "CC0",
+   "page": "https://opengameart.org/node/161811",
+   "seconds": 236.5,
+   "station": "chill"
+  },
+  {
+   "file": "alex_mcculloch_chill_guitar.ogg",
+   "title": "Chill Guitar",
+   "artist": "Alex McCulloch",
+   "album": "Chill Guitar",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/chill-guitar",
+   "seconds": 133.9,
+   "station": "chill"
+  },
+  {
+   "file": "kistol_etirwer.ogg",
+   "title": "Etirwer",
+   "artist": "Kistol",
+   "album": "Etirwer",
+   "license": "CC0",
+   "page": "https://opengameart.org/comment/25040",
+   "seconds": 130.2,
+   "station": "chill"
+  },
+  {
+   "file": "ragnar_random_rock_city_ransom.ogg",
+   "title": "Rock City Ransom",
+   "artist": "Ragnar Random",
+   "album": "Rock Music Pack",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/rock-music",
+   "seconds": 64.0,
+   "station": "rock"
+  },
+  {
+   "file": "ragnar_random_poison_the_sultan_with_saltpeter.ogg",
+   "title": "Poison the Sultan with Saltpeter",
+   "artist": "Ragnar Random",
+   "album": "Rock Music Pack",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/rock-music",
+   "seconds": 69.8,
+   "station": "rock"
+  },
+  {
+   "file": "ragnar_random_welcome_to_warp_zone.ogg",
+   "title": "Welcome to Warp Zone",
+   "artist": "Ragnar Random",
+   "album": "Rock Music Pack",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/rock-music",
+   "seconds": 63.3,
+   "station": "rock"
+  },
+  {
+   "file": "ragnar_random_here_a_captive_heart_busted.ogg",
+   "title": "Here a Captive Heart Busted",
+   "artist": "Ragnar Random",
+   "album": "Rock Music Pack",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/rock-music",
+   "seconds": 60.6,
+   "station": "rock"
+  },
+  {
+   "file": "ragnar_random_we_got_the_crud.ogg",
+   "title": "We Got the Crud",
+   "artist": "Ragnar Random",
+   "album": "Rock Music Pack",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/rock-music",
+   "seconds": 70.8,
+   "station": "rock"
+  },
+  {
+   "file": "ragnar_random_dinosaur_spirit_guide.ogg",
+   "title": "Dinosaur Spirit Guide",
+   "artist": "Ragnar Random",
+   "album": "Rock Music Pack",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/rock-music",
+   "seconds": 56.5,
+   "station": "rock"
+  },
+  {
+   "file": "ragnar_random_princess_princess.ogg",
+   "title": "Princess Princess",
+   "artist": "Ragnar Random",
+   "album": "Rock Music Pack",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/rock-music",
+   "seconds": 105.7,
+   "station": "rock"
+  },
+  {
+   "file": "3xblast_xblast_babe_you_look_poggers_tonight_looped.ogg",
+   "title": "XBlast - Babe, You Look Poggers Tonight! (Looped)",
+   "artist": "3xBlast",
+   "album": "7 Pop-Punk Chiptune Tracks",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/7-pop-punk-chiptune-tracks",
+   "seconds": 120.0,
+   "station": "punk"
+  },
+  {
+   "file": "3xblast_xblast_if_you_re_thinking_about_giving_up_think_.ogg",
+   "title": "XBlast - If You're Thinking About Giving Up, Think Again Beause I Believe In You! (Looped)",
+   "artist": "3xBlast",
+   "album": "7 Pop-Punk Chiptune Tracks",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/7-pop-punk-chiptune-tracks",
+   "seconds": 196.8,
+   "station": "punk"
+  },
+  {
+   "file": "3xblast_xblast_let_s_go_olive_boy_looped.ogg",
+   "title": "XBlast - Let's Go, Olive Boy! (Looped)",
+   "artist": "3xBlast",
+   "album": "7 Pop-Punk Chiptune Tracks",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/7-pop-punk-chiptune-tracks",
+   "seconds": 92.8,
+   "station": "punk"
+  },
+  {
+   "file": "3xblast_xblast_now_this_is_a_waterpark_looped.ogg",
+   "title": "XBlast - Now This Is A Waterpark! (Looped)",
+   "artist": "3xBlast",
+   "album": "7 Pop-Punk Chiptune Tracks",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/7-pop-punk-chiptune-tracks",
+   "seconds": 121.5,
+   "station": "punk"
+  },
+  {
+   "file": "3xblast_xblast_thanks_for_listening_looped.ogg",
+   "title": "XBlast - Thanks For Listening! (Looped)",
+   "artist": "3xBlast",
+   "album": "7 Pop-Punk Chiptune Tracks",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/7-pop-punk-chiptune-tracks",
+   "seconds": 111.3,
+   "station": "punk"
+  },
+  {
+   "file": "mintodog_jazzy_battle_theme.ogg",
+   "title": "Jazzy Battle Theme",
+   "artist": "MintoDog",
+   "album": "Jazzy Battle Theme",
+   "license": "CC0",
+   "page": "https://opengameart.org/node/157621",
+   "seconds": 81.2,
+   "station": "jazz"
+  },
+  {
+   "file": "alex_mcculloch_jazz_saxophone.ogg",
+   "title": "Jazz Saxophone",
+   "artist": "Alex McCulloch",
+   "album": "Jazz (Saxophone)",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/jazz-saxaphone",
+   "seconds": 129.5,
+   "station": "jazz"
+  },
+  {
+   "file": "alex_mcculloch_relaxing_jazz.ogg",
+   "title": "Relaxing Jazz",
+   "artist": "Alex McCulloch",
+   "album": "Jazz Aug 4 2021",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/jazz-aug-4-2021",
+   "seconds": 132.5,
+   "station": "jazz"
+  },
+  {
+   "file": "alex_mcculloch_jazz_synth.ogg",
+   "title": "Jazz Synth",
+   "artist": "Alex McCulloch",
+   "album": "Jazz Synth Dec 17",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/jazz-synth-dec-17",
+   "seconds": 178.6,
+   "station": "jazz"
+  },
+  {
+   "file": "opengameart_contributor_wrong_vergin.ogg",
+   "title": "Wrong Vergin",
+   "artist": "OpenGameArt contributor",
+   "album": "Wrong Vergin",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/zewrungvergeun",
+   "seconds": 84.8,
+   "station": "beats"
+  },
+  {
+   "file": "gichco_prophesy_of_domination.ogg",
+   "title": "Prophesy of Domination",
+   "artist": "Gichco",
+   "album": "Instrumental Hip-Hop Theme",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/instrumental-hip-hop-theme",
+   "seconds": 114.0,
+   "station": "beats"
+  },
+  {
+   "file": "opengameart_contributor_battle_city.ogg",
+   "title": "Battle City",
+   "artist": "OpenGameArt contributor",
+   "album": "Battle City",
+   "license": "CC0",
+   "page": "https://opengameart.org/node/55680",
+   "seconds": 44.7,
+   "station": "beats"
+  },
+  {
+   "file": "bobjt_sewers_beat.ogg",
+   "title": "Sewers Beat",
+   "artist": "Bobjt",
+   "album": "Sewers Beat",
+   "license": "CC0",
+   "page": "https://opengameart.org/node/87926",
+   "seconds": 102.5,
+   "station": "beats"
+  },
+  {
+   "file": "tozan_beat_76.ogg",
+   "title": "Beat 76",
+   "artist": "Tozan",
+   "album": "beat76",
+   "license": "CC0",
+   "page": "https://opengameart.org/node/51295",
+   "seconds": 68.8,
+   "station": "beats"
+  },
+  {
+   "file": "holizna_eat.ogg",
+   "title": "Eat",
+   "artist": "Holizna",
+   "album": "Funk (Collection)",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/funk-collection",
+   "seconds": 179.5,
+   "station": "funk"
+  },
+  {
+   "file": "holizna_sleep.ogg",
+   "title": "Sleep",
+   "artist": "Holizna",
+   "album": "Funk (Collection)",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/funk-collection",
+   "seconds": 198.0,
+   "station": "funk"
+  },
+  {
+   "file": "holizna_breath.ogg",
+   "title": "Breath",
+   "artist": "Holizna",
+   "album": "Funk (Collection)",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/funk-collection",
+   "seconds": 151.1,
+   "station": "funk"
+  },
+  {
+   "file": "holizna_make_money.ogg",
+   "title": "Make Money",
+   "artist": "Holizna",
+   "album": "Funk (Collection)",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/funk-collection",
+   "seconds": 223.9,
+   "station": "funk"
+  },
+  {
+   "file": "holizna_make_love.ogg",
+   "title": "Make Love",
+   "artist": "Holizna",
+   "album": "Funk (Collection)",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/funk-collection",
+   "seconds": 226.3,
+   "station": "funk"
+  },
+  {
+   "file": "isaiah658_final_hour.ogg",
+   "title": "Final Hour",
+   "artist": "isaiah658",
+   "album": "Final Hour",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/final-hour",
+   "seconds": 136.9,
+   "station": "pulse"
+  },
+  {
+   "file": "bertsz_drum_and_bass.ogg",
+   "title": "Drum and Bass",
+   "artist": "bertsz",
+   "album": "Drum and Bass",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/drum-and-bass",
+   "seconds": 96.0,
+   "station": "pulse"
+  },
+  {
+   "file": "section_31_winning_the_race.ogg",
+   "title": "Winning the Race",
+   "artist": "Section 31",
+   "album": "Winning the Race",
+   "license": "CC0",
+   "page": "https://opengameart.org/node/46689",
+   "seconds": 139.0,
+   "station": "pulse"
+  },
+  {
+   "file": "section_31_robotic_city.ogg",
+   "title": "Robotic City",
+   "artist": "Section 31",
+   "album": "Robotic City",
+   "license": "CC0",
+   "page": "https://opengameart.org/node/46690",
+   "seconds": 192.0,
+   "station": "pulse"
+  },
+  {
+   "file": "alexander_ehlers_alexander_ehlers_doomed.ogg",
+   "title": "Alexander Ehlers - Doomed",
+   "artist": "Alexander Ehlers",
+   "album": "Free Music Pack",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/free-music-pack",
+   "seconds": 151.2,
+   "station": "epic"
+  },
+  {
+   "file": "alexander_ehlers_alexander_ehlers_flags.ogg",
+   "title": "Alexander Ehlers - Flags",
+   "artist": "Alexander Ehlers",
+   "album": "Free Music Pack",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/free-music-pack",
+   "seconds": 98.6,
+   "station": "epic"
+  },
+  {
+   "file": "alexander_ehlers_alexander_ehlers_great_mission.ogg",
+   "title": "Alexander Ehlers - Great mission",
+   "artist": "Alexander Ehlers",
+   "album": "Free Music Pack",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/free-music-pack",
+   "seconds": 118.5,
+   "station": "epic"
+  },
+  {
+   "file": "alexander_ehlers_alexander_ehlers_spacetime.ogg",
+   "title": "Alexander Ehlers - Spacetime",
+   "artist": "Alexander Ehlers",
+   "album": "Free Music Pack",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/free-music-pack",
+   "seconds": 116.1,
+   "station": "epic"
+  },
+  {
+   "file": "alexander_ehlers_alexander_ehlers_twists.ogg",
+   "title": "Alexander Ehlers - Twists",
+   "artist": "Alexander Ehlers",
+   "album": "Free Music Pack",
+   "license": "CC0",
+   "page": "https://opengameart.org/content/free-music-pack",
+   "seconds": 180.1,
+   "station": "epic"
+  }
+ ]
+}

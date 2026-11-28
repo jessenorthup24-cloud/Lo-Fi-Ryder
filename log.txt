@@ -1,0 +1,164 @@
+OK https://opengameart.org/sites/default/files/happy_lo-fi_lofi_collection.zip: 82114757 bytes, 7 songs
+    175.5s  03 HoliznaCC0 - Blue Skies.mp3.ogg
+   + holiznacc0_blue_skies.ogg (1.4 MB)
+    229.6s  21 HoliznaCC0 - Clouds.ogg
+   + holiznacc0_clouds.ogg (2.1 MB)
+    155.9s  26 HoliznaCC0 - New Shoes.ogg
+   + holiznacc0_new_shoes.ogg (1.3 MB)
+    127.9s  01 HoliznaCC0 - Poor, But Happy.ogg
+   + holiznacc0_poor_but_happy.ogg (1.0 MB)
+    149.9s  19 HoliznaCC0 - Puppy Love.ogg
+   + holiznacc0_puppy_love.ogg (1.3 MB)
+    179.5s  16 HoliznaCC0 - Letting Go Of The Past.ogg
+    117.3s  22 HoliznaCC0 - Happy, but a little off.ogg
+OK https://opengameart.org/sites/default/files/chill_beats.zip: 80890568 bytes, 6 songs
+    175.6s  01 HoliznaCC0 - City In The Rearview.ogg
+   + holiznacc0_city_in_the_rearview.ogg (1.6 MB)
+    169.8s  28 HoliznaCC0 - Autumn.ogg
+   + holiznacc0_autumn.ogg (1.4 MB)
+    241.6s  08 HoliznaCC0 - Dream Pop.ogg
+   + holiznacc0_dream_pop.ogg (2.2 MB)
+    143.9s  03 HoliznaCC0 - Families.ogg
+   + holiznacc0_families.ogg (1.3 MB)
+    167.9s  05 HoliznaCC0 - Opinions.ogg
+    213.9s  06 HoliznaCC0 - Old Age.ogg
+OK https://opengameart.org/sites/default/files/ChillLofi.ogg: 6486377 bytes, 1 songs
+    125.1s  src2_ChillLofi.ogg
+   + omfgdude_chill_lofi.ogg (1.1 MB)
+OK https://opengameart.org/sites/default/files/lofiagain.ogg: 2419417 bytes, 1 songs
+     87.8s  src3_lofiagain.ogg
+   + omfgdude_lofi_again.ogg (0.7 MB)
+OK https://opengameart.org/sites/default/files/synth_type.mp3: 2263307 bytes, 1 songs
+    113.2s  src4_synth_type.mp3
+   + g_p_synthwave_type.ogg (0.9 MB)
+OK https://opengameart.org/sites/default/files/007_Synthwave_421k.mp3: 18976382 bytes, 1 songs
+    474.2s  src5_007_Synthwave_421k.mp3
+   + the_cynic_project_synthwave_421k.ogg (3.3 MB)
+OK https://opengameart.org/sites/default/files/synthwave.mp3: 2461252 bytes, 1 songs
+    102.4s  src6_synthwave.mp3
+   + alex_mcculloch_synth_wave.ogg (0.8 MB)
+OK https://opengameart.org/sites/default/files/relaxing_instrumentals.zip: 65584101 bytes, 5 songs
+    131.3s  02 HoliznaCC0 - Night Driving.ogg
+   + holizna_night_driving.ogg (1.0 MB)
+    170.6s  03 HoliznaCC0 - Boredom.ogg
+   + holizna_boredom.ogg (1.1 MB)
+    187.9s  05 HoliznaCC0 - Love.ogg
+   + holizna_love.ogg (1.3 MB)
+    236.5s  06 HoliznaCC0 - Lost In Your Eyes.ogg
+   + holizna_lost_in_your_eyes.ogg (1.8 MB)
+    182.3s  18 HoliznaCC0 - You Loved Me Once.ogg
+OK https://opengameart.org/sites/default/files/sunset_plains.wav: 63298600 bytes, 1 songs
+    329.7s  src8_sunset_plains.wav
+OK https://opengameart.org/sites/default/files/chill_guitar.wav: 23613014 bytes, 1 songs
+    133.9s  src9_chill_guitar.wav
+   + alex_mcculloch_chill_guitar.ogg (1.0 MB)
+OK https://opengameart.org/sites/default/files/Etirwer%20%28Looped%29.ogg: 1963336 bytes, 1 songs
+    130.2s  src10_Etirwer%20%28Looped%29.ogg
+   + kistol_etirwer.ogg (0.7 MB)
+OK https://opengameart.org/sites/default/files/01_-_rock_city_ransom_revised_version.ogg: 3498647 bytes, 1 songs
+     64.0s  src11_01_-_rock_city_ransom_revised_version.ogg
+   + ragnar_random_rock_city_ransom.ogg (0.5 MB)
+OK https://opengameart.org/sites/default/files/02_-_poison_the_sultan_with_saltpeter.ogg: 4048198 bytes, 1 songs
+     69.8s  src12_02_-_poison_the_sultan_with_saltpeter.ogg
+   + ragnar_random_poison_the_sultan_with_saltpeter.ogg (0.6 MB)
+OK https://opengameart.org/sites/default/files/13_-_welcome_to_warp_zone.ogg: 3457153 bytes, 1 songs
+     63.3s  src13_13_-_welcome_to_warp_zone.ogg
+   + ragnar_random_welcome_to_warp_zone.ogg (0.5 MB)
+OK https://opengameart.org/sites/default/files/14_-_here_a_captive_heart_busted.ogg: 3487688 bytes, 1 songs
+     60.6s  src14_14_-_here_a_captive_heart_busted.ogg
+   + ragnar_random_here_a_captive_heart_busted.ogg (0.5 MB)
+OK https://opengameart.org/sites/default/files/15_-_we_got_the_crud.ogg: 4164008 bytes, 1 songs
+     70.8s  src15_15_-_we_got_the_crud.ogg
+   + ragnar_random_we_got_the_crud.ogg (0.6 MB)
+OK https://opengameart.org/sites/default/files/12_-_dinosaur_spirit_guide.ogg: 2836436 bytes, 1 songs
+     56.5s  src16_12_-_dinosaur_spirit_guide.ogg
+   + ragnar_random_dinosaur_spirit_guide.ogg (0.4 MB)
+OK https://opengameart.org/sites/default/files/16_-_princess_princess.ogg: 5762063 bytes, 1 songs
+    105.7s  src17_16_-_princess_princess.ogg
+   + ragnar_random_princess_princess.ogg (0.8 MB)
+OK https://opengameart.org/sites/default/files/25_-_in_the_land_of_morose_where_the_ladies_smoke_cloves.ogg: 2491236 bytes, 1 songs
+     41.6s  src18_25_-_in_the_land_of_morose_where_the_ladies_smoke_cloves.ogg
+OK https://opengameart.org/sites/default/files/3xblast_-_7_pop-punk_chiptune_tracks.zip: 56633448 bytes, 7 songs
+     44.4s  3xBlast - A Band Of Jellyfish (looped).ogg
+    120.0s  3xBlast - Babe, You Look Poggers Tonight! (Looped).ogg
+   + 3xblast_xblast_babe_you_look_poggers_tonight_looped.ogg (1.0 MB)
+    196.8s  3xBlast - If You're Thinking About Giving Up, Think Again Beause I Believe In You! (Looped).ogg
+   + 3xblast_xblast_if_you_re_thinking_about_giving_up_think_.ogg (1.7 MB)
+     92.8s  3xBlast - Let's Go, Olive Boy! (Looped).ogg
+   + 3xblast_xblast_let_s_go_olive_boy_looped.ogg (0.7 MB)
+    121.5s  3xBlast - Now This Is A Waterpark! (Looped).ogg
+   + 3xblast_xblast_now_this_is_a_waterpark_looped.ogg (1.0 MB)
+    111.3s  3xBlast - Thanks For Listening! (Looped).ogg
+   + 3xblast_xblast_thanks_for_listening_looped.ogg (0.9 MB)
+    236.2s  3xBlast - The Best Move Is To Keep Going (Looped).ogg
+OK https://opengameart.org/sites/default/files/jazzy_battle_theme_bpm130.ogg: 2711979 bytes, 1 songs
+     81.2s  src20_jazzy_battle_theme_bpm130.ogg
+   + mintodog_jazzy_battle_theme.ogg (0.6 MB)
+OK https://opengameart.org/sites/default/files/quirky_jazz.mp3: 11816874 bytes, 1 songs
+    511.5s  src21_quirky_jazz.mp3
+OK https://opengameart.org/sites/default/files/Jazz%20Saxaphone.mp3: 2071739 bytes, 1 songs
+    129.5s  src22_Jazz%20Saxaphone.mp3
+   + alex_mcculloch_jazz_saxophone.ogg (1.0 MB)
+OK https://opengameart.org/sites/default/files/relaxing_aug_4_2021_1.mp3: 3183489 bytes, 1 songs
+    132.5s  src23_relaxing_aug_4_2021_1.mp3
+   + alex_mcculloch_relaxing_jazz.ogg (1.0 MB)
+OK https://opengameart.org/sites/default/files/jazz_synth_dec_17.mp3: 4287929 bytes, 1 songs
+    178.6s  src24_jazz_synth_dec_17.mp3
+   + alex_mcculloch_jazz_synth.ogg (1.4 MB)
+OK https://opengameart.org/sites/default/files/blues.mp3: 2103507 bytes, 1 songs
+     52.6s  src25_blues.mp3
+OK https://opengameart.org/sites/default/files/Wrong%20Vergin.mp3: 3392782 bytes, 1 songs
+     84.8s  src26_Wrong%20Vergin.mp3
+   + opengameart_contributor_wrong_vergin.ogg (0.6 MB)
+OK https://opengameart.org/sites/default/files/prophesy%20of%20domination%20%28promodj.com%29.mp3: 4558104 bytes, 1 songs
+    114.0s  src27_prophesy%20of%20domination%20%28promodj.com%29.mp3
+   + gichco_prophesy_of_domination.ogg (1.0 MB)
+OK https://opengameart.org/sites/default/files/Battle%20City.mp3: 1790954 bytes, 1 songs
+     44.7s  src28_Battle%20City.mp3
+   + opengameart_contributor_battle_city.ogg (0.3 MB)
+OK https://opengameart.org/sites/default/files/sewer_beat_2026_loop.ogg: 4746549 bytes, 1 songs
+    102.5s  src29_sewer_beat_2026_loop.ogg
+   + bobjt_sewers_beat.ogg (0.9 MB)
+OK https://opengameart.org/sites/default/files/beat76.ogg: 1088314 bytes, 1 songs
+     68.8s  src30_beat76.ogg
+   + tozan_beat_76.ogg (0.5 MB)
+OK https://opengameart.org/sites/default/files/funk_collection_.zip: 86485769 bytes, 6 songs
+    179.5s  01 HoliznaCC0 - Eat.mp3.ogg
+   + holizna_eat.ogg (1.4 MB)
+    198.0s  02 HoliznaCC0 - Sleep.ogg
+   + holizna_sleep.ogg (1.5 MB)
+    151.1s  03 HoliznaCC0 - Breath.ogg
+   + holizna_breath.ogg (1.3 MB)
+    223.9s  04 HoliznaCC0 - Make Money.ogg
+   + holizna_make_money.ogg (1.8 MB)
+    226.3s  05 HoliznaCC0 - Make Love.ogg
+   + holizna_make_love.ogg (1.8 MB)
+    163.0s  06 HoliznaCC0 - Make Funk.ogg
+OK https://opengameart.org/sites/default/files/Final-Hour-isaiah658.ogg: 2662362 bytes, 1 songs
+    136.9s  src32_Final-Hour-isaiah658.ogg
+   + isaiah658_final_hour.ogg (1.0 MB)
+OK https://opengameart.org/sites/default/files/ld47.wav: 36864146 bytes, 1 songs
+     96.0s  src33_ld47.wav
+   + bertsz_drum_and_bass.ogg (0.8 MB)
+OK https://opengameart.org/sites/default/files/S31-Winning%20the%20Race.ogg: 2757534 bytes, 1 songs
+    139.0s  src34_S31-Winning%20the%20Race.ogg
+   + section_31_winning_the_race.ogg (1.1 MB)
+OK https://opengameart.org/sites/default/files/S31-Robotic%20City%20V2.ogg: 4021384 bytes, 1 songs
+    192.0s  src35_S31-Robotic%20City%20V2.ogg
+   + section_31_robotic_city.ogg (1.6 MB)
+OK https://opengameart.org/sites/default/files/Of%20Far%20Different%20Nature%20-%20Funky%20House%20%28CC0%29.mp3: 2753263 bytes, 1 songs
+     68.7s  src36_Of%20Far%20Different%20Nature%20-%20Funky%20House%20%28CC0%29.mp3
+OK https://opengameart.org/sites/default/files/Alexander%20Ehlers%20-%20Free%20Music%20Pack.zip: 31380370 bytes, 7 songs
+    151.2s  Alexander Ehlers - Doomed.mp3
+   + alexander_ehlers_alexander_ehlers_doomed.ogg (1.2 MB)
+     98.6s  Alexander Ehlers - Flags.mp3
+   + alexander_ehlers_alexander_ehlers_flags.ogg (0.8 MB)
+    118.5s  Alexander Ehlers - Great mission.mp3
+   + alexander_ehlers_alexander_ehlers_great_mission.ogg (0.9 MB)
+    116.1s  Alexander Ehlers - Spacetime.mp3
+   + alexander_ehlers_alexander_ehlers_spacetime.ogg (0.8 MB)
+    180.1s  Alexander Ehlers - Twists.mp3
+   + alexander_ehlers_alexander_ehlers_twists.ogg (1.4 MB)
+     80.7s  Alexander Ehlers - Waking the devil.mp3
+    114.1s  Alexander Ehlers - Warped.mp3
+DONE 55 tracks, 61.4 MB
