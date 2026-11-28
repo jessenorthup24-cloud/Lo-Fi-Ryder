@@ -303,6 +303,106 @@ func _run() -> void:
 			note("over the rock: front axle tilted up to %.1f deg" % tmax)
 			check(tmax > 5.0, "the solid axle articulates over a rock (%.1f deg)" % tmax)
 			rock.queue_free()
+		"canyonmap":
+			var isl = game.island
+			var Cy = preload("res://scripts/game/crawl_canyon.gd")
+			var space: PhysicsDirectSpaceState3D = game.get_world_3d().direct_space_state
+			var S := 2.0          # px per metre
+			var half := 150.0
+			var n := int(half * 2.0 * S)
+			var img := Image.create(n, n, false, Image.FORMAT_RGB8)
+			var hmax := 0.0
+			for py in n:
+				for px in n:
+					var x: float = Cy.C.x - half + px / S
+					var z: float = Cy.C.y - half + py / S
+					var h: float = isl.height_at(x, z)
+					hmax = maxf(hmax, h)
+					var sl := Vector2(isl.height_at(x + 0.5, z) - isl.height_at(x - 0.5, z), isl.height_at(x, z + 0.5) - isl.height_at(x, z - 0.5)).length()
+					var col := Color(0.1, 0.2, 0.45) if h < 0.0 else Color(0.55, 0.42, 0.3).lerp(Color(0.95, 0.9, 0.8), clampf(h / 24.0, 0.0, 1.0))
+					if isl.surface_at(x, z) == 4 and h > 0.0:
+						col = col.lerp(Color(0.95, 0.85, 0.4), 0.5)
+					if sl > 0.6:
+						col = col.lerp(Color(0.9, 0.15, 0.1), clampf((sl - 0.6) / 0.3, 0.0, 1.0))
+					if int(px) % 4 == 0 and int(py) % 4 == 0 and h > 0.5:
+						var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(Vector3(x, h + 40.0, z), Vector3(x, h - 1.0, z)))
+						if not hit.is_empty() and hit.get("collider") != isl.body:
+							col = Color(0.2, 0.5, 1.0)
+					img.set_pixel(px, py, col)
+			for t in isl.trials:
+				if not String(t["id"]).begins_with("canyon"):
+					continue
+				var gs: Array = t["gates"]
+				for i in gs.size() - 1:
+					var a: Vector3 = (gs[i] as Transform3D).origin
+					var b: Vector3 = (gs[i + 1] as Transform3D).origin
+					for k in 60:
+						var q := a.lerp(b, k / 60.0)
+						var ix := int((q.x - Cy.C.x + half) * S)
+						var iy := int((q.z - Cy.C.y + half) * S)
+						if ix >= 0 and iy >= 0 and ix < n and iy < n:
+							img.set_pixel(ix, iy, Color.WHITE)
+			img.save_png("/tmp/canyon_map.png")
+			print("CANYON map saved, highest %.1f m" % hmax)
+		"nwmap":
+			var isl = game.island
+			for r in isl.roads:
+				var pts: Array = r["pts"] if r.has("pts") else (r["points"] if r.has("points") else [])
+				for q in pts:
+					var v2: Vector2 = q if q is Vector2 else Vector2(q.x, q.z)
+					if v2.x < -150 and v2.y < -150:
+						print("ROAD %s %s near %s" % [r.get("name", "?"), r.get("kind", "?"), str(v2.round())])
+						break
+			for pl in isl.places:
+				var pp: Vector3 = pl["pos"]
+				if pp.x < -100 and pp.z < -100:
+					print("PLACE %s %s" % [pl["name"], str(pp.round())])
+			for a in range(-180, -89, 10):
+				var ang := deg_to_rad(float(a))
+				var rr := 300.0
+				while isl.inland(cos(ang) * rr, sin(ang) * rr) > 0.0:
+					rr += 5.0
+				print("COAST %d deg: %.0f m (%s)" % [a, rr, str(Vector2(cos(ang), sin(ang)) * rr).replace(" ", "")])
+		"spotscan":
+			# empty flat land for a 70 x 110 m park: no road, lot, building or prop in it, all above water
+			var isl = game.island
+			var space: PhysicsDirectSpaceState3D = game.get_world_3d().direct_space_state
+			var found := []
+			var xs := range(-560, 561, 20) if not game.args.has("cx") else [int(game.args["cx"])]
+			var zs := range(-560, 561, 20) if not game.args.has("cz") else [int(game.args["cz"])]
+			for gx in xs:
+				for gz in zs:
+					var bad := false
+					var lo := INF
+					var hi := -INF
+					for sx in range(-int(game.args.get("hw", "40")), int(game.args.get("hw", "40")) + 1, 6):
+						for sz in range(-int(game.args.get("hl", "60")), int(game.args.get("hl", "60")) + 1, 6):
+							var x := float(gx + sx)
+							var z := float(gz + sz)
+							var h: float = isl.height_at(x, z)
+							lo = minf(lo, h)
+							hi = maxf(hi, h)
+							var s: int = isl.surface_at(x, z)
+							if h < 1.0 or not s in [isl.S_GRASS, 8, 3, 4]:
+								bad = true
+								break
+							var q := PhysicsRayQueryParameters3D.create(Vector3(x, h + 30.0, z), Vector3(x, h - 1.0, z))
+							var hit := space.intersect_ray(q)
+							if not hit.is_empty() and hit.get("collider") != isl.body:
+								bad = true
+								break
+						if bad:
+							break
+					if not bad:
+						found.append([hi - lo, gx, gz, lo])
+					elif game.args.has("cx"):
+						print("SPOT BLOCKED %d,%d" % [gx, gz])
+			found.sort()
+			for f in found.slice(0, 12):
+				print("SPOT %d,%d  height %.1f..%.1f (range %.1f)" % [f[1], f[2], f[3], f[3] + f[0], f[0]])
+			print("SPOTS %d" % found.size())
+		"crawl":
+			await _crawl_test()
 		"racebug":
 			game.args["drive"] = true
 			game.start_drive()
@@ -1807,7 +1907,7 @@ func _dispatch() -> void:
 	check(not pol.wanted(), "speeding: nobody cares")
 	game.car.linear_velocity = Vector3.ZERO
 	# (somewhere out of the way: no patrol happening past to see it for themselves)
-	game.car.place(game.on_ground(Transform3D(Basis(), Vector3(300, 1.0, -260))))
+	game.car.place(game.on_ground(Transform3D(Basis(), Vector3(-336, 4.0, -232))))      # (on the Canyon Road: a road, but a quiet one)
 	await wait(1.0)
 	pol.crime(1.0, "Crashed into someone")
 	await wait(0.5)
@@ -1817,15 +1917,17 @@ func _dispatch() -> void:
 	await wait(14.0)
 	check(not pol.wanted() and pol.report.get("phase", "") == "call", "still on the phone at 14 s")
 	await wait(7.0)
-	check(pol.report.get("phase", "") == "search", "dispatched by 21 s (phase %s, wanted %s, heat %d)" % [pol.report.get("phase", "-"), pol.wanted(), pol.heat])
+	# (dispatched by now: searching, or already found if a unit turned up right on top of you)
+	var found_fast: bool = pol.wanted()
+	check(pol.report.get("phase", "") == "search" or found_fast, "dispatched by 21 s (phase %s, wanted %s, heat %d)" % [pol.report.get("phase", "-"), pol.wanted(), pol.heat])
 	var resp := 0
 	for u in pol.units:
-		if u.get("respond", false):
+		if u.get("respond", false) or found_fast:
 			resp += 1
-	check(resp >= 1, "a unit on its way (%d)" % resp)
+	check(resp >= 1, "a unit on its way, or already here (%d)" % resp)
 	# stay put: they find you
 	var t := 0.0
-	while not pol.wanted() and t < 60.0:
+	while not pol.wanted() and t < 120.0:     # (heavy cars now: the drive over can take a while)
 		await wait(1.0)
 		t += 1.0
 	check(pol.wanted(), "stayed at the scene: found, chase on (%.0f s after dispatch)" % t)
@@ -2856,3 +2958,111 @@ func _handling() -> void:
 		for k in r:
 			line += "  %s=%s" % [k, ("%.2f" % r[k]) if r[k] is float else str(r[k])]
 		print(line)
+
+
+# ------------------------------------------------------------------ rock crawls
+## Each Crawl Park course in the crawler, the bot at the wheel: keeps to the lane's middle, gas on, a crawl.
+## Prints the time, the penalties, and where it stuck if it did.
+func _crawl_test() -> void:
+	game.args["drive"] = true
+	game.start_drive()
+	await wait(1.5)
+	# (dry, for a fair test: rain takes a sixth off every tyre's grip, and the steepest faces are built to the limit)
+	game.save.data["settings"]["weather"] = false
+	game.weather.wet = 0.0
+	check(game.crawl_park != null and game.crawl_park.placed.size() >= 16, "the Crawl Park is built (%d pieces)" % game.crawl_park.placed.size())
+	var ids := []
+	for t in game.island.trials:
+		if String(t["kind"]) == "crawl":
+			ids.append(String(t["id"]))
+	check(ids.size() >= 4, "crawl courses (%s)" % ", ".join(ids))
+	# a road car is turned away
+	game.start_challenge_now("trial", String(ids[0]))
+	await wait(1.0)
+	check(not game.challenge_on(), "a road car can't start a crawl")
+	game.save.data["car"] = "crawler"
+	game.car_changed()
+	await wait(1.0)
+	for id in String(game.args.get("courses", ",".join(ids))).split(","):
+		game.weather.wet = 0.0
+		game.start_challenge_now("trial", id)
+		await wait_until(func(): return not game.trial.is_empty() and game.intro.is_empty(), 15.0)
+		check(not game.trial.is_empty() and game.car.crawl_cap > 0.0, "%s starts, low range on" % id)
+		var lane: float = float(game.trial.get("lane_x", 0.0))
+		var trail: bool = game.trial.has("path")
+		var t0: float = game.time
+		var last_gate := 1
+		var stuck_t := 0.0
+		var worst := ""
+		var c = game.car
+		while not game.trial.is_empty() and game.time - t0 < 300.0:
+			await get_tree().physics_frame
+			var p: Vector3 = c.global_position
+			var fwd: Vector3 = -c.global_transform.basis.z
+			# aim at a point on the lane's middle 7 m ahead (a trail: down the leg to the next gate)
+			var aim := Vector3(lane, p.y, p.z - 7.0)
+			if trail and not game.trial.is_empty():
+				var gs: Array = game.trial["gates"]
+				var ga: Vector3 = (gs[maxi(game.trial_gate - 1, 0)] as Transform3D).origin
+				var gb: Vector3 = (gs[mini(game.trial_gate, gs.size() - 1)] as Transform3D).origin
+				var leg := Vector2(gb.x - ga.x, gb.z - ga.z)
+				var tt := clampf((Vector2(p.x, p.z) - Vector2(ga.x, ga.z)).dot(leg) / maxf(leg.length_squared(), 0.01), 0.0, 1.0)
+				var on := Vector2(ga.x, ga.z) + leg * tt + leg.normalized() * 7.0
+				aim = Vector3(on.x, p.y, on.y)
+			var to := (aim - p)
+			to.y = 0.0
+			var ang := atan2(fwd.cross(to.normalized()).y, fwd.dot(to.normalized()))
+			_hold_steer(clampf(-ang * 2.2, -1.0, 1.0))
+			game.held["gas"] = true
+			if c.speed < 0.4:
+				stuck_t += 1.0 / 60.0
+			else:
+				stuck_t = maxf(0.0, stuck_t - 2.0 / 60.0)
+			var snap_at := {"crawl_pro": 9.5, "crawl_flex": 9.0, "crawl_scrap": 7.5}
+			if game.args.has("snap") and snap_at.has(id) and game.time - t0 > float(snap_at[id]) and not has_meta("snapped_" + id):
+				set_meta("snapped_" + id, true)
+				await snap(id + "_mid")
+			if game.args.has("cdebug") and int((game.time - t0) * 60.0) % 60 == 0:
+				var gy: float = game.island.height_at(p.x, p.z)
+				print("CR t=%.1f pos=%s y=%.1f v=%.1f gate=%d tilt=%.0f pen=%.0f" % [game.time - t0, str(Vector2(p.x, p.z).round()), p.y, c.speed, game.trial_gate, rad_to_deg(acos(clampf(c.global_transform.basis.y.y, -1.0, 1.0))), game.crawl_pen])
+			if game.trial_gate != last_gate:
+				last_gate = game.trial_gate
+				stuck_t = 0.0
+			if stuck_t > 12.0:
+				var slope_here := rad_to_deg(acos(clampf(c.global_transform.basis.y.y, -1.0, 1.0)))
+				worst = "stuck before gate %d at %s, %.0f deg (pen %.0f)" % [game.trial_gate, str(Vector2(p.x, p.z).round()), slope_here, game.crawl_pen]
+				break
+		game.held["gas"] = false
+		_hold_steer(0.0)
+		game.wheel_idx = -1
+		var took: float = game.time - t0
+		var best := float(game.save.data["trials"].get(id, 0.0))
+		note("CRAWL %s damage %.0f engine %.0f fuel %.0f" % [id, c.damage, c.engine_dmg, game.fuel])
+		if worst != "":
+			note("CRAWL %s: %s after %.0f s" % [id, worst, took])
+			check(false, "%s: the crawler gets round (%s)" % [id, worst])
+			game.quit_challenge()
+		else:
+			note("CRAWL %s: %.1f s on the clock (with penalties: best %.1f, pen %.0f), %.0f s real" % [id, took, best, game.crawl_pen, took])
+			check(best > 0.0, "%s: finished" % id)
+		await wait(2.0)
+	# over the tape on purpose: time added, put back in the lane
+	game.start_challenge_now("trial", "crawl_easy")
+	await wait_until(func(): return not game.trial.is_empty() and game.intro.is_empty(), 15.0)
+	game.held["gas"] = true
+	_hold_steer(0.0)
+	var start_z: float = (game.trial["gates"][0] as Transform3D).origin.z
+	await wait_until(func(): return game.car.global_position.z < start_z - 3.0, 12.0)
+	_hold_steer(1.0)
+	for k in 12:
+		await wait(1.0)
+		print("TAPE t=%d x-lane=%.2f z=%.1f v=%.1f pen=%.0f trial=%s" % [k, game.car.global_position.x - float(game.trial.get("lane_x", 0.0)), game.car.global_position.z, game.car.speed, game.crawl_pen, not game.trial.is_empty()])
+		if game.crawl_pen > 0.0:
+			break
+	game.held["gas"] = false
+	_hold_steer(0.0)
+	game.wheel_idx = -1
+	await wait(0.5)
+	var lane2: float = float(game.trial.get("lane_x", 0.0))
+	check(game.crawl_pen >= 5.0 and absf(game.car.global_position.x - lane2) < 2.0, "over the tape: +%.0f s, back in the lane" % game.crawl_pen)
+	game.quit_challenge()

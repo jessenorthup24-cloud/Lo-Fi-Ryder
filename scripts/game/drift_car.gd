@@ -147,6 +147,7 @@ const GEARS := [0.0, 8.5, 15.0, 22.0, 29.5, 37.0, 46.0, 60.0]
 const TRAVEL := 0.28
 var travel := TRAVEL         # how far a wheel drops (a crawler's hang much further: it flexes over rocks)
 var offroad_k := 1.0         # grip off the road (a crawler's tyres bite in the dirt)
+var crawl_cap := 0.0         # low range (in a rock crawl): more pull, and no faster than this (m/s). 0: off
 # ---- a crawler's solid axles and coil-overs, moved with the wheels (cars_meta "rig")
 var rig := {}
 const REST := 0.32           # ray starts this far above the wheel centre
@@ -559,6 +560,9 @@ func _physics_process(dt: float) -> void:
 			var cap := top_speed * lerpf(1.0, 0.5, wreck)
 			drive *= clampf((cap - gv) / 3.0, 0.0, 1.0)
 		drive *= power_k                   # (and with an empty tank, hardly at all)
+		if crawl_cap > 0.0:
+			# low range: twice the pull at a crawl, easing off to nothing at the cap
+			drive = engine_force * 2.0 * throttle * power_k * clampf((crawl_cap - gv) / 1.5, 0.0, 1.0)
 		# sideways, most of the power goes into wheelspin and smoke
 		drive *= lerpf(1.0, 0.5, drift * clampf((vs - DRIFT_PACE + 6.0) / 6.0, 0.0, 1.0))
 		if _gear_cd > 0.2:
@@ -566,6 +570,9 @@ func _physics_process(dt: float) -> void:
 	elif reverse:
 		drive = -brake * engine_force * 0.45 * clampf(1.0 - (-speed) / 9.0, 0.0, 1.0)
 	var braking := 0.0 if reverse else brake
+	# low range: the engine holds it back downhill too (hill descent), a crawl down as well as up
+	if crawl_cap > 0.0 and absf(speed) > crawl_cap * 1.4:
+		braking = maxf(braking, clampf((absf(speed) - crawl_cap * 1.4) / 1.5, 0.0, 0.9))
 	if throttle > 0.1 and speed < -1.0:
 		braking = maxf(braking, throttle)   # gas while rolling backwards stops you first
 	# ---- each wheel

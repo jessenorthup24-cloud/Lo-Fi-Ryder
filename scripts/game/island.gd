@@ -13,6 +13,7 @@ const Districts := preload("res://scripts/game/districts.gd")
 const Railway := preload("res://scripts/game/railway.gd")
 const Raceway := preload("res://scripts/game/raceway.gd")
 const Circuits := preload("res://scripts/game/circuits.gd")
+const Canyon := preload("res://scripts/game/crawl_canyon.gd")
 
 const HALF := 600.0          # the world spans -HALF..HALF on x and z
 const CELL := 2.5
@@ -226,7 +227,11 @@ func inland(x: float, z: float) -> float:
 	var land := maxf(main, pen) + hk * hk * k * 0.25
 	var cir := Circuits.inland(x, z)
 	var hc := maxf(k - absf(land - cir), 0.0) / k
-	return maxf(land, cir) + hc * hc * k * 0.25
+	land = maxf(land, cir) + hc * hc * k * 0.25
+	# Red Rock Canyon's headland, the same way
+	var cy := Canyon.inland(x, z)
+	var hy := maxf(k - absf(land - cy), 0.0) / k
+	return maxf(land, cy) + hy * hy * k * 0.25
 
 ## The raw land height before roads cut in.
 func h0(x: float, z: float) -> float:
@@ -252,6 +257,7 @@ func h0(x: float, z: float) -> float:
 		var dd := Vector2(maxf(q.x, 0.0), maxf(q.y, 0.0)).length() + minf(maxf(q.x, q.y), 0.0)
 		flat = maxf(flat, 1.0 - smoothstep(0.0, float(f[2]), dd))
 	h += maxf(hill, 0.0) * land * (1.0 - flat * 0.92)
+	h += Canyon.hills(x, z)          # (the crawl canyon's sculpted hills, built to their own slopes)
 	# the lake
 	var ld := Vector2(x - 285.0, z + 255.0).length()
 	h -= 9.5 * (1.0 - smoothstep(26.0, 52.0, ld))
@@ -584,6 +590,9 @@ func _surfaces() -> void:
 				s = S_SAND
 			elif Vector2(x - 285.0, z + 255.0).length() < 230.0 and h > 2.5:
 				s = S_FOREST
+			var cs := Canyon.surface(x, z)
+			if cs >= 0 and h >= 1.0:
+				s = cs                  # (the canyon: dirt, and sand on the Dune)
 			surf[j * N + i] = s
 	for l in lots:
 		_paint_rect(l["c"], l["hs"], l.get("yaw", 0.0), l["surf"], true)
@@ -1898,7 +1907,7 @@ func _map_meshes() -> void:
 		var c := poly[tris[t + 2]]
 		mb.tri(Vector3(a.x, -5, a.y), Vector3(c.x, -5, c.y), Vector3(b.x, -5, b.y), Vector3.UP, Vector3.UP, Vector3.UP, land)
 	# (and the Raceway's peninsula, the circuits' headlands)
-	for pen: PackedVector2Array in [Raceway.outline()] + Circuits.outlines():
+	for pen: PackedVector2Array in [Raceway.outline(), Canyon.outline()] + Circuits.outlines():
 		var ptr := Geometry2D.triangulate_polygon(pen)
 		for t in range(0, ptr.size(), 3):
 			var a := pen[ptr[t]]

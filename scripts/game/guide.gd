@@ -83,9 +83,10 @@ static func points(game: Node) -> Array:
 	for t in isl.trials:
 		var g0: Transform3D = t["gates"][0]
 		var tb: float = float(s["trials"].get(t["id"], 0.0))
-		var tsub := "Time trial" if t["kind"] == "time" else "Drift run"
+		var tk: String = String(t["kind"])
+		var tsub: String = {"time": "Time trial", "crawl": "Rock crawl (crawlers only)"}.get(tk, "Drift run")
 		if tb > 0.0:
-			tsub += (" · best %.2f s" % tb) if t["kind"] == "time" else (" · best %s" % K.fmt(int(tb)))
+			tsub += (" · best %.2f s" % tb) if tk != "drift" else (" · best %s" % K.fmt(int(tb)))
 		out.append({"kind": "trial", "id": String(t["id"]), "name": t["name"], "sub": tsub,
 			"info": "Through the gates in order, against the clock" + (" (or for drift points)" if t["kind"] != "time" else "") + ". Drive through the first gate to start.",
 			"pos": g0.origin, "xf": Transform3D(g0.basis, g0.origin + Vector3(0, 1.0, 0)).translated_local(Vector3(0, 0, 16)),

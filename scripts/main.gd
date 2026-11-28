@@ -179,6 +179,11 @@ var shops: Node3D           # Lo-Fi Customs, the Armory, Lo-Fi Threads (shops.gd
 var car_hits: CarHits        # anyone's car against people, officers and you (car_hits.gd)
 var gore: Gore               # where a shot hits a person, limbs off, crawlers (gore.gd)
 var street_props: Node3D     # dumpsters, rubbish, papers, benches (street_props.gd)
+var crawl_park: Node         # the rock-crawler courses (crawl_park.gd)
+var crawl_canyon: Node       # Red Rock Canyon, the big crawl trails (crawl_canyon.gd)
+var crawl_pen := 0.0         # a crawl: seconds added (over the tape, rolled)
+var _crawl_bad_t := 0.0      # (how long it's been on its side, or over the tape)
+var _crawl_grace := 0.0      # (just put back: a moment to get settled before the tape counts again)
 var bank: Bank              # cash on you vs banked: ATMs, the three banks, the bag you drop when you die
 var allies: Node3D          # your crew on foot, fighting beside you (allies.gd)
 var story: Node             # Jay's texts and your goal on the HUD (story.gd)
@@ -220,7 +225,13 @@ var intro := {}             # a challenge getting going: {kind, id, t, said}: th
 var cur_challenge: Array = []     # [kind, id] of the challenge on (or just finished): for Restart and Try again
 const INTRO_T := 2.4        # (how long the title shows before the countdown)
 const KIND_INFO := {"zone": ["DRIFT ZONE", "ff8a5c"], "time": ["TIME TRIAL", "5cc8ff"], "drift": ["DRIFT RUN", "c38bff"],
-	"race": ["STREET RACE", "ff5c7a"]}
+	"race": ["STREET RACE", "ff5c7a"], "crawl": ["ROCK CRAWL", "d98a3a"]}
+const CrawlPark := preload("res://scripts/game/crawl_park.gd")
+const CrawlCanyon := preload("res://scripts/game/crawl_canyon.gd")
+
+## A trial against the clock (a time trial or a rock crawl), rather than for drift points.
+static func timed_kind(k) -> bool:
+	return String(k) == "time" or String(k) == "crawl"
 var race_end_t := 0.0
 
 func _ready() -> void:
@@ -381,6 +392,14 @@ func _build_world() -> void:
 	street_props.name = "StreetProps"
 	add_child(street_props)
 	street_props.build(self)
+	crawl_park = CrawlPark.new()
+	crawl_park.name = "CrawlPark"
+	add_child(crawl_park)
+	crawl_park.setup(self)
+	crawl_canyon = CrawlCanyon.new()
+	crawl_canyon.name = "CrawlCanyon"
+	add_child(crawl_canyon)
+	crawl_canyon.setup(self)
 	allies = Allies.new()
 	allies.name = "Allies"
 	add_child(allies)
@@ -576,7 +595,7 @@ func _at_spot(s: String) -> Transform3D:
 				pos = z["start"]
 		for t in island.trials:
 			if t["id"] == s:
-				return (t["gates"][0] as Transform3D).translated(Vector3(0, 1.0, 0)).translated_local(Vector3(0, 0, 14))
+				return (t["gates"][0] as Transform3D).translated(Vector3(0, 1.0, 0)).translated_local(Vector3(0, 0, float(t.get("back", 14.0))))
 		for pl in island.places:
 			if String(pl["name"]).to_lower().begins_with(s.to_lower()):
 				pos = pl["pos"]
@@ -2349,8 +2368,9 @@ func _build_markers() -> void:
 		island.map_marker(z["pos"], Color("ff8a5c"), 11.0)
 	for t in island.trials:
 		var g0: Transform3D = t["gates"][0]
-		_marker("trial", t["id"], g0.origin, Color("5cc8ff") if t["kind"] == "time" else Color("c38bff"), t["name"], 6.0)
-		island.map_marker(g0.origin, Color("5cc8ff") if t["kind"] == "time" else Color("c38bff"), 10.0)
+		var tcol := Color(KIND_INFO[String(t["kind"])][1]) if KIND_INFO.has(String(t["kind"])) else Color("c38bff")
+		_marker("trial", t["id"], g0.origin, tcol, t["name"], 6.0)
+		island.map_marker(g0.origin, tcol, 10.0)
 	for rc in island.races:
 		var sp: Vector2 = rc["start"]
 		var p3 := Vector3(sp.x, island.height_at(sp.x, sp.y), sp.y)
@@ -2459,7 +2479,12 @@ func _start_info(kind: String, id: String) -> Dictionary:
 		out["warn"] = "Low on fuel: fill up at a gas station first"
 	if kind == "fight":
 		return fights.start_info(id)
-	if needs_drift_car(kind, id) and not car.can_drift:
+	if needs_crawler(kind, id) and weather.wet > 0.3:
+		out["warn"] = "It's wet: the steep climbs are slippery, and the steepest may be beyond you till it dries"
+	if needs_crawler(kind, id) and car.travel < 0.4:
+		out["warn"] = "A rock crawl: you need a crawler (the Lo-Fi Crawler, at Lo-Fi Customs)"
+		out["start"] = func(): ui.toast("Rock crawls need a crawler", "lock", K.PAPER, K.INK, 2.4)
+	elif needs_drift_car(kind, id) and not car.can_drift:
 		out["warn"] = "A drift event: you need a drift car (the Pop-Up 86 is the cheapest, at Lo-Fi Customs)"
 		out["start"] = func(): ui.toast("Drift events need a drift car", "lock", K.PAPER, K.INK, 2.4)
 	match kind:
@@ -2475,12 +2500,12 @@ func _start_info(kind: String, id: String) -> Dictionary:
 		"trial":
 			for t in island.trials:
 				if t["id"] == id:
-					var kk := "time" if t["kind"] == "time" else "drift"
+					var kk := String(t["kind"]) if KIND_INFO.has(String(t["kind"])) else "drift"
 					var best2 := float(save.data["trials"].get(id, 0.0))
 					out["kind_label"] = KIND_INFO[kk][0]
 					out["col"] = Color(KIND_INFO[kk][1])
 					out["name"] = t["name"]
-					if kk == "time":
+					if timed_kind(kk):
 						out["info"] = "%d gates · gold %.0f s%s" % [(t["gates"] as Array).size() - 1, float(t["medals"][0]), (" · best %.2f s" % best2) if best2 > 0.0 else ""]
 					else:
 						out["info"] = "%d gates · gold %s pts%s" % [(t["gates"] as Array).size() - 1, K.fmt(int(t["medals"][2])), (" · best %s" % K.fmt(int(best2))) if best2 > 0.0 else ""]
@@ -2512,6 +2537,15 @@ func on_ground(xf: Transform3D) -> Transform3D:
 	return Transform3D(xf.basis, (hit["position"] as Vector3) + Vector3(0, 0.12, 0))
 
 ## START pressed: a wipe, then you're lined up for it, the title, the countdown and away.
+## A rock crawl: crawlers only (a car with the long-travel suspension for it).
+func needs_crawler(kind: String, id: String) -> bool:
+	if kind != "trial":
+		return false
+	for t in island.trials:
+		if String(t["id"]) == id:
+			return String(t["kind"]) == "crawl"
+	return false
+
 ## The drift events (the Drift Bowl, the drift trials): drift cars only.
 func needs_drift_car(kind: String, id: String) -> bool:
 	if kind == "zone":
@@ -2553,6 +2587,9 @@ func quit_challenge() -> void:
 		ui.toast("Challenge over: free roam", "flag", K.PAPER, K.INK, 1.6)
 
 func start_challenge_now(kind: String, id: String) -> void:
+	if needs_crawler(kind, id) and car.travel < 0.4 and not args.has("anycar"):
+		ui.toast("Rock crawls need a crawler: the Lo-Fi Crawler, at Lo-Fi Customs", "lock", K.PAPER, K.INK, 2.6)
+		return
 	if needs_drift_car(kind, id) and not car.can_drift and not args.has("anycar"):
 		ui.toast("Drift events need a drift car: Lo-Fi Customs has them", "lock", K.PAPER, K.INK, 2.6)
 		return
@@ -2578,8 +2615,8 @@ func start_challenge_now(kind: String, id: String) -> void:
 		"trial":
 			for t in island.trials:
 				if t["id"] == id:
-					car.place((t["gates"][0] as Transform3D).translated(Vector3(0, 1.0, 0)).translated_local(Vector3(0, 0, 14)))
-					sub = "Through every gate, fast as you can" if t["kind"] == "time" else "Drift all the way through. Points count"
+					car.place((t["gates"][0] as Transform3D).translated(Vector3(0, 1.0, 0)).translated_local(Vector3(0, 0, float(t.get("back", 14.0)))))
+					sub = String({"time": "Through every gate, fast as you can", "crawl": "Low range. Stay inside the tape, keep it on its wheels"}.get(String(t["kind"]), "Drift all the way through. Points count"))
 			_start_trial(id)
 		"race":
 			_start_race(id)
@@ -2738,7 +2775,10 @@ func _start_trial(id: String) -> void:
 		arch.transform = Transform3D(gx.basis.scaled(Vector3.ONE * s), gx.origin)
 		add_child(arch)
 		gate_nodes.append(arch)
-	var desc := "Through every gate, fast as you can!" if trial["kind"] == "time" else "Drift all the way up. Points count!"
+	var desc := "Through every gate, fast as you can!" if timed_kind(trial["kind"]) else "Drift all the way up. Points count!"
+	crawl_pen = 0.0
+	_crawl_bad_t = 0.0
+	car.crawl_cap = 2.6 if trial["kind"] == "crawl" else 0.0      # (about 9 km/h: a crawl, not a charge)
 	ui.chal_card.visible = true
 
 func _trial_tick(dt: float) -> void:
@@ -2761,16 +2801,78 @@ func _trial_tick(dt: float) -> void:
 			_finish_trial()
 			return
 		ui.popup_text("Checkpoint %d/%d" % [trial_gate - 1, gates.size() - 1], K.SKY)
-	var limit: float = (float(trial["medals"][2]) * 2.0) if trial["kind"] == "time" else 150.0
+	if trial["kind"] == "crawl":
+		_crawl_rules(dt)
+		if trial.is_empty():
+			return
+	var limit: float = (float(trial["medals"][2]) * 2.0) if timed_kind(trial["kind"]) else 150.0
 	if trial_t > limit:
 		ui.toast("Out of time", "flag", K.PAPER, K.INK, 1.6)
 		_end_challenges()
 
+## A rock crawl's rules: inside the tape (the lane between the last gate and the next) and on its wheels.
+## Over the tape for a moment, or on its side or roof: back to the last gate, time added.
+func _crawl_rules(dt: float) -> void:
+	var gates: Array = trial["gates"]
+	var p := car.global_position
+	var off := 0.0
+	if trial.has("lane_x"):
+		off = absf(p.x - float(trial["lane_x"]))
+	else:
+		# a trail: how far off the trail, the leg you're on or the one before it (round a corner you're between
+		# the two; the tape runs along each leg). Lined up behind the start counts as on it.
+		var p2 := Vector2(p.x, p.z)
+		off = INF
+		for k in [trial_gate - 1, trial_gate]:
+			if k < 1 or k >= gates.size():
+				continue
+			var a3: Vector3 = (gates[k - 1] as Transform3D).origin
+			var b3: Vector3 = (gates[k] as Transform3D).origin
+			var a2 := Vector2(a3.x, a3.z)
+			var ab := Vector2(b3.x, b3.z) - a2
+			var traw := (p2 - a2).dot(ab) / maxf(ab.length_squared(), 0.01)
+			var lo := -0.6 if k == 1 else 0.0
+			off = minf(off, (p2 - (a2 + ab * clampf(traw, lo, 1.0))).length())
+	var out := off > float(trial.get("tape", 4.6))
+	var rolled := car.global_transform.basis.y.y < 0.35
+	_crawl_grace = maxf(0.0, _crawl_grace - dt)
+	if _crawl_grace > 0.0:
+		out = false
+	_crawl_bad_t = _crawl_bad_t + dt if (out or rolled) else 0.0
+	if _crawl_bad_t < (0.6 if out else 1.6):
+		return
+	_crawl_bad_t = 0.0
+	if args.has("cdebug"):
+		print("CRAWL PEN gate %d off %.1f rolled %s up.y %.2f pos %s" % [trial_gate, off, rolled, car.global_transform.basis.y.y, str(p.round())])
+	var pen := PENALTY_ROLL if rolled else PENALTY_OUT
+	crawl_pen += pen
+	var back: Transform3D = gates[maxi(trial_gate - 1, 0)]
+	car.linear_velocity = Vector3.ZERO
+	car.angular_velocity = Vector3.ZERO
+	# (on the ground as it is, facing the next gate)
+	var bo := back.origin
+	bo.y = island.height_at(bo.x, bo.z) + 1.5
+	var nx: Vector3 = (gates[mini(trial_gate, gates.size() - 1)] as Transform3D).origin - back.origin
+	var fb := back.basis
+	if Vector2(nx.x, nx.z).length() > 1.0:
+		fb = Basis(Vector3.UP, atan2(-nx.x, -nx.z))
+		# (a few metres back down the line: a bit of a run at it, not stood at the foot of a wall)
+		var bk := -Vector3(nx.x, 0, nx.z).normalized() * 4.0
+		bo += bk
+		bo.y = island.height_at(bo.x, bo.z) + 1.5
+	car.place(on_ground(Transform3D(fb, bo)))
+	_crawl_grace = 2.5
+	sfx("bump", -6.0)
+	ui.toast(("Rolled it" if rolled else "Over the tape") + ": back to the last gate, +%.0f s" % pen, "flag", Color("ff5c7a"), Color.WHITE, 2.2)
+
+const PENALTY_OUT := CrawlPark.PENALTY_OUT
+const PENALTY_ROLL := CrawlPark.PENALTY_ROLL
+
 func _finish_trial() -> void:
 	var t := trial
 	_end_challenges()
-	var timed: bool = t["kind"] == "time"
-	var score: float = trial_t if timed else trial_pts
+	var timed: bool = timed_kind(t["kind"])
+	var score: float = (trial_t + (crawl_pen if t["kind"] == "crawl" else 0.0)) if timed else trial_pts
 	var medal := _medal(score, t["medals"], timed)
 	var best: float = float(save.data["trials"].get(t["id"], 0.0))
 	var better: bool = best <= 0.0 or (score < best if timed else score > best)
@@ -2785,6 +2887,8 @@ func _finish_trial() -> void:
 	save.data["coins"] = int(save.data["coins"]) + pay
 	_medal_stats()
 	var txt := ("%.2f s" % score) if timed else ("%s pts" % K.fmt(int(score)))
+	if t["kind"] == "crawl" and crawl_pen > 0.0:
+		txt += " (+%.0f s penalties)" % crawl_pen
 	ui.challenge_result(t["name"], txt, medal, pay, better and best > 0.0, restart_challenge)
 	_save_now()
 	ach_check()
@@ -2792,6 +2896,7 @@ func _finish_trial() -> void:
 func _end_challenges() -> void:
 	zone = {}
 	trial = {}
+	car.crawl_cap = 0.0
 	rw_buf.clear()           # (nothing to rewind back into)
 	if not intro.is_empty():
 		intro = {}

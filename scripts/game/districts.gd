@@ -9,6 +9,8 @@ const P := preload("res://scripts/core/palette.gd")
 const CARS := preload("res://scripts/game/cars.gd")
 const Raceway := preload("res://scripts/game/raceway.gd")
 const Circuits := preload("res://scripts/game/circuits.gd")
+const CrawlPark := preload("res://scripts/game/crawl_park.gd")
+const CrawlCanyon := preload("res://scripts/game/crawl_canyon.gd")
 const Hood := preload("res://scripts/game/hood.gd")
 const StreetStunts := preload("res://scripts/game/street_stunts.gd")
 const Green := preload("res://scripts/game/green.gd")
@@ -153,6 +155,8 @@ static func plan(I) -> void:
 	Hood.plan(I)                                                          # Palmer Street, the Courts, the cemetery, Sycamore Heights
 	Raceway.plan(I)                                                       # the Raceway, on its peninsula
 	Circuits.plan(I)                                                      # three more circuits on headlands
+	CrawlPark.plan(I)                                                     # the rock-crawler courses
+	CrawlCanyon.plan(I)                                                   # Red Rock Canyon's road in
 	for st in STATIONS:
 		if st["lot"]:
 			var sp: Vector2 = st["pad"]
@@ -175,6 +179,8 @@ static func plan(I) -> void:
 		{"name": "Stunt Yard", "pos": Vector3(STUNT.x, 0, STUNT.y), "r": 62.0},
 	]
 	I.places.append_array(Hood.places())
+	I.places.append(CrawlPark.place(I))
+	I.places.append(CrawlCanyon.place(I))
 
 ## Crop fields: ploughed soil with rows of something growing (districts._crops).
 static func fields(_I) -> Array:
@@ -240,6 +246,8 @@ static func challenges(I) -> void:
 	]
 	Raceway.challenges(I)
 	Circuits.challenges(I)
+	CrawlPark.challenges(I)
+	CrawlCanyon.challenges(I)
 	# coins hidden around the island
 	var spots := []
 	var rr := RandomNumberGenerator.new()

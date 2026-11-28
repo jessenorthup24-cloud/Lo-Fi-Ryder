@@ -2110,8 +2110,8 @@ func hud_update(d: Dictionary) -> void:
 		chal_sub.text = "%d s left · %s" % [int(ceil(float(d["zone_t"]))), next]
 	elif not t.is_empty():
 		chal_name.text = t["name"]
-		if t["kind"] == "time":
-			chal_main.text = "%.1f s" % float(d["trial_t"])
+		if t["kind"] == "time" or t["kind"] == "crawl":
+			chal_main.text = "%.1f s" % (float(d["trial_t"]) + (game.crawl_pen if t["kind"] == "crawl" else 0.0))
 			chal_sub.text = "Gate %d of %d · gold %.0f s" % [int(d["trial_gate"]), (t["gates"] as Array).size() - 1, float(t["medals"][0])]
 		else:
 			chal_main.text = K.fmt(int(d["trial_pts"]))

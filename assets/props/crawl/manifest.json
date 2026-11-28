@@ -1,0 +1,172 @@
+[
+  {
+    "id": "01_dirt_hill",
+    "label": "Dirt hill",
+    "difficulty": "Easy",
+    "width": 6,
+    "length": 12,
+    "triangles": 1608,
+    "height": 1.71,
+    "description": "Broad rounded climb and descent."
+  },
+  {
+    "id": "02_shale_climb",
+    "label": "Shale climb",
+    "difficulty": "Medium",
+    "width": 6,
+    "length": 12,
+    "triangles": 1608,
+    "height": 2.25,
+    "description": "Steep uneven stone summit with tapered approaches."
+  },
+  {
+    "id": "03_rock_staircase",
+    "label": "Rock staircase",
+    "difficulty": "Hard",
+    "width": 6,
+    "length": 14,
+    "triangles": 3688,
+    "height": 1.48,
+    "description": "Six broad terraces with chamfered transitions for raycast tires."
+  },
+  {
+    "id": "04_sidehill_left",
+    "label": "Left off-camber",
+    "difficulty": "Medium",
+    "width": 6,
+    "length": 10,
+    "triangles": 1608,
+    "height": 1.67,
+    "description": "Mirrorable cross-slope; approach and exit at grade."
+  },
+  {
+    "id": "05_sidehill_right",
+    "label": "Right off-camber",
+    "difficulty": "Medium",
+    "width": 6,
+    "length": 10,
+    "triangles": 1608,
+    "height": 1.67,
+    "description": "Mirrorable cross-slope; approach and exit at grade."
+  },
+  {
+    "id": "06_cross_axle",
+    "label": "Cross-axle mounds",
+    "difficulty": "Medium",
+    "width": 6,
+    "length": 12,
+    "triangles": 1608,
+    "height": 0.71,
+    "description": "Alternating left/right tire mounds spaced for articulation."
+  },
+  {
+    "id": "07_whoops",
+    "label": "Rolling whoops",
+    "difficulty": "Easy",
+    "width": 6,
+    "length": 12,
+    "triangles": 1608,
+    "height": 0.55,
+    "description": "Wide repeated rollers for suspension compression."
+  },
+  {
+    "id": "08_boulder_garden",
+    "label": "Boulder garden",
+    "difficulty": "Hard",
+    "width": 7,
+    "length": 12,
+    "triangles": 2080,
+    "height": 0.88,
+    "description": "Staggered angular boulders on a sculpted dirt bed."
+  },
+  {
+    "id": "09_ridge_balance",
+    "label": "Ridge balance",
+    "difficulty": "Hard",
+    "width": 6,
+    "length": 12,
+    "triangles": 1608,
+    "height": 1.1,
+    "description": "Narrow crown with falling shoulders and a slight meander."
+  },
+  {
+    "id": "10_v_notch",
+    "label": "V-notch crossing",
+    "difficulty": "Hard",
+    "width": 7,
+    "length": 12,
+    "triangles": 1608,
+    "height": 1.36,
+    "description": "V-shaped gully with sloping sides, ideal for diagonal lines."
+  },
+  {
+    "id": "11_erosion_ruts",
+    "label": "Erosion ruts",
+    "difficulty": "Medium",
+    "width": 6,
+    "length": 12,
+    "triangles": 1608,
+    "height": 0.62,
+    "description": "Meandering tire channels with raised center and shoulders."
+  },
+  {
+    "id": "12_log_crossing",
+    "label": "Log crossing",
+    "difficulty": "Medium",
+    "width": 6,
+    "length": 9,
+    "triangles": 1752,
+    "height": 0.56,
+    "description": "Three transverse rounded timber logs on dirt."
+  },
+  {
+    "id": "13_timber_bridge",
+    "label": "Timber bridge",
+    "difficulty": "Easy",
+    "width": 4.95,
+    "length": 14,
+    "triangles": 1232,
+    "height": 1.15,
+    "description": "Raised timber crossing with low edge rails and smooth approaches."
+  },
+  {
+    "id": "14_twin_track",
+    "label": "Twin-track ramp",
+    "difficulty": "Hard",
+    "width": 6,
+    "length": 12,
+    "triangles": 4584,
+    "height": 1.06,
+    "description": "Twin raised wheel tracks centered at \u00b11.05 m, with a center trench."
+  },
+  {
+    "id": "15_rock_small",
+    "label": "Loose rock small",
+    "difficulty": "Easy",
+    "width": 1.5,
+    "length": 1.8,
+    "triangles": 68,
+    "height": 0.48,
+    "description": "Place independently or scatter along course edges."
+  },
+  {
+    "id": "16_rock_large",
+    "label": "Loose rock large",
+    "difficulty": "Hard",
+    "width": 2.6,
+    "length": 2.8,
+    "triangles": 68,
+    "height": 1.05,
+    "description": "Large standalone climbing boulder."
+  },
+  {
+    "id": "17_dirt_connector",
+    "label": "Dirt connector",
+    "difficulty": "Easy",
+    "width": 6,
+    "length": 6,
+    "triangles": 1608,
+    "height": 0.05,
+    "description": "Flat link between modules; rotate for custom courses."
+  }
+]

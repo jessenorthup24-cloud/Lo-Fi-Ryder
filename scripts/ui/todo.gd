@@ -100,6 +100,8 @@ static func _fill(ui: Node, body: VBoxContainer, id: String) -> void:
 			_para(body, "Drift zones score your slides inside the zone; time trials and drift runs take you through gates against the clock. Medals for each.")
 			if not ui.game.car.can_drift:
 				_para(body, "Drifting needs a drift car: the Pop-Up 86 is the cheapest, at Lo-Fi Customs. Road cars grip, and their handbrake just locks the back wheels.", true)
+			_para(body, "Big rock crawls at Red Rock Canyon, the headland off the north-west coast (Canyon Road, off the Ring Road): the Monolith Climb straight up a 36-degree face, the Canyon Trail over the knolls and the sand Dune, and the Summit Run along the Spine ridge and over the top. Shorter practice lanes at the Crawl Park.")
+			_para(body, "Rock crawls at the Crawl Park: four courses (Beginner, Articulation, Scrapyard, Expert) in the Lo-Fi Crawler. Low range, stay inside the tape and keep it on its wheels: crossing the tape or rolling it puts you back at the last gate with time added.")
 			_rows(ui, body, pts, ["zone", "trial"])
 		"cars":
 			var owned: int = (s["owned"] as Array).size()
