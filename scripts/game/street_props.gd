@@ -5,6 +5,7 @@ extends Node3D
 ## the street (clear of doors, ATMs and each other). Placed once, by looking for real walls (tall and wide:
 ## a building, not a fence or a post), on flat ground in the busy parts of town.
 
+const Flatten := preload("res://scripts/core/flatten.gd")
 const Districts := preload("res://scripts/game/districts.gd")
 
 ## [file, its widest side on the ground (m), solid box (w, h, d) or none]
@@ -62,10 +63,13 @@ func _fit(kind: String) -> Array:
 	var ps: PackedScene = load(KINDS[kind][0])
 	var n: Node3D = ps.instantiate()
 	var box := _bounds(n, Transform3D())
+	# its parts made one mesh (a bag of rubbish was 32 draw calls, each time it was put down)
+	var flat := Flatten.build(n)
 	n.free()
 	var w := maxf(box.size.x, box.size.z)
 	var sc: float = float(KINDS[kind][1]) / maxf(w, 1e-6)
-	return [ps, sc, -box.position.y * sc, box.get_center() * sc, box.size.z > box.size.x * 1.15]
+	return [ps, sc, -box.position.y * sc, box.get_center() * sc, box.size.z > box.size.x * 1.15,
+		flat[0] if not flat.is_empty() else null, flat[2] if not flat.is_empty() else GeometryInstance3D.SHADOW_CASTING_SETTING_ON]
 
 static func _bounds(n: Node, xf: Transform3D) -> AABB:
 	var out := AABB()
@@ -84,7 +88,15 @@ static func _bounds(n: Node, xf: Transform3D) -> AABB:
 
 func _put(kind: String, at: Vector3, yaw: float) -> void:
 	var f: Array = _scenes[kind]
-	var m: Node3D = (f[0] as PackedScene).instantiate()
+	var m: Node3D
+	if f[5] != null:
+		m = Node3D.new()
+		var one := MeshInstance3D.new()
+		one.mesh = f[5]
+		one.cast_shadow = f[6]
+		m.add_child(one)
+	else:
+		m = (f[0] as PackedScene).instantiate()
 	add_child(m)
 	at.y = game.island.height_at(at.x, at.z)
 	var c: Vector3 = f[3]

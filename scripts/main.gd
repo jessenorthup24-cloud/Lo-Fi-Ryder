@@ -228,6 +228,7 @@ const INTRO_T := 2.4        # (how long the title shows before the countdown)
 const KIND_INFO := {"zone": ["DRIFT ZONE", "ff8a5c"], "time": ["TIME TRIAL", "5cc8ff"], "drift": ["DRIFT RUN", "c38bff"],
 	"race": ["STREET RACE", "ff5c7a"], "crawl": ["ROCK CRAWL", "d98a3a"]}
 const CrawlPark := preload("res://scripts/game/crawl_park.gd")
+const Warmup := preload("res://scripts/game/warmup.gd")
 const CrawlCanyon := preload("res://scripts/game/crawl_canyon.gd")
 
 ## A trial against the clock (a time trial or a rock crawl), rather than for drift points.
@@ -238,6 +239,7 @@ var race_end_t := 0.0
 func _ready() -> void:
 	ThemeDB.fallback_font = K.font(600)          # (the game's face everywhere, even text nothing's styled)
 	_parse_args()
+	_hitch = args.has("hitch")
 	Car.neon_globals()
 	# landscape, laid out for 1280x720 whatever the installed app was built with
 	if OS.has_feature("mobile"):
@@ -298,6 +300,19 @@ func _parse_args() -> void:
 		args[kv[0]] = kv[1] if kv.size() > 1 else "1"
 
 ## The island takes a moment to build; the loading card shows first.
+var _hitch := false
+var _hf := 0
+var _hu := 0
+var _hphys := 0
+var _hp := {}
+
+## (testing, --hitch: time since the last mark, filed under this part)
+func _hm(k: String) -> void:
+	if _hitch:
+		var u := Time.get_ticks_usec()
+		_hp[k] = int(_hp.get(k, 0)) + (u - _hu)
+		_hu = u
+
 func _build_world() -> void:
 	var t0 := Time.get_ticks_msec()
 	island = Island.new()
@@ -469,7 +484,19 @@ func _build_world() -> void:
 	cam_yaw = sp.basis.get_euler().y
 	_snap_cam()
 	print("world ready in %d ms %s" % [Time.get_ticks_msec() - t0, str(island.timings)])
-	ui.world_ready(island)
+	# every shader built now, behind the loading card, not mid-game the first time each thing shows up
+	if args.has("nowarm"):
+		ui.world_ready(island)
+	else:
+		var wu := Warmup.new()
+		wu.name = "Warmup"
+		add_child(wu)
+		var t_w := Time.get_ticks_msec()
+		wu.run(self, Callable())
+		await wu.finished
+		print("shaders warmed: %d materials in %d ms" % [wu.count, Time.get_ticks_msec() - t_w])
+		_snap_cam()
+		ui.world_ready(island)
 	if args.has("crashtest"):
 		_crash_setup(String(args["crashtest"]), float(args.get("crashv", "18")))
 	if args.has("ram"):
@@ -1011,21 +1038,57 @@ func _process(dt: float) -> void:
 		print("INTERP f=%d frac=%.2f drawn=(%.3f,%.3f) physics=(%.3f,%.3f) cam=(%.3f,%.3f) mesh=(%.3f,%.3f)" % [frames, Engine.get_physics_interpolation_fraction(),
 			xi.x, xi.z, car.global_position.x, car.global_position.z, cam.global_position.x, cam.global_position.z,
 			car.body_node.get_global_transform_interpolated().origin.x, car.body_node.get_global_transform_interpolated().origin.z])
-	if args.has("hitch") and state == DRIVE:
-		# testing: report frames that took far longer than the rest (stutters you'd feel)
-		var pt := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
-		var ph := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
-		if pt > 6.0 or ph > 6.0:
-			print("HITCH t=%.2f process=%.1f ms physics=%.1f ms save_t=%.1f ach_t=%.1f route_t=%.1f" % [time, pt, ph, save_t, ach_t, route_t])
+	if args.has("draws") and state == DRIVE and Engine.get_process_frames() % 300 == 150:
+		# (what's drawn near the camera: by what it belongs to; "nocull" ones have no draw distance)
+		var by := {}
+		var cp3 := cam.global_position
+		var fwd := -cam.global_transform.basis.z
+		for n in find_children("*", "GeometryInstance3D", true, false):
+			var gi := n as GeometryInstance3D
+			if not gi.is_visible_in_tree():
+				continue
+			var d := gi.global_position - cp3
+			var aabb := gi.get_aabb()
+			var big := aabb.size.length() * gi.global_transform.basis.get_scale().x
+			if d.length() > 400.0 + big or (d.dot(fwd) < -big and d.length() > big):
+				continue
+			var key := "%s/%s" % [gi.get_parent().name if gi.get_parent() else "?", gi.get_class().replace("Instance3D", "")]
+			var e: Array = by.get(key, [0, 0])
+			e[0] += 1
+			if gi.visibility_range_end <= 0.0:
+				e[1] += 1
+			by[key] = e
+		var ks := by.keys()
+		ks.sort_custom(func(a, b): return int(by[a][0]) > int(by[b][0]))
+		var out := []
+		for k in ks.slice(0, 18):
+			out.append("%s=%d(nocull %d)" % [k, by[k][0], by[k][1]])
+		print("NEAR ", ", ".join(out))
+	if args.has("draws") and state == DRIVE and Engine.get_process_frames() % 150 == 0:
+		print("DRAWS t=%.1f calls=%d objects=%d prims=%dk fps=%d" % [time, Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME), int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000), Engine.get_frames_per_second()])
+	if _hitch:
+		# testing: frames that took far longer than the rest (stutters you'd feel), and which part took it
+		var now := Time.get_ticks_usec()
+		var wall := (now - _hf) / 1000.0
+		if _hf > 0 and wall > 28.0 and state == DRIVE:
+			var parts := []
+			for k in _hp:
+				if int(_hp[k]) > 3000:
+					parts.append("%s=%.1f" % [k, int(_hp[k]) / 1000.0])
+			print("HITCH t=%.2f wall=%.1f ms physics=%.1f ms %s" % [time, wall, _hphys / 1000.0, " ".join(parts)])
+		_hf = now
+		_hu = now
+		_hp.clear()
+		_hphys = 0
 	if state == LOADING:
 		if frames == 3:
 			_build_world()
 		return
 	dt = minf(dt, 0.05)
 	time += dt
-	atmos.tick(dt)
+	atmos.tick(dt); _hm("atmos")
 	if weather and state != LOADING:
-		weather.tick(dt, cam)
+		weather.tick(dt, cam); _hm("weather")
 	if state == DRIVE or state == TITLE:
 		atmos.motes_tick(cam.global_position, -cam.global_transform.basis.z, bool(save.setting("motes")))
 	if island and state != LOADING:
@@ -1033,28 +1096,28 @@ func _process(dt: float) -> void:
 	if car and state != GARAGE:
 		car.neon_tick(car.get_global_transform_interpolated(), atmos.night)     # (the garage lights its own)
 	var cp := foot.global_position if on_foot else car.global_position
-	boats.tick(dt)
+	boats.tick(dt); _hm("boats")
 	if island.rail and (state == DRIVE or state == TITLE):
-		island.rail.tick(dt, cam.global_position)
+		island.rail.tick(dt, cam.global_position); _hm("rail")
 	island.night = atmos.night
-	island.tick(dt, cp, foot.velocity if on_foot else car.linear_velocity)
+	island.tick(dt, cp, foot.velocity if on_foot else car.linear_velocity); _hm("island")
 	if state == DRIVE and not on_foot:
 		var half := Vector3(float(car.info["width"]) * 0.5, float(car.info["height"]) * 0.5, float(car.info["length"]) * 0.5)
 		for pr in island.people.hits(car.global_transform, half, (float(car.info["front"]) + float(car.info["back"])) * 0.5, car.linear_velocity):
 			_ped_hit(pr)
 	if state == DRIVE and car_hits:
 		car_hits.tick(dt)
-	ragdolls.tick(dt, cp)
+	ragdolls.tick(dt, cp); _hm("ragdolls")
 	traffic.parked.clear()
 	if on_foot:
 		traffic.parked.append(car.global_position)
 	for pk in parked:
 		traffic.parked.append((pk["node"] as Node3D).global_position)
-	traffic.tick(dt, cp, foot.velocity if on_foot else car.linear_velocity, -cam.global_transform.basis.z)
+	traffic.tick(dt, cp, foot.velocity if on_foot else car.linear_velocity, -cam.global_transform.basis.z); _hm("traffic")
 	if traffic.honk != Vector3.INF and state == DRIVE:
 		var hd: float = traffic.honk.distance_to(cp)
 		sfx(traffic.honk_kind, clampf(-4.0 - hd * 0.3, -16.0, -4.0), randf_range(0.95, 1.08))
-	fx.tick(dt)
+	fx.tick(dt); _hm("fx")
 	_coins_tick(dt)
 	_markers_tick(dt)
 	match state:
@@ -1081,21 +1144,21 @@ func _process(dt: float) -> void:
 					_drive(dt)
 				else:
 					ui.hud_update_light()
-			police.tick(dt)
-			heist.tick(dt)
-			property.tick(dt)
-			shops.tick(dt)
-			bank.tick(dt)
-			allies.tick(dt)
-			story.tick(dt)
-			campaign.tick(dt)
-			fights.tick(dt)
-			crew.tick(dt)
+			police.tick(dt); _hm("police")
+			heist.tick(dt); _hm("heist")
+			property.tick(dt); _hm("property")
+			shops.tick(dt); _hm("shops")
+			bank.tick(dt); _hm("bank")
+			allies.tick(dt); _hm("allies")
+			story.tick(dt); _hm("story")
+			campaign.tick(dt); _hm("campaign")
+			fights.tick(dt); _hm("fights")
+			crew.tick(dt); _hm("crew")
 			_crew_tests()
 		PAUSED, GARAGE:
 			_controls_off()
 	_sound(dt)
-	ui.tick(dt)
+	ui.tick(dt); _hm("ui")
 	if args.has("ram") and frames % 10 == 0 and traffic:
 		var tc2: Dictionary = traffic.cars[maxi(traffic.last_knock, 0)]
 		var tb: Node3D = tc2["body"]
@@ -2948,6 +3011,10 @@ func _refresh_coins() -> void:
 func _coins_tick(_dt: float) -> void:
 	var p := you().global_position + Vector3(0, 0.8, 0)
 	var b := (Basis(Vector3.UP, time * 2.2) * Basis(Vector3.RIGHT, -0.9)).scaled(Vector3.ONE * 5.5)
+	# only the ones near enough to see are drawn, packed into the first slots (90 bundles of notes, each a
+	# fair few triangles, were all drawn, shadows and all, from anywhere on the island: past 180 m they're
+	# smaller than a pixel)
+	var k := 0
 	for c in coins_live:
 		if c["taken"]:
 			continue
@@ -2955,17 +3022,20 @@ func _coins_tick(_dt: float) -> void:
 		var d := cp.distance_to(p)
 		if d > 180.0:
 			continue
-		coin_pool.put(c["slot"], Transform3D(b, cp + Vector3(0, sin(time * 2.0 + cp.x) * 0.25, 0)))
+		coin_pool.multimesh.set_instance_transform(k, Transform3D(b, cp + Vector3(0, sin(time * 2.0 + cp.x) * 0.25, 0)))
+		k += 1
 		if d < 3.2 and state == DRIVE:
 			c["taken"] = true
 			save.data["coins_taken"].append(c["id"])
 			save.data["coins"] = int(save.data["coins"]) + COIN_PICKUP
-			coin_pool.put(c["slot"], Transform3D(Basis().scaled(Vector3.ONE * 0.001), cp))
+			k -= 1
 			fx.sparkle(cp, Color("7be36b"), 12)
 			sfx("cash", 0.0, 1.0)
 			buzz(30, 0.6)
 			ui.found_coin(save.data["coins_taken"].size(), coins_live.size(), COIN_PICKUP)
 			ach_check()
+	coin_pool.multimesh.visible_instance_count = k
+	coin_pool.custom_aabb = AABB(p - Vector3(190, 60, 190), Vector3(380, 120, 380))
 
 # ------------------------------------------------------------------ fuel and gas stations
 

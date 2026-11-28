@@ -188,10 +188,11 @@ func _live_tick(dt: float, you: Vector3) -> void:
 		if d < LIVE_R:
 			best.append([d, pr])
 	best.sort_custom(func(a, b): return a[0] < b[0])
-	for e in best:
-		if _live.size() >= LIVE_N:
-			break
-		_make_live(e[1])
+	# one a frame (a new character's a big build: several at once was a stutter), the next ones just after
+	if not best.is_empty():
+		_make_live(best[0][1])
+		if best.size() > 1 and _live.size() < LIVE_N:
+			_live_t = 0.05
 
 ## Make this one the real character now (near or not: a driver climbing out of a car you're taking).
 func make_live(pr: Dictionary) -> void:
@@ -203,9 +204,25 @@ func make_live(pr: Dictionary) -> void:
 	pr["act"] = "idle"
 
 func _make_live(pr: Dictionary) -> void:
-	var av := Avatar.new()
-	add_child(av)
-	av.setup(String(M.CHARS[int(pr["v"]) % M.CHARS.size()]), "", mat)
+	var id := String(M.CHARS[int(pr["v"]) % M.CHARS.size()])
+	var av: Avatar = null
+	var spare: Array = _spare.get(id, [])
+	while av == null and not spare.is_empty():
+		var s: Avatar = spare.pop_back()
+		if is_instance_valid(s):
+			av = s
+	if av:
+		# one let go of earlier: back on, as good as new
+		av.visible = true
+		av.process_mode = Node.PROCESS_MODE_INHERIT
+		av.hurt = false
+		av.fight = false
+		av.crouch = false
+		av.lock_t = 0.0
+	else:
+		av = Avatar.new()
+		add_child(av)
+		av.setup(id, "", mat)
 	pr["live"] = av
 	var p: Vector3 = pr["pos"]
 	if pr["pose"] == "sit":
@@ -236,7 +253,27 @@ func _unlive(pr: Dictionary) -> void:
 	pr.erase("live")
 	_live.erase(pr)
 	if av and is_instance_valid(av):
-		av.queue_free()
+		var a := av as Avatar
+		# kept for the next one of that look (a plain one still: not gone limp, not holding a gun)
+		if a and a.get_parent() == self and a.limp == null and a.gun == null and _spare_n() < SPARE_N:
+			a.visible = false
+			a.process_mode = Node.PROCESS_MODE_DISABLED
+			a.position = Vector3(0, -80, 0)
+			var id := String(M.CHARS[int(pr["v"]) % M.CHARS.size()])
+			if not _spare.has(id):
+				_spare[id] = []
+			(_spare[id] as Array).append(a)
+		else:
+			av.queue_free()
+
+const SPARE_N := 14
+var _spare := {}                  # look -> characters let go of, hidden, for reuse (building one is slow)
+
+func _spare_n() -> int:
+	var n := 0
+	for k in _spare:
+		n += (_spare[k] as Array).size()
+	return n
 
 func _place_live(pr: Dictionary, base: Vector3, t: float) -> void:
 	if not is_instance_valid(pr["live"]):

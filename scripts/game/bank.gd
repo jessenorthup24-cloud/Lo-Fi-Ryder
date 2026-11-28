@@ -6,6 +6,7 @@ extends Node3D
 ## Save: "coins" is everything you have (all the shops and prices work off it, as before); "cash" is how much
 ## of it is on you, unbanked; "drop" is the bag you dropped ({pos: [x, y, z], amount}).
 
+const Flatten := preload("res://scripts/core/flatten.gd")
 const K := preload("res://scripts/ui/kit.gd")
 const Districts := preload("res://scripts/game/districts.gd")
 
@@ -43,6 +44,7 @@ func build(g: Node) -> void:
 		model.name = "Bank_" + String(b["id"])
 		add_child(model)
 		model.global_transform = Transform3D(Basis(Vector3.UP, yaw), Vector3(c.x, game.island.height_at(c.x, c.y) + 0.02, c.y))
+		Flatten.flatten(model)
 		for mi in model.find_children("*", "MeshInstance3D", true, false):
 			(mi as MeshInstance3D).visibility_range_end = 380.0
 		# solid: the building's box (its front steps left open)
@@ -82,6 +84,7 @@ func _atm(p: Vector3, yaw: float, by: String) -> void:
 	add_child(n)
 	p.y = game.island.height_at(p.x, p.z)
 	n.global_transform = Transform3D(Basis(Vector3.UP, yaw), p)
+	Flatten.flatten(n)          # (one mesh, not a draw call for every button)
 	for mi in n.find_children("*", "MeshInstance3D", true, false):
 		(mi as MeshInstance3D).visibility_range_end = 160.0
 	var sb := StaticBody3D.new()

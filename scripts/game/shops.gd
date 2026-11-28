@@ -3,6 +3,7 @@ extends Node3D
 ## the Armory (guns and their attachments) and Lo-Fi Threads (who you are). Pull up or walk up to the front
 ## door and go in: the shop's screen opens (ui.gd's garage screen, showing that shop's counters).
 
+const Flatten := preload("res://scripts/core/flatten.gd")
 const Districts := preload("res://scripts/game/districts.gd")
 
 const LIST := [
@@ -51,6 +52,7 @@ func build(g: Node) -> void:
 		cs.position = body.get_center() - Vector3(0, 0, 0.15)
 		sb.add_child(cs)
 		model.add_child(sb)
+		Flatten.flatten(model, 380.0)          # (one mesh per material, not a draw call for every sign and pane)
 		var bs := Basis(Vector3.UP, yaw)
 		var door: Vector3 = model.global_transform * Vector3(body.get_center().x, 0, body.end.z + 1.6)
 		door.y = game.island.height_at(door.x, door.z)

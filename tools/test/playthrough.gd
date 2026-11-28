@@ -168,6 +168,40 @@ func _run() -> void:
 			check(game.stick_idx == 1 and game.stick.length() > 0.2, "and it walks you (%s)" % str(game.stick))
 			t1.pressed = false
 			game._unhandled_input(t1)
+		"cash":
+			# the hidden cash: only the bundles near you are drawn, and driving into one picks it up
+			game.args["drive"] = true
+			game.start_drive()
+			await wait(2.0)
+			var best: Dictionary = {}
+			var cp0: Vector3 = game.car.global_position
+			for c in game.coins_live:
+				if not c["taken"] and (best.is_empty() or (c["pos"] as Vector3).distance_to(cp0) < (best["pos"] as Vector3).distance_to(cp0)):
+					best = c
+			var far_n := 0
+			for c in game.coins_live:
+				if not c["taken"] and (c["pos"] as Vector3).distance_to(cp0) > 180.0:
+					far_n += 1
+			await wait(0.3)
+			var drawn0: int = game.coin_pool.multimesh.visible_instance_count
+			check(drawn0 < game.coins_live.size() - far_n + 1, "far bundles aren't drawn (%d drawn, %d far)" % [drawn0, far_n])
+			var at: Vector3 = best["pos"]
+			game.car.place(game.on_ground(Transform3D(Basis(), at + Vector3(0, 0.6, 7.0))))
+			game.car.linear_velocity = Vector3.ZERO
+			await wait(0.4)
+			var drawn1: int = game.coin_pool.multimesh.visible_instance_count
+			check(drawn1 >= 1, "the one beside you is drawn (%d)" % drawn1)
+			var n0: int = game.save.data["coins_taken"].size()
+			game.car.place(game.on_ground(Transform3D(Basis(), at + Vector3(0, 0.6, 0))))
+			var got := await wait_until(func(): return game.save.data["coins_taken"].size() > n0, 3.0)
+			check(got, "driving into it picks it up")
+			await wait(0.2)
+			var want := 0
+			var yp: Vector3 = game.you().global_position + Vector3(0, 0.8, 0)
+			for c in game.coins_live:
+				if not c["taken"] and (c["pos"] as Vector3).distance_to(yp) <= 180.0:
+					want += 1
+			check(best["taken"] and game.coin_pool.multimesh.visible_instance_count == want, "and it's gone from view (%d drawn, %d near)" % [game.coin_pool.multimesh.visible_instance_count, want])
 		"calm":
 			game.args["drive"] = true
 			game.start_drive()
@@ -385,6 +419,25 @@ func _run() -> void:
 								seen[nm] = true
 								print("PROBE %s at %s y %.1f (ground %.1f) surf %d" % [nm, str(qq.round()), (hit["position"] as Vector3).y, h, isl.surface_at(qq.x, qq.y)])
 			print("PROBE done")
+		"flatsnap":
+			# the shops and ATMs, flattened into one mesh each: still look right?
+			game.args["drive"] = true
+			game.start_drive()
+			game.save.data["settings"]["weather"] = false
+			game.weather.set_now("clear")
+			game.atmos.hour = 14.0
+			await wait(1.5)
+			var sh: Dictionary = game.shops.shops["customs"]
+			var fr: Vector3 = sh["front"]
+			var dr: Vector3 = sh["door"]
+			game.car.place(game.on_ground(Transform3D(Basis.looking_at(-fr), dr + fr * 16.0 + Vector3(0, 0.6, 0))))
+			await wait(3.0)
+			await snap("shop")
+			var a: Dictionary = game.bank.atms[0]
+			var af: Vector3 = a["front"]
+			game.car.place(game.on_ground(Transform3D(Basis.looking_at(-af), (a["pos"] as Vector3) + af * 9.0 + Vector3(0, 0.6, 0))))
+			await wait(3.0)
+			await snap("atm")
 		"shine":
 			game.args["drive"] = true
 			game.start_drive()
