@@ -10,6 +10,8 @@ const C := Vector2(-405, -388)          # the headland's middle
 const HS := Vector2(118, 104)           # its half size
 const ROUND := 52.0
 const TAPE := 4.0                       # the trails' tape: this far each side of the line
+const LOT := Vector2(-360, -298)        # the car park at the end of the Canyon Road
+const LOT_HS := Vector2(13, 9)
 
 ## The hills, in metres from C: [x, z, height, steepest slope south, north, east, west (rise per metre),
 ## surface (3 dirt, 4 sand)]. A face's slope is the steepest it gets (halfway up); it eases at foot and top.
@@ -140,6 +142,11 @@ static func plan(I) -> void:
 	# (it stops at the headland's edge: a road cuts its own bed into the ground, and the canyon's hills mustn't
 	# be cut through)
 	I.add_road("Canyon Road", [Vector2(-323, -160), Vector2(-332, -215), Vector2(-345, -262), Vector2(-356, -290)], "dirt")
+	# the way in, built up well clear of the water (the land runs low where the headland meets the coast), and a
+	# gravel car park at the road's end, right by the trail starts
+	I.raises.append([Vector2(-349, -274), Vector2(8, 16), 2.2, 10.0])
+	I.raises.append([LOT, LOT_HS, 2.2, 10.0])
+	I.add_lot(LOT, LOT_HS, I.S_DIRT)
 
 static func place(_I) -> Dictionary:
 	return {"name": "Red Rock Canyon", "pos": Vector3(C.x, 0, C.y), "r": 95.0}
@@ -227,6 +234,55 @@ func setup(g: Node) -> void:
 		lb.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
 		lb.position = Vector3(s0.x, isl.height_at(s0.x, s0.y) + 6.6, s0.y)
 		add_child(lb)
+	# signs: at the turn-off from the Ring Road, and over the car park
+	_sign(isl, Vector2(-316, -168), Vector2(-1, -1), "RED ROCK CANYON\nrock crawling  ↑")
+	_sign(isl, LOT + Vector2(10, 8), Vector2(-1, -0.4), "RED ROCK CANYON\ncrawlers only past here")
 	# a flag on top of the Monolith
 	var top := world(Vector2(HILLS[0][0], HILLS[0][1]))
 	park.call("_piece", "floodlight", Vector3(top.x + 6.0, isl.height_at(top.x + 6.0, top.y), top.y), 0.0, 1.4, "box")
+
+
+## A roadside sign: two posts and a board, its words on both faces, turned to face `face` (x, z).
+func _sign(isl, at: Vector2, face: Vector2, text: String) -> void:
+	var y: float = isl.height_at(at.x, at.y)
+	var yaw := atan2(-face.x, -face.y)
+	var b := Basis(Vector3.UP, yaw)
+	var mb: Object = CP.MB.new()
+	for sd in [-1.0, 1.0]:
+		mb.box(Vector3(at.x, y, at.y) + b * Vector3(sd * 2.2, 1.6, 0), Vector3(0.18, 3.2, 0.18), CP.MB.rgb("3a3540"), b)
+	mb.box(Vector3(at.x, y, at.y) + b * Vector3(0, 3.0, 0), Vector3(5.6, 1.7, 0.15), CP.MB.rgb("b5452f"), b)
+	var mi := MeshInstance3D.new()
+	mi.mesh = mb.commit()
+	mi.material_override = game.toon
+	add_child(mi)
+	for side in [1.0, -1.0]:
+		var lb := Label3D.new()
+		lb.text = text
+		lb.font_size = 56
+		lb.pixel_size = 0.01
+		lb.outline_size = 10
+		lb.modulate = Color("fff4e0")
+		lb.position = Vector3(at.x, y, at.y) + b * Vector3(0, 3.0, 0.1 * side)
+		lb.rotation.y = yaw + (0.0 if side < 0.0 else PI)
+		add_child(lb)
+
+
+## Somewhere nothing should grow or stand: on a trail (inside its tape, and a margin), the car park, the road in.
+static func keep_clear(x: float, z: float) -> bool:
+	var p := Vector2(x, z)
+	if absf(x - LOT.x) < LOT_HS.x + 5.0 and absf(z - LOT.y) < LOT_HS.y + 5.0:
+		return true
+	for tr in TRAILS:
+		var pts: Array = tr[3]
+		for i in pts.size() - 1:
+			var a: Vector2 = world(pts[i])
+			var b: Vector2 = world(pts[i + 1])
+			var ab := b - a
+			var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 0.01), 0.0, 1.0)
+			if p.distance_to(a + ab * t) < TAPE + 5.0:
+				return true
+	# the road in, from the headland's edge
+	var r0 := Vector2(-345, -262)
+	var r1 := Vector2(-356, -290)
+	var rt := clampf((p - r0).dot(r1 - r0) / (r1 - r0).length_squared(), 0.0, 1.0)
+	return p.distance_to(r0 + (r1 - r0) * rt) < 8.0

@@ -180,6 +180,7 @@ var car_hits: CarHits        # anyone's car against people, officers and you (ca
 var gore: Gore               # where a shot hits a person, limbs off, crawlers (gore.gd)
 var street_props: Node3D     # dumpsters, rubbish, papers, benches (street_props.gd)
 var crawl_park: Node         # the rock-crawler courses (crawl_park.gd)
+var car_paint: ShaderMaterial    # the cars' shiny paint (toon + gloss)
 var crawl_canyon: Node       # Red Rock Canyon, the big crawl trails (crawl_canyon.gd)
 var crawl_pen := 0.0         # a crawl: seconds added (over the tape, rolled)
 var _crawl_bad_t := 0.0      # (how long it's been on its side, or over the tape)
@@ -253,6 +254,11 @@ func _ready() -> void:
 	toon.set_shader_parameter("ground_noise", load("res://assets/tex/ground_noise.png"))
 	toon.set_shader_parameter("ground_detail", 1.0)
 	toon.set_shader_parameter("palette", PAL.make_texture())
+	# car paint: the same toon material with a clear coat (gloss): every car's body, the traffic too
+	car_paint = toon.duplicate()
+	car_paint.set_shader_parameter("gloss", 1.0)
+	car_paint.set_shader_parameter("ground_detail", 0.0)
+	Car.paint_mat = car_paint
 	cam = Camera3D.new()
 	cam.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # follows the car every frame
 	cam.fov = 64.0
@@ -309,6 +315,7 @@ func _build_world() -> void:
 	fx.setup(toon)
 	fx.ground = func(x: float, z: float) -> float: return island.height_at(x, z)
 	atmos.add_material(fx.smoke_mat)
+	atmos.add_material(car_paint)
 	ragdolls = Ragdoll.new()
 	ragdolls.name = "Ragdolls"
 	add_child(ragdolls)

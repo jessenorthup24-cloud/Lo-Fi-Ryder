@@ -303,25 +303,137 @@ func _run() -> void:
 			note("over the rock: front axle tilted up to %.1f deg" % tmax)
 			check(tmax > 5.0, "the solid axle articulates over a rock (%.1f deg)" % tmax)
 			rock.queue_free()
+		"canyondrive":
+			game.args["drive"] = true
+			game.start_drive()
+			game.save.data["settings"]["weather"] = false
+			await wait(1.5)
+			var c = game.car
+			var way := [Vector2(-318, -140), Vector2(-323, -160), Vector2(-332, -215), Vector2(-345, -262), Vector2(-356, -290), Vector2(-365, -300)]
+			var d0: Vector2 = (way[1] - way[0]).normalized()
+			c.place(game.on_ground(Transform3D(Basis(Vector3.UP, atan2(-d0.x, -d0.y)), Vector3(way[0].x, 5.0, way[0].y))))
+			await wait(1.0)
+			var wi := 1
+			var t := 0.0
+			var lowv := 0.0
+			while wi < way.size() and t < 90.0:
+				await get_tree().physics_frame
+				t += 1.0 / 60.0
+				var p: Vector3 = c.global_position
+				var to: Vector2 = way[wi] - Vector2(p.x, p.z)
+				if to.length() < 6.0:
+					wi += 1
+					continue
+				var fwd: Vector3 = -c.global_transform.basis.z
+				var ang := atan2(Vector2(fwd.x, fwd.z).normalized().cross(to.normalized()), Vector2(fwd.x, fwd.z).normalized().dot(to.normalized()))
+				_hold_steer(clampf(ang * 2.0, -1.0, 1.0))
+				game.held["gas"] = c.speed < 12.0
+				lowv = lowv + 1.0 / 60.0 if c.speed < 1.0 else 0.0
+				if int(t * 60.0) % 60 == 0:
+					print("DRIVE t=%.0f pos=%s y=%.1f ground=%.1f v=%.1f next=%d surf=%d" % [t, str(Vector2(p.x, p.z).round()), p.y, game.island.height_at(p.x, p.z), c.speed, wi, game.island.surface_at(p.x, p.z)])
+				if lowv > 6.0:
+					print("DRIVE STUCK at %s" % str(Vector2(p.x, p.z).round()))
+					break
+				if game.args.has("snap") and wi >= 4 and not has_meta("snap_in"):
+					set_meta("snap_in", true)
+					await snap("canyon_way_in")
+			game.held["gas"] = false
+			game.wheel_idx = -1
+			print("DRIVE reached %d of %d waypoints in %.0f s" % [wi, way.size(), t])
+			if game.args.has("snap"):
+				await wait(1.5)
+				await snap("canyon_car_park")
+		"roadcheck":
+			var isl = game.island
+			var ci := -1
+			for i in isl.roads.size():
+				if String(isl.roads[i]["name"]) == "Canyon Road":
+					ci = i
+			print("ROADCHECK canyon road index %d" % ci)
+			for nd in isl.nodes:
+				for m in nd["members"]:
+					if int(m[0]) == ci:
+						var names := []
+						for m2 in nd["members"]:
+							names.append(String(isl.roads[int(m2[0])]["name"]))
+						print("ROADCHECK node with: %s" % ", ".join(names))
+			var way: PackedVector3Array = game.router.find(Vector3(-300, 0, -120), Vector3(-365, 0, -296))
+			var on_canyon := 0
+			for q in way:
+				var nr: Array = game.router.nearest_near(Vector2(q.x, q.z), 4.0)
+				if int(nr[0]) == ci:
+					on_canyon += 1
+			print("ROADCHECK route %d points, %d on the Canyon Road, ends %s" % [way.size(), on_canyon, str(way[way.size() - 1].round()) if way.size() > 0 else "-"])
+		"probe":
+			# what's solid along the Canyon Road (and either side of it)
+			var isl = game.island
+			var space: PhysicsDirectSpaceState3D = game.get_world_3d().direct_space_state
+			var pts := [Vector2(-323, -160), Vector2(-332, -215), Vector2(-345, -262), Vector2(-356, -290)]
+			var seen := {}
+			for i in pts.size() - 1:
+				for k in 80:
+					var q: Vector2 = pts[i].lerp(pts[i + 1], k / 80.0)
+					for off in [-3.0, 0.0, 3.0]:
+						var d: Vector2 = (pts[i + 1] - pts[i]).normalized()
+						var qq: Vector2 = q + Vector2(-d.y, d.x) * off
+						var h: float = isl.height_at(qq.x, qq.y)
+						var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(Vector3(qq.x, h + 30.0, qq.y), Vector3(qq.x, h - 1.0, qq.y)))
+						if not hit.is_empty() and hit.get("collider") != isl.body:
+							var col: Object = hit.get("collider")
+							var nm := ("%s/%s" % [col.get_parent().name if col.get_parent() else "", col.name]) if col != null else ("server body %s" % str(hit.get("rid")))
+							if not seen.has(nm):
+								seen[nm] = true
+								print("PROBE %s at %s y %.1f (ground %.1f) surf %d" % [nm, str(qq.round()), (hit["position"] as Vector3).y, h, isl.surface_at(qq.x, qq.y)])
+			print("PROBE done")
+		"shine":
+			game.args["drive"] = true
+			game.start_drive()
+			game.save.data["settings"]["weather"] = false
+			game.weather.set_now("clear")
+			await wait(1.5)
+			for hr in [13.5, 18.6]:
+				game.atmos.hour = hr
+				game.car.place(game.on_ground(Transform3D(Basis(Vector3.UP, 0.6), Vector3(345, 1.0, 372))))
+				game.toggle_cam() if false else null
+				await wait(3.0)
+				await snap("car_%d" % int(hr))
+			# on foot with the SMG: the casings
+			game.atmos.hour = 13.0
+			game.save.data["guns"] = ["pistol", "smg", "rifle", "shotgun"]
+			game.toggle_foot()
+			await wait(1.0)
+			game.gunplay.select("smg")
+			await wait(0.5)
+			game.gunplay.ammo["smg"] = 30
+			game.held["fire"] = true
+			await wait(0.45)
+			await snap("casings")
+			game.held["fire"] = false
 		"canyonmap":
 			var isl = game.island
 			var Cy = preload("res://scripts/game/crawl_canyon.gd")
 			var space: PhysicsDirectSpaceState3D = game.get_world_3d().direct_space_state
-			var S := 2.0          # px per metre
-			var half := 150.0
+			var S := float(game.args.get("px", "2.0"))          # px per metre
+			var half := float(game.args.get("half", "150"))
+			var mc := Vector2(float(game.args.get("mx", str(Cy.C.x))), float(game.args.get("mz", str(Cy.C.y))))
 			var n := int(half * 2.0 * S)
 			var img := Image.create(n, n, false, Image.FORMAT_RGB8)
 			var hmax := 0.0
 			for py in n:
 				for px in n:
-					var x: float = Cy.C.x - half + px / S
-					var z: float = Cy.C.y - half + py / S
+					var x: float = mc.x - half + px / S
+					var z: float = mc.y - half + py / S
 					var h: float = isl.height_at(x, z)
 					hmax = maxf(hmax, h)
 					var sl := Vector2(isl.height_at(x + 0.5, z) - isl.height_at(x - 0.5, z), isl.height_at(x, z + 0.5) - isl.height_at(x, z - 0.5)).length()
 					var col := Color(0.1, 0.2, 0.45) if h < 0.0 else Color(0.55, 0.42, 0.3).lerp(Color(0.95, 0.9, 0.8), clampf(h / 24.0, 0.0, 1.0))
 					if isl.surface_at(x, z) == 4 and h > 0.0:
 						col = col.lerp(Color(0.95, 0.85, 0.4), 0.5)
+					var sf: int = isl.surface_at(x, z)
+					if sf == 1 or sf == 2:
+						col = Color(0.25, 0.25, 0.28)
+					elif game.args.has("roads") and sf == 3 and Cy.inland(x, z) < 0.0:
+						col = Color(0.45, 0.3, 0.15)
 					if sl > 0.6:
 						col = col.lerp(Color(0.9, 0.15, 0.1), clampf((sl - 0.6) / 0.3, 0.0, 1.0))
 					if int(px) % 4 == 0 and int(py) % 4 == 0 and h > 0.5:
@@ -338,8 +450,8 @@ func _run() -> void:
 					var b: Vector3 = (gs[i + 1] as Transform3D).origin
 					for k in 60:
 						var q := a.lerp(b, k / 60.0)
-						var ix := int((q.x - Cy.C.x + half) * S)
-						var iy := int((q.z - Cy.C.y + half) * S)
+						var ix := int((q.x - mc.x + half) * S)
+						var iy := int((q.z - mc.y + half) * S)
 						if ix >= 0 and iy >= 0 and ix < n and iy < n:
 							img.set_pixel(ix, iy, Color.WHITE)
 			img.save_png("/tmp/canyon_map.png")

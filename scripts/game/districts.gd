@@ -1444,6 +1444,9 @@ static func scatter(I) -> void:
 			var h: float = I.height_at(x, z)
 			if h < 1.0 or I.is_blocked(x, z):
 				continue
+			# Red Rock Canyon: a rocky place, a tree here and there, none on the trails, the car park or the way in
+			if CrawlCanyon.inland(x, z) > -6.0 and (roll > 0.12 or CrawlCanyon.keep_clear(x, z)):
+				continue
 			var s: int = I.surface_at(x, z)
 			var fd := Vector2(x, z).distance_to(LAKE)
 			var cd := Vector2(x, z).distance_to(CASTLE)

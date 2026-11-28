@@ -14,6 +14,7 @@ var live_skids: Array = []
 var live_bits: Array = []
 var chunks: Pool
 var sparks: Pool
+var casings: Pool             # spent brass from the guns: little cylinders, tumbling out and bouncing
 var flames: Pool
 var live_chunks: Array = []
 var live_sparks: Array = []
@@ -58,6 +59,12 @@ func setup(mat: ShaderMaterial) -> void:
 	sparks = Pool.new()
 	sparks.setup(sb.commit(), 200, mat, false, false)
 	add_child(sparks)
+	# a spent case: 3 cm long, 1.1 cm across, lying along x (guns scale it: a pistol's is smaller, a rifle's longer)
+	var cs := MB.new()
+	cs.cyl(Vector3.ZERO, 0.0055, 0.03, MB.rgb("ffffff"), 8, Basis(Vector3(0, 0, 1), PI * 0.5))
+	casings = Pool.new()
+	casings.setup(cs.commit(), 90, mat, false, false)
+	add_child(casings)
 	# a blot: a smooth, slightly lumpy pool (soft bulges, no points: blood runs, it doesn't spike), flat
 	var bm := MB.new()
 	var segs := 28
@@ -83,6 +90,7 @@ func setup(mat: ShaderMaterial) -> void:
 
 func clear() -> void:
 	puffs.clear_all(); skids.clear_all(); bits.clear_all(); chunks.clear_all(); sparks.clear_all(); flames.clear_all(); splats.clear_all()
+	casings.clear_all()
 	live_puffs.clear(); live_skids.clear(); live_bits.clear(); live_chunks.clear(); live_sparks.clear(); live_flames.clear()
 	live_splats.clear(); live_drops.clear()
 
@@ -119,7 +127,7 @@ func burst(p: Vector3, cols: Array, n := 10, speed := 4.0, up := 4.0, life := 1.
 			"t": 0.0, "life": life * randf_range(0.7, 1.2), "g": 9.0})
 
 ## Sparks off a scrape or a knock: hot streaks flying out along n (and every which way), falling fast.
-func spark_burst(p: Vector3, n: Vector3, count := 12, speed := 7.0) -> void:
+func spark_burst(p: Vector3, n: Vector3, count := 12, speed := 7.0, size := 1.0) -> void:
 	for i in count:
 		var s := sparks.alloc()
 		if s < 0:
@@ -128,7 +136,7 @@ func spark_burst(p: Vector3, n: Vector3, count := 12, speed := 7.0) -> void:
 		# (alpha in the shader's glow band: they shine)
 		sparks.multimesh.set_instance_color(s, Color(1.0, lerpf(0.55, 0.95, hot), lerpf(0.15, 0.7, hot), 0.55))
 		var dir := (n * randf_range(0.3, 1.0) + Vector3(randf_range(-1, 1), randf_range(0.1, 1.0), randf_range(-1, 1)).normalized() * 0.9).normalized()
-		live_sparks.append({"s": s, "p": p, "v": dir * speed * randf_range(0.5, 1.3), "t": 0.0, "life": randf_range(0.22, 0.5)})
+		live_sparks.append({"s": s, "p": p, "v": dir * speed * randf_range(0.5, 1.3), "t": 0.0, "life": randf_range(0.22, 0.5) * lerpf(0.4, 1.0, size), "sz": size})
 
 ## Bits of bodywork knocked off: they fly out along n, tumble, bounce and skid along the ground, lie there a
 ## few seconds and go. cols: the colours to pick from (the paint, black trim, chrome).
@@ -142,6 +150,18 @@ func debris(p: Vector3, n: Vector3, cols: Array, count := 6, speed := 5.0, size 
 		live_chunks.append({"s": s, "p": p + Vector3(randf_range(-0.3, 0.3), randf_range(0.0, 0.4), randf_range(-0.3, 0.3)), "v": v,
 			"r": Vector3(randf() * TAU, randf() * TAU, randf() * TAU), "rv": Vector3(randf_range(-14, 14), randf_range(-10, 10), randf_range(-14, 14)),
 			"t": 0.0, "life": randf_range(5.0, 7.5), "sz": size * randf_range(0.6, 1.35), "rest": false})
+
+## A spent case thrown out of a gun's ejection port: off to the right and up, spinning, bouncing on the ground
+## with a tink, lying there a few seconds. size: 1 a rifle round's, smaller for a pistol's; col: brass (or a
+## shotgun's red shell).
+func casing(p: Vector3, v: Vector3, size := 1.0, col := Color(0.86, 0.66, 0.28)) -> void:
+	var s := casings.alloc()
+	if s < 0:
+		return
+	casings.multimesh.set_instance_color(s, col)
+	live_chunks.append({"s": s, "pool": casings, "p": p, "v": v, "r": Vector3(randf() * TAU, randf() * TAU, randf() * TAU),
+		"rv": Vector3(randf_range(-30, 30), randf_range(-20, 20), randf_range(-30, 30)), "t": 0.0, "life": randf_range(4.0, 6.0),
+		"sz": size, "rest": false, "small": true})
 
 ## A windscreen going: little glinting bits of glass.
 func glass(p: Vector3, n: Vector3, count := 14) -> void:
@@ -253,16 +273,18 @@ func _crash_tick(dt: float) -> void:
 		q["p"] += q["v"] * dt
 		var v: Vector3 = q["v"]
 		var k: float = 1.0 - float(q["t"]) / float(q["life"])
-		var len := clampf(v.length() * 0.07, 0.5, 2.2) * k
+		var sz: float = float(q.get("sz", 1.0))
+		var len := clampf(v.length() * 0.07, 0.5, 2.2) * k * sz
 		var b := Basis.looking_at(v.normalized() if v.length() > 0.01 else Vector3.FORWARD, Vector3.UP if absf(v.normalized().y) < 0.98 else Vector3.RIGHT)
-		sparks.put(q["s"], Transform3D(b.scaled(Vector3(k, k, len)), q["p"]))
+		sparks.put(q["s"], Transform3D(b.scaled(Vector3(k * sz, k * sz, len)), q["p"]))
 	for q in done:
 		live_sparks.erase(q)
 	done.clear()
 	for q in live_chunks:
 		q["t"] += dt
+		var pool: Pool = q.get("pool", chunks)
 		if q["t"] >= q["life"]:
-			chunks.release(q["s"])
+			pool.release(q["s"])
 			done.append(q)
 			continue
 		var p: Vector3 = q["p"]
@@ -272,8 +294,8 @@ func _crash_tick(dt: float) -> void:
 			v.y -= 9.8 * dt
 			p += v * dt
 			q["r"] += q["rv"] * dt
-			if p.y < gy:
-				p.y = gy
+			if p.y < gy - (0.025 if q.get("small", false) else 0.0):
+				p.y = gy - (0.025 if q.get("small", false) else 0.0)
 				if v.y < -1.2:
 					# a bounce: up a bit, skidding on, spinning less
 					v = Vector3(v.x * 0.55, -v.y * 0.32, v.z * 0.55)
@@ -295,7 +317,7 @@ func _crash_tick(dt: float) -> void:
 			r.z = lerp_angle(r.z, round(r.z / PI) * PI, minf(dt * 8.0, 1.0))
 			q["r"] = r
 		var k := 1.0 - smoothstep(float(q["life"]) - 0.8, float(q["life"]), float(q["t"]))
-		chunks.put(q["s"], Transform3D(Basis.from_euler(q["r"]).scaled(Vector3.ONE * float(q["sz"]) * maxf(k, 0.001)), q["p"]))
+		pool.put(q["s"], Transform3D(Basis.from_euler(q["r"]).scaled(Vector3.ONE * float(q["sz"]) * maxf(k, 0.001)), q["p"]))
 	for q in done:
 		live_chunks.erase(q)
 	done.clear()

@@ -298,6 +298,10 @@ func _apply() -> void:
 	for m in mats:
 		m.set_shader_parameter("night", night)
 		m.set_shader_parameter("rim_color", (k[1] as Color).lerp(Color.WHITE, 0.3))
+		# (what the car paint reflects: this sky, and the road under it)
+		m.set_shader_parameter("refl_sky", sky_mat.sky_top_color)
+		m.set_shader_parameter("refl_horizon", sky_mat.sky_horizon_color)
+		m.set_shader_parameter("refl_ground", Color(0.16, 0.15, 0.14).lerp(Color(0.03, 0.03, 0.04), night))
 	if sea:
 		sea.set_shader_parameter("night", night)
 

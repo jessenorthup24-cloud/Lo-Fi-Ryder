@@ -5,6 +5,7 @@ extends Node3D
 ## on traffic lights. They keep their distance, don't pull into a junction they can't get out of, stop
 ## for you, and U-turn at dead ends. Cars that wander far from you reappear nearer by, out of sight.
 
+const DriftCar := preload("res://scripts/game/drift_car.gd")
 const FAR := 280.0             # traffic further away than this isn't drawn
 const M := preload("res://scripts/core/models.gd")
 const MB := preload("res://scripts/core/mesh_builder.gd")
@@ -62,7 +63,7 @@ func setup(isl: Node, material: Material) -> void:
 		var nm: String = MODELS[i % MODELS.size()]
 		var mi := MeshInstance3D.new()
 		mi.mesh = M.get_mesh(nm)
-		mi.material_override = mat
+		mi.material_override = DriftCar.paint_mat if DriftCar.paint_mat != null else mat     # (shiny paint, like every car)
 		# (not drawn from right across the island: a car 300 m off is a few pixels, and each is a draw)
 		mi.visibility_range_end = FAR
 		mi.visibility_range_end_margin = 20.0

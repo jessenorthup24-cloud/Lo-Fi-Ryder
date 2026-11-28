@@ -119,6 +119,7 @@ var hop_cd := 0.0
 var _hb_down := 0.0
 var _hb_prev := false
 var _hop_t := -1.0           # in a hop: time since it left (gravity's heavier, for a snappy hop)
+static var paint_mat: Material = null   # the car paint: the toon look with a clear coat (main.gd makes it)
 static var wet_k := 1.0      # the weather: wet roads, a little less grip for everyone (weather.gd sets it)
 var nitro := 0.0             # nitrous going (0..1; main sets it while there's some in the bottle)
 var hold := false            # waiting on a start line: sitting on its wheels with the brake on (not frozen in the air)
@@ -169,7 +170,7 @@ func setup(def: Dictionary, mat: Material, isl: Node, paint := 0) -> void:
 	bent = 0.0
 	roll_t = 0.0
 	_righting = {}
-	body_node.material_override = mat
+	body_node.material_override = paint_mat if paint_mat != null else mat     # (the shiny clear coat)
 	body_node.name = "Body"
 	add_child(body_node)
 	var spots: Array = info["wheels"]

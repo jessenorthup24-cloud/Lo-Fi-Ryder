@@ -15,6 +15,12 @@ uniform float rim_strength = 0.22;
 uniform float shade_soft = 0.05;
 uniform float flash = 0.0;           // white flash (e.g. pickups)
 uniform vec3 rim_color : source_color = vec3(0.75, 0.85, 1.0);   // sky light catching the edges
+// car paint (gloss > 0: the car_paint material only): a clear coat that reflects the sky, brightest at a
+// glancing angle (fresnel), a light line where the horizon reflects, and a crisp toon highlight from the sun
+uniform float gloss = 0.0;
+uniform vec3 refl_sky : source_color = vec3(0.45, 0.62, 0.9);
+uniform vec3 refl_horizon : source_color = vec3(0.85, 0.88, 0.92);
+uniform vec3 refl_ground : source_color = vec3(0.16, 0.15, 0.14);
 uniform float depth_bias = 0.0;        // roads and lots: drawn a hair toward the camera so they never flicker (fraction of distance)
 // after dark, lights near the camera light things up: street lamps (warm) and your headlights (cool). xyz: where,
 // w: reach in metres (negative: a headlight), 0: none
@@ -159,6 +165,17 @@ void fragment() {
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
 	EMISSION = mix(col, rim_color, 0.55) * rim * rim_strength * 1.5 + col * v_glow * night * 1.4 + col * v_glow * 0.25
 		+ vec3(1.0, 0.78, 0.42) * v_win * night * 1.2 + vec3(flash);
+	if (gloss > 0.0 && v_glow < 0.5) {
+		// the world reflected in the paint: sky above, a bright band at the horizon, the road below
+		vec3 rv = normalize((INV_VIEW_MATRIX * vec4(reflect(-VIEW, NORMAL), 0.0)).xyz);
+		vec3 env = mix(refl_ground, refl_horizon, smoothstep(-0.25, 0.0, rv.y));
+		env = mix(env, refl_sky, smoothstep(0.02, 0.5, rv.y));
+		env += refl_horizon * exp(-pow(rv.y / 0.045, 2.0)) * 0.55;
+		float fres = 0.05 + 0.95 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
+		// (darker paint shows the reflection more, as it does: a black car's a mirror, a white one's mostly white)
+		float lum = dot(col, vec3(0.3, 0.55, 0.15));
+		EMISSION += env * fres * gloss * mix(0.85, 0.4, clamp(lum * 1.6, 0.0, 1.0)) * (1.0 - night * 0.75);
+	}
 	if (night > 0.02) {
 		vec3 lit = vec3(0.0);
 		for (int i = 0; i < 16; i++) {
@@ -203,4 +220,11 @@ void light() {
 	float sh = ATTENUATION;
 	float l = band * sh;
 	DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * l / PI;
+	if (gloss > 0.0) {
+		// the sun on the clear coat: a small, hard-edged highlight (toon), and a soft sheen round it
+		vec3 hv = normalize(LIGHT + VIEW);
+		float nh = clamp(dot(NORMAL, hv), 0.0, 1.0);
+		float hot = smoothstep(0.965, 0.975, nh) * 0.9 + pow(nh, 40.0) * 0.18;
+		DIFFUSE_LIGHT += LIGHT_COLOR * hot * gloss * sh * step(0.0, ndl);
+	}
 }

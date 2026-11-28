@@ -397,7 +397,7 @@ func _ray(from: Vector3, d: Vector3, rng: float, dmg: float, you: Node3D, muzzle
 		var ht := (hc - from).dot(d)
 		if ht > 0.0 and ht < rng and ht <= from.distance_to(end) + 4.0 and (from + d * ht).distance_to(hc) < 4.5:
 			_tracer(muzzle, from + d * ht)
-			game.fx.spark_burst(from + d * ht, -d, 6, 6.0)
+			game.fx.spark_burst(from + d * ht, -d, 6, 6.0, 0.4)
 			var down: bool = hl.hit(dmg)
 			if down:
 				game.ui.popup_text("Helicopter down!")
@@ -418,7 +418,7 @@ func _ray(from: Vector3, d: Vector3, rng: float, dmg: float, you: Node3D, muzzle
 			return _hit_officer(o, dmg, d, hp_)
 	var car_node := _car_of(col)
 	if car_node != null:
-		game.fx.spark_burst(hp_, nrm, 8, 5.0)
+		game.fx.spark_burst(hp_, nrm, 8, 5.0, 0.4)
 		game.sfx("bullet_metal", -10.0, randf_range(0.9, 1.15))
 		_hole(hp_, nrm, col as Node3D)
 		_damage_car(car_node, dmg)
@@ -427,7 +427,7 @@ func _ray(from: Vector3, d: Vector3, rng: float, dmg: float, you: Node3D, muzzle
 		return 1
 	# the world: a puff of dust, a chip, a hole
 	game.fx.puff(hp_, Color(0.78, 0.76, 0.7), 0.22, nrm * 0.9, 0.5, 0.3)
-	game.fx.spark_burst(hp_, nrm, 3, 2.5)
+	game.fx.spark_burst(hp_, nrm, 3, 2.5, 0.35)
 	_hole(hp_, nrm, null)
 	if randf() < 0.2:
 		game.sfx("ricochet", -14.0, randf_range(0.9, 1.2))
@@ -454,7 +454,16 @@ func _hole(p: Vector3, n: Vector3, on: Node3D) -> void:
 func _muzzle_flash(p: Vector3, d: Vector3) -> void:
 	for k in 2:
 		game.fx.puff(p + d * (0.1 + k * 0.12), Color(1.0, 0.85, 0.45) if k == 0 else Color(1.0, 0.6, 0.25), 0.16 - k * 0.04, d * 2.0, 0.07, 0.0)
-	game.fx.spark_burst(p, d, 3, 6.0)
+	game.fx.spark_burst(p, d, 3, 6.0, 0.18)       # (a few tiny sparks from the muzzle, not a crash's worth)
+	# the spent case, out of the ejection port on the right, a hand's length back from the muzzle
+	var gid := String(weapon.get("id", ""))
+	var right := d.cross(Vector3.UP).normalized()
+	if right.length() < 0.1:
+		right = Vector3.RIGHT
+	var sz: float = {"pistol": 0.7, "smg": 0.7, "rifle": 1.45, "lmg": 1.45, "sniper": 1.9, "shotgun": 2.0}.get(gid, 1.0)
+	var col := Color(0.72, 0.12, 0.1) if gid == "shotgun" else Color(0.86, 0.66, 0.28)
+	game.fx.casing(p - d * 0.32 + right * 0.04, right * randf_range(2.2, 3.4) + Vector3.UP * randf_range(1.6, 2.6) - d * randf_range(0.2, 0.8),
+		sz, col)
 
 ## A tracer: a thin bright streak along the shot, gone in a blink.
 func _tracer(a: Vector3, b: Vector3) -> void:
@@ -931,7 +940,7 @@ func _officers_tick(dt: float, you: CharacterBody3D) -> void:
 			var aim := (yp if ally.is_empty() else (ally["node"] as Node3D).global_position) + Vector3(0, 1.0, 0)
 			var ato := aim - from
 			game.sfx("shot_pistol", clampf(-4.0 - d * 0.25, -14.0, -4.0), randf_range(0.9, 1.0))
-			game.fx.spark_burst(from + ato.normalized() * 0.6, ato.normalized(), 3, 5.0)
+			game.fx.spark_burst(from + ato.normalized() * 0.6, ato.normalized(), 3, 5.0, 0.18)
 			if _clear(from, aim):
 				var moving := Vector3(you.velocity.x, 0, you.velocity.z).length() > 4.0 and ally.is_empty()
 				var dd := d if ally.is_empty() else ad
