@@ -132,6 +132,7 @@ var trial_pts := 0.0
 var markers := []          # {kind, id, pos, node, label}
 var gate_nodes: Array = []
 var coin_pool: Pool
+var radio: Node
 var coins_live: Array = []
 # the rest
 var place_now := ""
@@ -229,6 +230,7 @@ const KIND_INFO := {"zone": ["DRIFT ZONE", "ff8a5c"], "time": ["TIME TRIAL", "5c
 	"race": ["STREET RACE", "ff5c7a"], "crawl": ["ROCK CRAWL", "d98a3a"]}
 const CrawlPark := preload("res://scripts/game/crawl_park.gd")
 const Warmup := preload("res://scripts/game/warmup.gd")
+const Radio := preload("res://scripts/game/radio.gd")
 const CrawlCanyon := preload("res://scripts/game/crawl_canyon.gd")
 
 ## A trial against the clock (a time trial or a rock crawl), rather than for drift points.
@@ -606,7 +608,11 @@ func _build_world() -> void:
 	if save.data.get("migrated", false):
 		save.data.erase("migrated")
 		get_tree().create_timer(1.5).timeout.connect(func(): ui.toast("Welcome to the island! Your old upgrades were refunded as cash.", "coin", K.SUN))
-	sound.start_music()
+	radio = Radio.new()
+	radio.name = "Radio"
+	add_child(radio)
+	radio.setup(self)
+	radio.start()
 	get_tree().create_timer(2.0).timeout.connect(ach_check)
 	if args.has("play"):
 		# testing: a scripted player (tools/test/playthrough.gd)
@@ -1086,6 +1092,9 @@ func _process(dt: float) -> void:
 		return
 	dt = minf(dt, 0.05)
 	time += dt
+	if radio:
+		radio.on_foot = on_foot
+		radio.tick(dt)
 	atmos.tick(dt); _hm("atmos")
 	if weather and state != LOADING:
 		weather.tick(dt, cam); _hm("weather")

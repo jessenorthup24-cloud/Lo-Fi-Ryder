@@ -478,6 +478,53 @@ func _run() -> void:
 			game.car.place(game.on_ground(Transform3D(Basis.looking_at(-af), (a["pos"] as Vector3) + af * 9.0 + Vector3(0, 0.6, 0))))
 			await wait(3.0)
 			await snap("atm")
+		"radio":
+			# the radio: stations on a dial, each live (mid-song), the dial goes round to off and back
+			game.args["drive"] = true
+			game.start_drive()
+			await wait(1.0)
+			var rd = game.radio
+			check(rd != null, "there's a radio")
+			var stations: Array = rd.dial.filter(func(x): return x != rd.OFF)
+			print("RADIO dial: ", rd.dial, " songs: ", stations.map(func(s): return (rd.lists[s] as Array).size()))
+			check(stations.size() >= 1, "stations on the dial (%d)" % stations.size())
+			check(rd.dial.back() == rd.OFF, "and off, at the end")
+			var played := 0
+			for i in rd.dial.size():
+				rd.next()
+				await wait(1.3)
+				if i == 1:
+					await snap("card")
+				if rd.cur == rd.OFF:
+					check(not rd.player.playing, "off is quiet")
+					check(rd.card.visible and rd._c_title.text == "Off", "the card says off")
+				else:
+					var s: Dictionary = rd.station(rd.cur)
+					if rd.player.playing and rd.player.stream != null:
+						played += 1
+					else:
+						print("RADIO not playing on ", rd.cur)
+					check(rd._c_top.text.contains(String(s["name"]).to_upper()), "%s: the card names it" % s["name"])
+			check(played == stations.size(), "every station plays (%d of %d)" % [played, stations.size()])
+			check(String(game.save.data["settings"]["radio"]) == rd.cur, "the station's remembered")
+			# live: a station has carried on without you
+			var st0: String = stations[0]
+			var a: Array = rd._live(st0)
+			await wait(2.0)
+			var b: Array = rd._live(st0)
+			check(int(a[0]) != int(b[0]) or float(b[1]) > float(a[1]), "a station plays on whether you listen or not")
+			# a song ending: the next one on
+			rd.tune(st0, true)
+			await wait(0.3)
+			var i0: int = rd._idx
+			rd._song_done()
+			check(rd._idx == (i0 + 1) % (rd.lists[st0] as Array).size(), "the next song when one ends")
+			# out of the car: quieter
+			var v_in: float = rd.player.volume_db
+			game.toggle_foot()
+			await wait(2.0)
+			check(rd.player.volume_db < v_in - 4.0, "quieter out of the car (%.1f to %.1f dB)" % [v_in, rd.player.volume_db])
+			check(rd._idents.size() > 0 and (rd._idents.values()[0] as AudioStreamWAV).data.size() > 1000, "each station has its ident")
 		"carsnap":
 			# a car (--car=id) in daylight and at night, from the side, the front and the back
 			game.args["drive"] = true

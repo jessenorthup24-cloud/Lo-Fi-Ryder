@@ -98,21 +98,22 @@ def main():
             log(out, "   %6.1fs  %s" % (dur, os.path.basename(f)))
             if wanted and not any(w in bare(f).lower() for w in wanted):
                 continue
-            if picked >= int(s.get("max", 3)) or not (MIN_S <= dur <= MAX_S):
+            if picked >= int(s.get("max", 3)) or not (float(s.get("min_s", MIN_S)) <= dur <= float(s.get("max_s", MAX_S))):
                 continue
             title = s.get("title") if len(files) == 1 and s.get("title") else nice_title(f)
             name = "%s_%s.ogg" % (slug(s["artist"]), slug(title))
             dst = os.path.join(out, "tracks", name)
             enc = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", f, "-vn",
                                   "-af", "loudnorm=I=-17:TP=-1.5:LRA=11,afade=t=in:d=0.8",
-                                  "-ac", "2", "-ar", "44100", "-c:a", "libvorbis", "-q:a", "1.5", dst],
+                                  "-ac", "2", "-ar", "44100", "-c:a", "libvorbis", "-q:a", str(s.get("q", 1.5)), dst],
                                  capture_output=True, text=True)
             if enc.returncode != 0:
                 log(out, "   encode failed: %s" % enc.stderr[:300])
                 continue
             picked += 1
             tracks.append({"file": name, "title": title, "artist": s["artist"], "album": s.get("album", ""),
-                           "license": s["license"], "page": s.get("page", url), "seconds": round(dur, 1)})
+                           "license": s["license"], "page": s.get("page", url), "seconds": round(dur, 1),
+                           "station": s.get("station", "lofi")})
             log(out, "   + %s (%.1f MB)" % (name, os.path.getsize(dst) / 1048576.0))
     json.dump({"tracks": tracks}, open(os.path.join(out, "tracks.json"), "w"), indent=1)
     total = sum(os.path.getsize(os.path.join(out, "tracks", t["file"])) for t in tracks)

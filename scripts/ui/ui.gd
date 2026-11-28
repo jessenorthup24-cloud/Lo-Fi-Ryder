@@ -473,6 +473,12 @@ func _build_hud() -> void:
 	camb.position = Vector2(-300, 170)
 	_tap(camb, func(): game.toggle_cam())
 	hud.add_child(camb)
+	# the radio: tap for the next station (and off, after the last)
+	var radb := K.round_button("music", K.PAPER, K.LINE, 64)
+	radb.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	radb.position = Vector2(-376, 170)
+	_tap(radb, func(): if game.radio: game.radio.next())
+	hud.add_child(radb)
 	# the phone: call the drivers you know
 	phone_btn = K.round_button("phone", K.PAPER, K.LINE, 64)
 	K.set_art(phone_btn, "phone")
