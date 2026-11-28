@@ -261,7 +261,7 @@ func _corner_normals(vv: PackedVector3Array, tri: PackedInt32Array) -> PackedVec
 			(by_v[pk] as PackedInt32Array).append(q / 3)
 	var out := PackedVector3Array()
 	out.resize(tri.size())
-	var lim := cos(deg_to_rad(SMOOTH))
+	var lim := cos(deg_to_rad(float(OS.get_environment("SMOOTH")) if OS.get_environment("SMOOTH") != "" else SMOOTH))
 	for q in range(0, tri.size(), 3):
 		var f: Vector3 = fn[q / 3]
 		for e in 3:
@@ -334,6 +334,8 @@ func _bake(parts: Array, lamps: bool, centred := false) -> ArrayMesh:
 				vv.append(xf * src[k])
 			var uu = a[Mesh.ARRAY_TEX_UV]
 			var ii = a[Mesh.ARRAY_INDEX]
+			# VCOL=1: the part's own vertex colours (a texture already sampled into them: the Meshy cars)
+			var vc = a[Mesh.ARRAY_COLOR] if OS.get_environment("VCOL") != "" and not glow else null
 			var tri := PackedInt32Array()
 			if ii == null or (ii as PackedInt32Array).is_empty():
 				for k in vv.size():
@@ -357,6 +359,8 @@ func _bake(parts: Array, lamps: bool, centred := false) -> ArrayMesh:
 						verts.append(vv[vi])
 						norms.append(n)
 						var c := base_col
+						if vc != null and (vc as PackedColorArray).size() > vi:
+							c = base_col * (vc as PackedColorArray)[vi]
 						if t and uu != null and (uu as PackedVector2Array).size() > vi:
 							var uv: Vector2 = uu[vi]
 							uv = Vector2(clampf(uv.x, 0.0, 1.0), clampf(uv.y, 0.0, 1.0))

@@ -36,6 +36,9 @@ const LIST := [
 	# legendary: the Mountain Ghost, a panda-coloured hatch with pop-up lights: light, high-revving, balanced in a slide
 	{"id": "ae86", "name": "Mountain Ghost", "price": 50000, "model": "ae86", "legend": true, "power": 1.4, "speed": 1.16, "grip": 1.16, "drift": 1.55, "drifter": true, "engine": "small", "pitch": 1.22},
 	{"id": "hoon", "name": "Haywire", "price": 50000, "model": "hoon", "legend": true, "power": 1.7, "speed": 1.24, "grip": 1.1, "drift": 1.6, "drifter": true, "engine": "v8", "pitch": 0.9},
+	# legendary: the Deplorable, a stainless-steel wedge (its own model, a Meshy one: tools/cars/meshy): the
+	# quickest thing on the island, a grip car, not a drifter
+	{"id": "deplorable", "name": "The Deplorable", "price": 85000, "model": "deplorable", "legend": true, "power": 2.2, "speed": 1.38, "grip": 1.28, "drift": 1.1, "mass": 0.95, "engine": "v8", "pitch": 1.05},
 ]
 
 static func by_id(id: String) -> Dictionary:

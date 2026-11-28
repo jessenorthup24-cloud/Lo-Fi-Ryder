@@ -478,6 +478,28 @@ func _run() -> void:
 			game.car.place(game.on_ground(Transform3D(Basis.looking_at(-af), (a["pos"] as Vector3) + af * 9.0 + Vector3(0, 0.6, 0))))
 			await wait(3.0)
 			await snap("atm")
+		"carsnap":
+			# a car (--car=id) in daylight and at night, from the side, the front and the back
+			game.args["drive"] = true
+			game.start_drive()
+			game.save.data["settings"]["weather"] = false
+			game.weather.set_now("clear")
+			game.save.data["car"] = String(game.args.get("car", "deplorable"))
+			game.car_changed()
+			await wait(1.0)
+			check(not game.car.info.is_empty(), "in the %s" % game.save.data["car"])
+			var at := Vector3(345, 1.0, 372)
+			for hr in [14.0, 21.5]:
+				game.atmos.hour = hr
+				game.car.place(game.on_ground(Transform3D(Basis(Vector3.UP, 0.6), at)))
+				game.car.linear_velocity = Vector3.ZERO
+				for lk in [PI * 0.62, PI, 0.0]:
+					# (looking round at it, as a finger dragging the view would)
+					for i in 40:
+						game.look_yaw_t = lk
+						game.look_t = 0.0
+						await wait(0.05)
+					await snap("%s_%d_%d" % [game.save.data["car"], int(hr), int(lk * 10)])
 		"shine":
 			game.args["drive"] = true
 			game.start_drive()
