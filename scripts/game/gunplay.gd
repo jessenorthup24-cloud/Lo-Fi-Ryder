@@ -248,6 +248,9 @@ func _pose(you: CharacterBody3D, dt: float) -> void:
 ## Where you're aiming: locked on to whoever's nearest the reticle (and in sight), or wherever the reticle's
 ## ray from the camera lands.
 func _find_aim(you: CharacterBody3D) -> void:
+	if game.topdown():
+		_find_aim_td(you)
+		return
 	var cam: Camera3D = game.cam
 	var from := cam.global_position
 	var fwd := -cam.global_transform.basis.z
@@ -286,6 +289,66 @@ func _find_aim(you: CharacterBody3D) -> void:
 	q.exclude = [you.get_rid(), game.car.get_rid()]
 	var h: Dictionary = game.get_world_3d().direct_space_state.intersect_ray(q)
 	aim_point = h["position"] if not h.is_empty() else from + fwd * rng
+
+## The top-down view's aim (twin-stick): the way you drag the fire button, or, a tap, the way you face; the
+## nearest in that direction (a narrow cone when you're steering it, wider for a tap) is who you shoot.
+const TD_LOCK_STEER := 0.5           # (steering it: who's near the line you're dragging)
+const TD_LOCK_TAP := 1.2              # (a tap: whoever's in front of you)
+const TD_TAP_RANGE := 30.0
+const TD_STICKY := 1.6                # (locked on: it stays on them till they're well out of the cone)
+func _find_aim_td(you: CharacterBody3D) -> void:
+	var head := you.global_position + Vector3(0, 0.85 if you.get("crouch") else 1.3, 0)
+	var rng: float = weapon.get("range", 60.0)
+	var steer: bool = (game.td_aim as Vector2).length() > game.TD_AIM_DEAD
+	var dir: Vector3
+	if steer:
+		dir = game.td_dir(game.td_aim)
+		manual_t = 0.35
+	else:
+		var y: float = you.facing
+		dir = Vector3(-sin(y), 0, -cos(y))
+	var prev = lock
+	lock = null
+	lock_pos = Vector3.INF
+	var best := TD_LOCK_STEER if steer else TD_LOCK_TAP
+	var best_score := INF
+	var reach := rng if steer else minf(rng, TD_TAP_RANGE)
+	if aiming:
+		var cands: Array = []
+		for o in officers:
+			if not o["dead"]:
+				cands.append([(o["node"] as Node3D).global_position + Vector3(0, 1.0, 0), o, true])
+		for pr in game.island.people.list:
+			if not pr["gone"] and not pr.get("down", false):
+				cands.append([(pr["pos"] as Vector3) + Vector3(0, 0.85, 0), pr, false])
+		for c in cands:
+			var p: Vector3 = c[0]
+			var to := p - head
+			var dd := to.length()
+			if dd > reach or dd < 0.5:
+				continue
+			var flat := Vector3(to.x, 0, to.z)
+			var ang := dir.angle_to(flat)
+			var held_on: bool = prev != null and c[1] == prev
+			if ang > best * (TD_STICKY if held_on else 1.0):
+				continue
+			# (nearer and more in line wins; officers first: they're the ones shooting back; whoever you're
+			# already on, a good bit first: the lock doesn't flick between two people)
+			var score := (ang + dd / reach * 0.6) * (0.6 if c[2] else 1.0) * (0.45 if held_on else 1.0)
+			if score < best_score and _clear(head, p):
+				best_score = score
+				lock = c[1]
+				lock_pos = p
+	if lock_pos != Vector3.INF:
+		aim_point = lock_pos
+		if lock is Dictionary and (lock as Dictionary).has("pose") and float((lock as Dictionary).get("fear", 0.0)) <= 0.0:
+			game.island.people.scare(lock)
+		return
+	# nobody there: level, out the way you're pointing, to whatever it meets
+	var q := PhysicsRayQueryParameters3D.create(head, head + dir * rng, 1 | 2 | 16 | 256)
+	q.exclude = [you.get_rid(), game.car.get_rid()]
+	var h: Dictionary = game.get_world_3d().direct_space_state.intersect_ray(q)
+	aim_point = h["position"] if not h.is_empty() else head + dir * rng
 
 func _clear(a: Vector3, b: Vector3) -> bool:
 	var q := PhysicsRayQueryParameters3D.create(a, b, 1)
@@ -498,6 +561,7 @@ func _hit_person(pr: Dictionary, d: Vector3, dmg: float, at: Vector3) -> int:
 		_kill_person(pr, d, dmg)
 		return 2
 	game.fx.blood(at, d, 16, 5.5)
+	game.fx.exit_spray(at, d, dmg / 40.0)
 	game.sfx("body_hit_%d" % randi_range(1, 3), -6.0, randf_range(1.0, 1.15))
 	game.island.people.flinch(pr, d)
 	var pav = pr.get("live")
@@ -539,6 +603,7 @@ func _hit_officer(o: Dictionary, dmg: float, d: Vector3, at: Vector3) -> int:
 	o["hit_bone"] = int(hb[0])
 	var n: CharacterBody3D = o["node"]
 	game.fx.blood(at, d, 18 if limb == "head" else 14, 5.5)
+	game.fx.exit_spray(at, d, raw / 40.0 * (1.4 if limb == "head" else 1.0))
 	game.sfx("body_hit_%d" % randi_range(1, 3), -6.0, randf_range(0.95, 1.1))
 	oav.wound(at, d)
 	if limb.ends_with("leg") or limb.ends_with("shin"):

@@ -45,7 +45,7 @@ func setup(mat: ShaderMaterial) -> void:
 	var b := MB.new()
 	b.cbox(Vector3.ZERO, Vector3(0.14, 0.14, 0.03), 0.02, MB.rgb("ffffff"))
 	bits = Pool.new()
-	bits.setup(b.commit(), 160, mat, false, false)
+	bits.setup(b.commit(), 420, mat, false, false)
 	add_child(bits)
 	# crash bits: a bent scrap of panel (painted per instance), sparks (thin glowing streaks), flames
 	var cb := MB.new()
@@ -78,7 +78,7 @@ func setup(mat: ShaderMaterial) -> void:
 		bm.tri(Vector3.ZERO, ring[(i + 1) % segs], ring[i], Vector3.UP, Vector3.UP, Vector3.UP, MB.rgb("ffffff"))
 		bm.tri(Vector3.ZERO, ring[i], ring[(i + 1) % segs], Vector3.UP, Vector3.UP, Vector3.UP, MB.rgb("ffffff"))
 	splats = Pool.new()
-	splats.setup(bm.commit(), 160, marks, false, false)
+	splats.setup(bm.commit(), 320, marks, false, false)
 	add_child(splats)
 	var fm := ShaderMaterial.new()
 	fm.shader = load("res://shaders/flame.gdshader")
@@ -170,8 +170,13 @@ func glass(p: Vector3, n: Vector3, count := 14) -> void:
 ## Blood from a wound at p, the bullet going on along dir: a tight, fast spray out the far side (fine
 ## droplets in a cone), a little back toward the shooter, and a few heavier drops. Some leave a speck where
 ## they land.
+const BLOOD_N := 1.9          # (heavier than life: more of it, faster, bigger drops)
+const BLOOD_V := 1.3
+const BLOOD_SZ := 1.3
 func blood(p: Vector3, dir: Vector3, count := 14, speed := 5.0) -> void:
 	var d := dir.normalized() if dir.length() > 0.01 else Vector3.FORWARD
+	count = int(count * BLOOD_N)
+	speed *= BLOOD_V
 	for i in count:
 		var s := bits.alloc()
 		if s < 0:
@@ -181,7 +186,55 @@ func blood(p: Vector3, dir: Vector3, count := 14, speed := 5.0) -> void:
 		var cone := Vector3(randf_range(-1, 1), randf_range(-0.6, 1), randf_range(-1, 1)) * (0.35 if not back else 0.6)
 		var v := ((-d if back else d) + cone).normalized() * speed * randf_range(0.6, 1.6) * (0.5 if back else 1.0) + Vector3(0, randf_range(0.2, 1.2), 0)
 		live_drops.append({"s": s, "p": p + Vector3(randf_range(-0.04, 0.04), randf_range(-0.04, 0.04), randf_range(-0.04, 0.04)), "v": v,
-			"t": 0.0, "sz": randf_range(0.22, 0.55) if i % 4 != 0 else randf_range(0.55, 0.8)})
+			"t": 0.0, "sz": (randf_range(0.22, 0.55) if i % 4 != 0 else randf_range(0.55, 0.8)) * BLOOD_SZ})
+
+## A bullet's way out: a dense, fast spray going on out the far side, a few metres behind them, and what's
+## there splattered: the wall behind (if there's one close) and the ground beyond. power: the round's weight.
+func exit_spray(p: Vector3, dir: Vector3, power := 1.0) -> void:
+	var d := dir.normalized() if dir.length() > 0.01 else Vector3.FORWARD
+	power = clampf(power, 0.5, 2.2)
+	for i in int(24 * power):
+		var s := bits.alloc()
+		if s < 0:
+			break
+		bits.multimesh.set_instance_color(s, BLOOD.lerp(Color(0.42, 0.01, 0.03), randf() * 0.7))
+		var cone := Vector3(randf_range(-1, 1), randf_range(-0.5, 0.8), randf_range(-1, 1)) * 0.22
+		var v := (d + cone).normalized() * randf_range(7.0, 14.0) * (0.8 + power * 0.2) + Vector3(0, randf_range(0.3, 1.5), 0)
+		live_drops.append({"s": s, "p": p + d * 0.15, "v": v, "t": 0.0, "sz": randf_range(0.18, 0.6) * BLOOD_SZ})
+	var w3 := get_world_3d()
+	if w3 == null:
+		return
+	# the wall right behind them: a splash up it, the size of the round
+	var q := PhysicsRayQueryParameters3D.create(p + d * 0.4, p + d * (3.5 + power), 1)
+	var h := w3.direct_space_state.intersect_ray(q)
+	if not h.is_empty():
+		var hp: Vector3 = h["position"]
+		var n: Vector3 = h["normal"]
+		splat_on(hp, n, randf_range(0.7, 1.1) * power)
+		for k in int(3 + power * 2):
+			var j := (Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) - n * 0.0).slide(n) * randf_range(0.3, 0.9) * power
+			splat_on(hp + j, n, randf_range(0.12, 0.32) * power)
+		return
+	# nothing there: a spatter along the ground behind them
+	for k in int(3 + power * 3):
+		var at := p + d * randf_range(1.0, 2.6 + power) + Vector3(randf_range(-0.4, 0.4), 0, randf_range(-0.4, 0.4))
+		splat(at, randf_range(0.18, 0.45) * power, 0.2)
+
+## A blot of blood on a wall (or anything) at p facing n.
+func splat_on(p: Vector3, n: Vector3, size := 0.5) -> void:
+	var s := splats.alloc()
+	if s < 0:
+		var old = live_splats.pop_front()
+		splats.release(old["s"])
+		s = splats.alloc()
+	splats.multimesh.set_instance_color(s, Color(0.42, 0.014, 0.028, 0.7).lerp(Color(0.28, 0.008, 0.018, 0.7), randf() * 0.6))
+	var up := n.normalized()
+	var side := up.cross(Vector3.UP if absf(up.y) < 0.9 else Vector3.RIGHT).normalized()
+	var b := Basis(side, up, side.cross(up)) * Basis(Vector3.UP, randf() * TAU)
+	b = b * Basis.from_scale(Vector3(size * randf_range(0.8, 1.25), 1.0, size * randf_range(0.8, 1.25)))
+	var at := p + up * 0.03
+	live_splats.append({"s": s, "b": b, "p": at, "t": 0.0, "g": 0.12, "local": true})
+	splats.put(s, Transform3D(b * Basis.from_scale(Vector3(0.3, 1, 0.3)), at))
 
 ## A blot of blood on the ground at p (size: across, metres). It stays half a minute, then shrinks away.
 func splat(p: Vector3, size := 0.5, grow := 0.25) -> void:
@@ -345,7 +398,7 @@ func _crash_tick(dt: float) -> void:
 		if p.y <= gy + 0.05 or q["t"] > 2.5:
 			bits.release(q["s"])
 			done.append(q)
-			if p.y <= gy + 0.3 and (float(q["sz"]) > 0.5 or randf() < 0.3):
+			if p.y <= gy + 0.3 and (float(q["sz"]) > 0.5 or randf() < 0.55):
 				splat(p, 0.05 + float(q["sz"]) * 0.14, 0.15)       # (a speck, not a puddle)
 			continue
 		var v: Vector3 = q["v"]
@@ -365,6 +418,11 @@ func _crash_tick(dt: float) -> void:
 		if t < g or t > 30.0:
 			# (it spreads out as it lands, a pool under a body slowly; it shrinks away at the end)
 			var k := smoothstep(0.0, g, t) * (1.0 - smoothstep(30.0, 34.0, t))
-			splats.put(q["s"], Transform3D((q["b"] as Basis).scaled(Vector3(0.3 + k * 0.7, 1, 0.3 + k * 0.7) * maxf(k, 0.01) if t > 30.0 else Vector3(0.3 + k * 0.7, 1, 0.3 + k * 0.7)), q["p"]))
+			var gs := Vector3(0.3 + k * 0.7, 1, 0.3 + k * 0.7) * (maxf(k, 0.01) if t > 30.0 else 1.0)
+			if q.get("local", false):
+				gs.y = 1.0
+				splats.put(q["s"], Transform3D((q["b"] as Basis) * Basis.from_scale(gs), q["p"]))      # (on a wall: grows across it)
+			else:
+				splats.put(q["s"], Transform3D((q["b"] as Basis).scaled(Vector3(0.3 + k * 0.7, 1, 0.3 + k * 0.7) * maxf(k, 0.01) if t > 30.0 else Vector3(0.3 + k * 0.7, 1, 0.3 + k * 0.7)), q["p"]))
 	for q in done:
 		live_splats.erase(q)

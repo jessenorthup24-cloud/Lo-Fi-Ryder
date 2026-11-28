@@ -40,6 +40,7 @@ func shoot_person(pr: Dictionary, d: Vector3, raw: float, at: Vector3) -> int:
 	pr["hp"] = float(pr.get("hp", 100.0)) - dmg
 	var spot: Vector3 = hb[2]
 	game.fx.blood(spot, d, 18 if limb == "head" else 12, 5.5)
+	game.fx.exit_spray(spot, d, raw / 40.0 * (1.4 if limb == "head" else 1.0))
 	game.sfx("body_hit_%d" % randi_range(1, 3), -5.0, randf_range(1.0, 1.15))
 	var dead := float(pr["hp"]) <= 0.0
 	var off := _sever_roll(pr, limb, raw, dead)
@@ -260,6 +261,7 @@ func shoot_crawler(c: Dictionary, d: Vector3, raw: float, at: Vector3) -> int:
 	var av: Avatar = c["av"]
 	c["hp"] = float(c["hp"]) - raw
 	game.fx.blood(at, d, 14, 4.5)
+	game.fx.exit_spray(at, d, raw / 40.0)
 	game.sfx("body_hit_%d" % randi_range(1, 3), -5.0)
 	game.buzz(40, 0.8)
 	if float(c["hp"]) > 0.0:

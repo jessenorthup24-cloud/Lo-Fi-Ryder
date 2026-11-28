@@ -77,7 +77,7 @@ var keys := {}
 var cam_yaw := 0.0
 var cam_look := Vector3.ZERO   # which way the camera aims along the car (eased every frame: see _cam)
 var cam_pos := Vector3.ZERO
-var cam_mode := 0           # 0 near, 1 far, 2 close and low
+var cam_mode := 3           # (top-down: the only view now; td_level is how far up)
 var group_cam := false      # the group ride view: pulled out to keep you and your crew in the picture
 var group_k := 0.0          # (how far into it the camera is)
 # looking round: drag a finger anywhere off the buttons to swing the camera round the car, pinch to zoom
@@ -133,6 +133,8 @@ var markers := []          # {kind, id, pos, node, label}
 var gate_nodes: Array = []
 var coin_pool: Pool
 var radio: Node
+var ghosts: Ghosts
+var pacenotes: PacenoteHud
 var coins_live: Array = []
 # the rest
 var place_now := ""
@@ -231,6 +233,8 @@ const KIND_INFO := {"zone": ["DRIFT ZONE", "ff8a5c"], "time": ["TIME TRIAL", "5c
 const CrawlPark := preload("res://scripts/game/crawl_park.gd")
 const Warmup := preload("res://scripts/game/warmup.gd")
 const Radio := preload("res://scripts/game/radio.gd")
+const Ghosts := preload("res://scripts/game/ghosts.gd")
+const PacenoteHud := preload("res://scripts/ui/pacenote_hud.gd")
 const CrawlCanyon := preload("res://scripts/game/crawl_canyon.gd")
 
 ## A trial against the clock (a time trial or a rock crawl), rather than for drift points.
@@ -481,7 +485,7 @@ func _build_world() -> void:
 	if args.has("engine"):
 		car.engine_dmg = float(args["engine"])
 	if args.has("cam"):
-		cam_mode = int(args["cam"])
+		td_level = clampi(int(args["cam"]), 0, 2)
 	last_pos = sp.origin
 	cam_yaw = sp.basis.get_euler().y
 	_snap_cam()
@@ -608,6 +612,14 @@ func _build_world() -> void:
 	if save.data.get("migrated", false):
 		save.data.erase("migrated")
 		get_tree().create_timer(1.5).timeout.connect(func(): ui.toast("Welcome to the island! Your old upgrades were refunded as cash.", "coin", K.SUN))
+	pacenotes = PacenoteHud.new()
+	pacenotes.name = "Pacenotes"
+	ui.hud.add_child(pacenotes)
+	pacenotes.setup(self)
+	ghosts = Ghosts.new()
+	ghosts.name = "Ghosts"
+	add_child(ghosts)
+	ghosts.setup(self)
 	radio = Radio.new()
 	radio.name = "Radio"
 	add_child(radio)
@@ -974,7 +986,8 @@ func _apply_settings() -> void:
 	atmos.env.glow_enabled = bool(st.get("bloom", true))
 	# (a steady 30 beats a 40-50 that keeps missing the screen's refresh: every frame the same length, no judder)
 	Engine.max_fps = 30 if bool(st.get("fps30", false)) else (60 if bool(st.get("fps60", false)) else 0)
-	cam_mode = clampi(int(st.get("cam", 0)), 0, 2)
+	cam_mode = 3          # (top-down: the only view)
+	td_level = clampi(int(st.get("td_level", 1)), 0, 2)
 	cam_zoom = clampf(float(st.get("zoom", 1.0)), 0.55, 1.7)
 	if car:
 		car.assist = 1.0 if bool(st.get("assist", true)) else 0.35
@@ -1095,6 +1108,10 @@ func _process(dt: float) -> void:
 	if radio:
 		radio.on_foot = on_foot
 		radio.tick(dt)
+	if race != null and race.state == 1:
+		ghosts.tick(race.t)
+	if pacenotes:
+		pacenotes.tick(dt)
 	atmos.tick(dt); _hm("atmos")
 	if weather and state != LOADING:
 		weather.tick(dt, cam); _hm("weather")
@@ -2706,6 +2723,11 @@ func start_challenge_now(kind: String, id: String) -> void:
 	car.hold = true
 	_snap_cam()
 	intro = {"kind": kind, "id": id, "t": 0.0, "said": 4}
+	# your best run here, driven again beside you (a race, a timed trial or a crawl)
+	if kind == "race":
+		ghosts.start("race_" + race_key(id, race_diff()))
+	elif timed_kind(kind):
+		ghosts.start("trial_" + id)
 	ui.intro_banner(info["kind_label"], info["name"], sub + "  ·  " + info["info"], info["col"])
 	sfx("checkpoint", -5.0, 0.7)
 
@@ -2864,6 +2886,8 @@ func _trial_tick(dt: float) -> void:
 	if trial.is_empty() or not intro.is_empty():
 		return
 	trial_t += dt
+	if timed_kind(trial["kind"]):
+		ghosts.tick(trial_t)
 	var gates: Array = trial["gates"]
 	for i in gate_nodes.size():
 		(gate_nodes[i] as Node3D).visible = i + 1 >= trial_gate and i + 1 <= trial_gate + 1
@@ -2879,7 +2903,13 @@ func _trial_tick(dt: float) -> void:
 				_bank()
 			_finish_trial()
 			return
-		ui.popup_text("Checkpoint %d/%d" % [trial_gate - 1, gates.size() - 1], K.SKY)
+		var gap := ghosts.split(trial_gate - 1, trial_t) if timed_kind(trial["kind"]) else NAN
+		if is_nan(gap):
+			ui.popup_text("Checkpoint %d/%d" % [trial_gate - 1, gates.size() - 1], K.SKY)
+		else:
+			# (against your ghost: green ahead of it, red behind)
+			ui.popup_text("Checkpoint %d/%d   %s%.2f" % [trial_gate - 1, gates.size() - 1, "-" if gap < 0.0 else "+", absf(gap)],
+				Color("5cff9d") if gap < 0.0 else Color("ff6b7a"))
 	if trial["kind"] == "crawl":
 		_crawl_rules(dt)
 		if trial.is_empty():
@@ -2949,9 +2979,11 @@ const PENALTY_ROLL := CrawlPark.PENALTY_ROLL
 
 func _finish_trial() -> void:
 	var t := trial
-	_end_challenges()
 	var timed: bool = timed_kind(t["kind"])
 	var score: float = (trial_t + (crawl_pen if t["kind"] == "crawl" else 0.0)) if timed else trial_pts
+	if timed:
+		ghosts.finish(score)          # (a new best: it's the ghost next time)
+	_end_challenges()
 	var medal := _medal(score, t["medals"], timed)
 	var best: float = float(save.data["trials"].get(t["id"], 0.0))
 	var better: bool = best <= 0.0 or (score < best if timed else score > best)
@@ -2973,6 +3005,7 @@ func _finish_trial() -> void:
 	ach_check()
 
 func _end_challenges() -> void:
+	ghosts.stop()
 	zone = {}
 	trial = {}
 	car.crawl_cap = 0.0
@@ -3575,6 +3608,7 @@ func race_done(place: int, t: float) -> void:
 	var medal := 3 if place == 1 else (2 if place == 2 else (1 if place == 3 else 0))
 	var best := float(save.data["races"].get(id, 0.0))
 	var better := best <= 0.0 or t < best
+	ghosts.finish(t)
 	if better:
 		save.data["races"][id] = snappedf(t, 0.01)
 	var old_medal := int(save.data["medals"].get(mkey, 0))
@@ -3915,59 +3949,7 @@ func _cam(dt: float, snap := false) -> void:
 	else:
 		# round the loop: hold the heading you came in on (it comes out the same way)
 		dirv = Vector3(-sin(cam_yaw), 0, -cos(cam_yaw))
-	var dist: float = [7.6, 11.0, 5.0][cam_mode] + clampf(v.length() * 0.05, 0.0, 2.0) * (0.5 if cam_mode == 2 else 1.0)
-	var height: float = [2.0, 3.3, 1.3][cam_mode]
-	var target := xf.origin + Vector3(0, 0.95 if cam_mode == 2 else 1.3, 0)
-	# looking round: after a moment without a finger on it, the view swings back behind the car
-	look_t += dt
-	if look_touches.is_empty() and look_t > 1.2:
-		look_yaw_t = lerp_angle(look_yaw_t, 0.0, 1.0 - exp(-dt * 2.5))
-		look_pitch_t = lerpf(look_pitch_t, 0.0, 1.0 - exp(-dt * 2.5))
-	look_pitch_t = clampf(look_pitch_t, -0.25, 1.0)     # (on foot it goes further: not in the car)
-	look_yaw = lerp_angle(look_yaw, look_yaw_t, 1.0 - exp(-dt * 16.0))
-	look_pitch = lerpf(look_pitch, look_pitch_t, 1.0 - exp(-dt * 16.0))
-	dist *= cam_zoom
-	var looking := absf(look_yaw) > 0.05 or absf(look_pitch) > 0.05
-	var yaw_v := cam_yaw + look_yaw
-	var back := Vector3(sin(yaw_v), 0, cos(yaw_v))
-	var lift := height + dist * sin(look_pitch) * 1.2
-	var desired := target + back * dist * cos(look_pitch * 0.6) + Vector3(0, lift, 0)
-	# don't sink into the hillside or walk through walls
-	var gy := island.height_at(desired.x, desired.z) + (0.8 if cam_mode == 2 else 1.2)
-	desired.y = maxf(desired.y, gy)
-	var q := PhysicsRayQueryParameters3D.create(target, desired, 1)   # (the world only, not cars)
-	q.exclude = [car.get_rid()]
-	var hit := get_world_3d().direct_space_state.intersect_ray(q)
-	if not hit.is_empty():
-		desired = (hit["position"] as Vector3) + (target - (hit["position"] as Vector3)).normalized() * 0.6
-	cam_pos = desired if snap else cam_pos.lerp(desired, 1.0 - exp(-dt * (14.0 if looking else 9.0)))
-	cam.position = cam_pos
-	# (looking well ahead and up a little: the road and the skyline in the picture, not the ground)
-	var look := target + dirv * float([6.5, 9.0, 5.0][cam_mode]) + Vector3(0, 0.3 if cam_mode < 2 else -0.2, 0)
-	if looking:
-		# swung round: keep the car in the middle of the picture
-		look = look.lerp(target, clampf(maxf(absf(look_yaw) * 1.5, absf(look_pitch) * 2.0), 0.0, 1.0))
-	# going round a loop, the camera stands off to the side to watch
-	loop_cam = 0.0 if snap else move_toward(loop_cam, 1.0 if loop_on >= 0 else 0.0, dt * (4.0 if loop_on >= 0 else 2.2))
-	if loop_cam > 0.0:
-		var lp: Dictionary = island.stunt["loops"][loop_last]
-		var side_pos: Vector3 = (lp["pos"] as Vector3) + (lp["side"] as Vector3) * 24.0 + Vector3(0, M.LOOP_R + 1.0, 0)
-		var k := smoothstep(0.0, 1.0, loop_cam)
-		cam.position = cam_pos.lerp(side_pos, k)
-		look = look.lerp(xf.origin, k)
-	# the group ride view: back and up over you all, the middle of the group in the middle of the picture
-	var gk := _group_view(dt, xf.origin, yaw_v)
-	if gk.size() > 0:
-		cam.position = cam.position.lerp(gk[0], group_k)
-		look = look.lerp(gk[1], group_k)
-	if shake > 0.0:
-		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * shake * 0.18
-		shake = maxf(0.0, shake - dt * 2.5)
-	# a knock jolts the camera the way the car was shoved, and it springs back
-	cam_kick_v += (-cam_kick * 90.0 - cam_kick_v * 12.0) * dt
-	cam_kick += cam_kick_v * dt
-	cam.position += cam_kick
-	cam.look_at(look, Vector3.UP)
+	_td_car_cam(dt, xf, v, want, snap)
 	if args.has("patrolcam") and traffic:
 		# a test: beside the first patrol car in the traffic
 		for pc in traffic.cars:
@@ -4011,9 +3993,6 @@ func _cam(dt: float, snap := false) -> void:
 		cam.far = 2000.0
 		cam.fov = 60.0
 		return
-	fov_base = lerpf(fov_base, 62.0 + clampf(absf(car.speed) * 3.6 * 0.09, 0.0, 16.0) + car.nitro * 9.0, 1.0 - exp(-dt * 3.0))
-	cam.fov = fov_base + fov_kick
-	fov_kick = maxf(0.0, fov_kick - dt * 30.0)
 
 func _title_cam(dt: float) -> void:
 	title_t += dt
@@ -4382,87 +4361,7 @@ func _foot_cam(dt: float) -> void:
 		cam.fov = lerpf(cam.fov, 50.0, 1.0 - exp(-dt * 3.0))
 		cam_pos = cam.position
 		return
-	var v := foot.velocity
-	v.y = 0.0
-	var ak: float = gunplay.aim_k
-	look_t += dt
-	if look_t > 1.2 and v.length() > 1.0 and ak < 0.05:
-		# walking: ease round behind (not snapping: the drag's still yours)
-		foot_yaw = lerp_angle(foot_yaw, atan2(-v.x, -v.z) - look_yaw_t, 1.0 - exp(-dt * 1.2))
-	look_yaw = lerp_angle(look_yaw, look_yaw_t, 1.0 - exp(-dt * 16.0))
-	look_pitch = lerpf(look_pitch, look_pitch_t, 1.0 - exp(-dt * 16.0))
-	aim_kick = lerpf(aim_kick, 0.0, 1.0 - exp(-dt * 9.0))
-	# the climb settles back (slowly while you keep firing, quickly once you let go)
-	var rec_k := 2.2 if gunplay and gunplay.cool > -0.12 else 7.0
-	recoil_pitch = lerpf(recoil_pitch, 0.0, 1.0 - exp(-dt * rec_k))
-	recoil_yaw = lerpf(recoil_yaw, 0.0, 1.0 - exp(-dt * rec_k))
-	# in a fist fight: the view eases round onto whoever you're squared up to (not snapped: still yours to drag)
-	var mf: Vector3 = melee.focus() if melee else Vector3.INF
-	# a street fight: the camera's locked on your opponent from the start (no dragging it off them)
-	var fight_lock: Vector3 = fights.focus() if fights else Vector3.INF
-	if fight_lock != Vector3.INF:
-		mf = fight_lock
-		look_yaw_t = lerp_angle(look_yaw_t, 0.0, 1.0 - exp(-dt * 6.0))
-		look_pitch_t = lerpf(look_pitch_t, 0.0, 1.0 - exp(-dt * 6.0))
-	if mf != Vector3.INF and (look_t > 0.6 or fight_lock != Vector3.INF):
-		var md: Vector3 = mf - foot.global_position
-		# (a three-quarter view of the two of you: off to your right-rear, not straight down the line
-		# between you, where you'd block them from view)
-		var mwant := atan2(-md.x, -md.z) + 0.75 - look_yaw_t
-		foot_yaw = lerp_angle(foot_yaw, mwant, 1.0 - exp(-dt * (5.0 if fight_lock != Vector3.INF else 2.2)))
-	# locked on: the view drifts onto them (the reticle settles on the one you're shooting)
-	if gunplay.lock_pos != Vector3.INF and ak > 0.3 and gunplay.manual_t <= 0.0:
-		var d: Vector3 = gunplay.lock_pos - cam.global_position
-		var want_yaw := atan2(-d.x, -d.z) - look_yaw
-		foot_yaw = lerp_angle(foot_yaw, want_yaw, 1.0 - exp(-dt * 7.0))
-		var want_pitch := asin(clampf(-d.normalized().y, -1.0, 1.0)) - look_pitch * 0.6
-		foot_pitch = lerpf(foot_pitch, clampf(want_pitch, -0.35, 0.9), 1.0 - exp(-dt * 5.0))
-	elif ak < 0.05:
-		foot_pitch = lerpf(foot_pitch, 0.32, 1.0 - exp(-dt * 1.5))
-	else:
-		foot_pitch = lerpf(foot_pitch, 0.14, 1.0 - exp(-dt * 3.0 * ak))     # (aiming: level, out at them)
-	var body: Vector3 = gunplay.dead_focus() if gunplay.dying else Vector3.INF
-	if body != Vector3.INF:
-		ak = gunplay.aim_k
-		foot_pitch = lerpf(foot_pitch, 0.7, 1.0 - exp(-dt * 2.0))
-	var yaw := foot_yaw + look_yaw + recoil_yaw
-	# (aiming, the drag tilts the view fully: up at a balcony, down at someone at your feet)
-	var pitch := clampf(foot_pitch + look_pitch * lerpf(0.6, 1.0, ak) - aim_kick - recoil_pitch, lerpf(-0.45, -1.05, ak), lerpf(1.1, 1.2, ak))
-	# (aiming: close over the right shoulder, at eye height, for the full-size characters)
-	var dist := lerpf(4.6 * cam_zoom, 2.4, ak)
-	_crouch_k = move_toward(_crouch_k, 1.0 if foot.crouch else 0.0, dt * 3.0)
-	var head := foot.get_global_transform_interpolated().origin + Vector3(0, lerpf(1.55, 1.72, ak) - smoothstep(0.0, 1.0, _crouch_k) * 0.55, 0)
-	if body != Vector3.INF:
-		head = body + Vector3(0, 0.6, 0)      # (down: the camera up and back, on your body as it falls)
-	var back := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
-	var side := Vector3(cos(yaw), 0, -sin(yaw))       # (to your right, looking the way the camera does)
-	# in a fist fight: further over your shoulder and a little closer in, so you're both in it (you to the
-	# left, them beyond to the right), the view on the space between you
-	_fight_k = move_toward(_fight_k, 1.0 if mf != Vector3.INF and ak < 0.1 else 0.0, dt * 2.5)
-	var fk := smoothstep(0.0, 1.0, _fight_k)
-	dist -= fk * 0.7
-	var want := head + back * dist + side * lerpf(lerpf(0.45, 0.65, ak), 0.7, fk)
-	# not through walls or the ground
-	var q := PhysicsRayQueryParameters3D.create(head, want, 1 | 2 | 4)
-	q.exclude = [foot.get_rid()]
-	var hit := get_world_3d().direct_space_state.intersect_ray(q)
-	if not hit.is_empty():
-		want = (hit["position"] as Vector3) + ((head - want).normalized() * 0.3)
-	want.y = maxf(want.y, island.height_at(want.x, want.z) + 0.4)
-	cam.position = cam.position.lerp(want, 1.0 - exp(-dt * lerpf(14.0, 22.0, ak)))
-	# not aiming it looks at you; aiming, straight out along the view (so the reticle's where you shoot)
-	var look := (head + Vector3(0, 0.1, 0)).lerp(cam.position - back * 30.0, ak)
-	if fk > 0.0 and mf != Vector3.INF:
-		_fight_look = (head.lerp(mf + Vector3(0, 1.3, 0), 0.5))
-	if fk > 0.0:
-		look = look.lerp(_fight_look + side * 0.35, fk * 0.85)
-	if look.distance_to(cam.position) > 0.01:
-		cam.look_at(look, Vector3.UP)
-	# aiming: closer in, and through an optic, closer still (its zoom)
-	var zoom: float = float(gunplay.weapon.get("zoom", 1.0)) if not gunplay.weapon.is_empty() else 1.0
-	cam.fov = lerpf(cam.fov, lerpf(62.0, 46.0 / zoom, ak), 1.0 - exp(-dt * 8.0))
-	cam_pos = cam.position
-	_aim_dof(ak)
+	_td_foot_cam(dt)
 
 ## Aiming: the background goes soft and what you're aiming at stays sharp (shaders/aim_dof.gdshader).
 var _dof: ColorRect
@@ -4504,10 +4403,93 @@ func toggle_group_cam() -> void:
 	group_cam = not group_cam
 	ui.popup_text("Group ride view" if group_cam else "Group view off")
 
+## The camera button: how far up the top-down view is (close, medium, far).
 func toggle_cam() -> void:
-	cam_mode = (cam_mode + 1) % 3
-	save.data["settings"]["cam"] = cam_mode
-	ui.popup_text(["Near camera", "Far camera", "Low camera"][cam_mode])
+	td_level = (td_level + 1) % 3
+	save.data["settings"]["td_level"] = td_level
+	ui.popup_text(["Close camera", "Medium camera", "Far camera"][td_level])
+
+# ------------------------------------------------------------------ the top-down camera
+# High up and a little behind, looking down at the street like a model of it. Driving, it turns slowly
+# with the car and looks ahead of where you're going; on foot it holds still (drag the view to turn it)
+# and the fire button's a second stick: drag it the way you want to shoot.
+
+var td_yaw := 0.0
+var td_level := 1                   # close, medium, far
+const TD_DIST := [0.72, 1.0, 1.4]
+var td_aim := Vector2.ZERO          # the fire finger's drag (screen), on foot: which way to shoot
+var _fire_from := {}                # where each finger on FIRE went down
+const TD_AIM_DEAD := 16.0           # (px: less is a tap, the gun picks who's in front of you)
+
+## (the only view there is now: kept as a question for the code that differs by view)
+func topdown() -> bool:
+	return true
+
+## Up toward the camera from what it's looking at: under a roof (a tunnel, indoors) it comes in under it,
+## still looking down the same way.
+func _td_clear(target: Vector3, want: Vector3, ex: RID) -> Vector3:
+	var q := PhysicsRayQueryParameters3D.create(target, want, 1)
+	q.exclude = [ex]
+	var h := get_world_3d().direct_space_state.intersect_ray(q)
+	if h.is_empty():
+		return want
+	var hp: Vector3 = h["position"]
+	return hp + (target - hp).normalized() * 0.5
+
+## A drag on the screen as a direction on the ground, in the top-down view.
+func td_dir(v: Vector2) -> Vector3:
+	var fwd := Vector3(-sin(td_yaw), 0, -cos(td_yaw))
+	var right := Vector3(cos(td_yaw), 0, -sin(td_yaw))
+	return (fwd * -v.y + right * v.x).normalized()
+
+func _td_car_cam(dt: float, xf: Transform3D, v: Vector3, want_yaw: float, snap: bool) -> void:
+	var hv := Vector3(v.x, 0, v.z)
+	# (turning with the car, slowly: the world swings round gently, not with every flick of the wheel)
+	td_yaw = want_yaw if snap else lerp_angle(td_yaw, want_yaw, 1.0 - exp(-dt * (0.9 + clampf(hv.length() / 30.0, 0.0, 0.8))))
+	var lead := hv * 0.42
+	if lead.length() > 14.0:
+		lead = lead.normalized() * 14.0
+	var target := xf.origin + lead + Vector3(0, 0.6, 0)
+	var pitch := 0.92
+	var dist := (25.0 + clampf(hv.length() * 0.12, 0.0, 6.0)) * cam_zoom * float(TD_DIST[td_level])
+	var back := Vector3(sin(td_yaw), 0, cos(td_yaw))
+	var desired := _td_clear(target, target + back * dist * cos(pitch) + Vector3(0, dist * sin(pitch), 0), car.get_rid())
+	cam_pos = desired if snap else cam_pos.lerp(desired, 1.0 - exp(-dt * 6.0))
+	cam.position = cam_pos
+	if shake > 0.0:
+		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * shake * 0.25
+		shake = maxf(0.0, shake - dt * 2.5)
+	cam.look_at(cam_pos - back * dist * cos(pitch) - Vector3(0, dist * sin(pitch), 0), Vector3.UP)
+	fov_base = lerpf(fov_base, 40.0 + clampf(absf(car.speed) * 3.6 * 0.03, 0.0, 6.0) + car.nitro * 4.0, 1.0 - exp(-dt * 3.0))
+	cam.fov = fov_base + fov_kick * 0.5
+	fov_kick = maxf(0.0, fov_kick - dt * 30.0)
+
+func _td_foot_cam(dt: float) -> void:
+	# (the walking frame's the view's: up the stick is up the screen)
+	foot_yaw = td_yaw
+	look_yaw = 0.0
+	look_yaw_t = 0.0
+	look_pitch = 0.0
+	look_pitch_t = 0.0
+	var me: Vector3 = foot.get_global_transform_interpolated().origin
+	var target := me + Vector3(0, 0.9, 0)
+	# aiming: the view leans out a little toward where you're shooting
+	if gunplay.aim_k > 0.05 and gunplay.aim_point != Vector3.INF:
+		var to: Vector3 = gunplay.aim_point - me
+		to.y = 0.0
+		target += to.limit_length(5.0) * 0.45 * gunplay.aim_k
+	var pitch := 1.0
+	var dist := 15.0 * cam_zoom * float(TD_DIST[td_level])
+	var back := Vector3(sin(td_yaw), 0, cos(td_yaw))
+	var want := _td_clear(target, target + back * dist * cos(pitch) + Vector3(0, dist * sin(pitch), 0), foot.get_rid())
+	cam.position = cam.position.lerp(want, 1.0 - exp(-dt * 7.0))
+	if shake > 0.0:
+		cam.position += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * shake * 0.2
+		shake = maxf(0.0, shake - dt * 2.5)
+	cam.look_at(cam.position - back * dist * cos(pitch) - Vector3(0, dist * sin(pitch), 0), Vector3.UP)
+	cam.fov = lerpf(cam.fov, 42.0, 1.0 - exp(-dt * 6.0))
+	cam_pos = cam.position
+	_aim_dof(0.0)
 
 # ------------------------------------------------------------------ sound
 
@@ -4605,10 +4587,15 @@ func _unhandled_input(e: InputEvent) -> void:
 				stick = ui.stick_vec(e.position)
 			elif c != "":
 				touches[e.index] = c
+				if c == "fire":
+					_fire_from[e.index] = e.position
 			elif state == DRIVE:
 				look_touches[e.index] = e.position
 		else:
 			touches.erase(e.index)
+			if _fire_from.has(e.index):
+				_fire_from.erase(e.index)
+				td_aim = Vector2.ZERO
 			if e.index == wheel_idx:
 				wheel_idx = -1
 			if e.index == stick_idx:
@@ -4625,6 +4612,9 @@ func _unhandled_input(e: InputEvent) -> void:
 		elif e.index == stick_idx:
 			stick = ui.stick_vec(e.position)
 		# the finger holding FIRE (on foot): dragging it steers the aim, so you can fire and turn at once
+		elif on_foot and topdown() and _fire_from.has(e.index):
+			# top-down: the fire button's a stick, the drag from where you pressed is the way you shoot
+			td_aim = e.position - (_fire_from[e.index] as Vector2)
 		elif on_foot and touches.get(e.index, "") == "fire":
 			look_yaw_t = wrapf(look_yaw_t - e.relative.x * 0.0045, -PI, PI)
 			look_pitch_t = clampf(look_pitch_t + e.relative.y * 0.0035, -1.3, 1.1)
@@ -4653,6 +4643,10 @@ func _look_drag(idx: int, pos: Vector2) -> void:
 			cam_zoom = clampf(cam_zoom * d0 / maxf(d1, 1.0), 0.55, 1.7)
 	else:
 		var dlt := pos - old
+		if topdown():
+			td_yaw = wrapf(td_yaw - dlt.x * 0.004, -PI, PI)      # (top-down: a drag turns the view round)
+			look_touches[idx] = pos
+			return
 		look_yaw_t = wrapf(look_yaw_t - dlt.x * 0.005, -PI, PI)
 		look_pitch_t = clampf(look_pitch_t + dlt.y * 0.004, -1.3 if on_foot else -0.25, 1.1 if on_foot else 1.0)
 	look_touches[idx] = pos

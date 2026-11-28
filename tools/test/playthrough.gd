@@ -478,6 +478,232 @@ func _run() -> void:
 			game.car.place(game.on_ground(Transform3D(Basis.looking_at(-af), (a["pos"] as Vector3) + af * 9.0 + Vector3(0, 0.6, 0))))
 			await wait(3.0)
 			await snap("atm")
+		"ghost":
+			game.args["drive"] = true
+			game.start_drive()
+			await wait(1.0)
+			var gh = game.ghosts
+			DirAccess.remove_absolute(gh._file("test_lap"))
+			# a run, by hand: along the road, through a gate at 1 s, done in 3 s
+			var p0: Vector3 = game.car.global_position
+			gh.start("test_lap")
+			check(gh.node == null, "no ghost the first time")
+			for i in 31:
+				game.car.global_position = p0 + Vector3(i * 0.5, 0, 0)
+				gh.tick(i * 0.1)
+			check(is_nan(gh.split(1, 1.0)), "no gap without a ghost")
+			gh.finish(3.0)
+			check(FileAccess.file_exists(gh._file("test_lap")), "the run's kept")
+			gh.start("test_lap")
+			check(gh.node != null, "the ghost's out the next time")
+			gh.tick(2.0)
+			check(gh.node.global_position.distance_to(p0 + Vector3(10, 0, 0)) < 0.6, "where the run was at that time")
+			var gap: float = gh.split(1, 0.8)
+			check(absf(gap + 0.2) < 0.01, "ahead of it at the gate: -0.2 s (%.2f)" % gap)
+			for i in 31:
+				gh.tick(i * 0.1)
+			gh.finish(5.0)
+			check(float(gh.load_best("test_lap")["score"]) == 3.0, "a slower run doesn't replace it")
+			game.save.data["settings"]["ghosts"] = false
+			gh.start("test_lap")
+			check(gh.node == null, "ghosts off in settings: none")
+			gh.stop()
+			game.save.data["settings"]["ghosts"] = true
+			DirAccess.remove_absolute(gh._file("test_lap"))
+			# a real race, twice: the second time your first run's out there with you
+			game.save.data["settings"]["race_diff"] = 0
+			var rkey: String = "race_" + game.race_key("downtown", 0)
+			DirAccess.remove_absolute(gh._file(rkey))
+			for lap in 2:
+				game.args["raceauto"] = true
+				game.begin_challenge("race", "downtown")
+				await wait_until(func(): return game.race != null and game.race.state == 1, 20.0)
+				if lap == 1:
+					check(gh.node != null, "the second race: your ghost's on the grid")
+					var g0: Vector3 = gh.node.global_position
+					await wait(8.0)
+					check(gh.node != null and gh.node.global_position.distance_to(g0) > 40.0, "and it races (%.0f m in 8 s)" % (gh.node.global_position.distance_to(g0) if gh.node else 0.0))
+				await wait_until(func(): return game.race == null or game.race.state == 2, 480.0)
+				if lap == 0:
+					check(FileAccess.file_exists(gh._file(rkey)), "the race run's kept (%.1f s)" % float(gh.load_best(rkey).get("score", 0.0)))
+				game.quit_challenge()
+				await wait(2.0)
+			check(gh.node == null, "gone once the race is")
+		"topdown":
+			# the top-down camera: driving, then on foot with the fire button as a second stick
+			game.args["drive"] = true
+			game.start_drive()
+			game.save.data["settings"]["weather"] = false
+			game.weather.set_now("clear")
+			game.atmos.hour = 13.0
+			await wait(1.0)
+			check(game.topdown(), "top-down's the view")
+			game.td_level = 1
+			game.held["gas"] = true
+			await wait(4.0)
+			var cp: Vector3 = game.cam.global_position
+			var carp: Vector3 = game.car.global_position
+			var down := rad_to_deg(asin(clampf(-(-game.cam.global_transform.basis.z).y, -1.0, 1.0)))
+			check(cp.y - carp.y > 12.0, "high over the car (%.1f m)" % (cp.y - carp.y))
+			check(down > 40.0 and down < 70.0, "looking down at it (%.0f deg)" % down)
+			var behind := Vector2(cp.x - carp.x, cp.z - carp.z).dot(Vector2(-game.car.global_transform.basis.z.x, -game.car.global_transform.basis.z.z))
+			check(behind < 0.0, "and a little behind it")
+			await snap("driving")
+			game.held["gas"] = false
+			game.held["brake"] = true
+			await wait(2.5)
+			game.held["brake"] = false
+			# on foot
+			game.save.data["guns"] = ["pistol", "smg", "rifle", "shotgun"]
+			game.toggle_foot()
+			await wait(1.5)
+			var f = game.foot
+			check(game.cam.global_position.y - f.global_position.y > 9.0, "on foot: high over you too")
+			var up_screen: Vector3 = game.td_dir(Vector2(0, -1))
+			var p0: Vector3 = f.global_position
+			game.stick = Vector2(0, 1)
+			await wait(1.2)
+			game.stick = Vector2.ZERO
+			var mv: Vector3 = f.global_position - p0
+			mv.y = 0.0
+			check(mv.length() > 1.0 and mv.normalized().dot(up_screen) > 0.85, "the stick up walks you up the screen (%.2f)" % mv.normalized().dot(up_screen))
+			game.gunplay.select("smg")
+			await wait(0.5)
+			game.gunplay.ammo["smg"] = 30
+			# dragging FIRE to the right: shooting off to the right of the screen
+			game.td_aim = Vector2(120, 0)
+			game.held["fire"] = true
+			await wait(0.5)
+			var to: Vector3 = game.gunplay.aim_point - f.global_position
+			to.y = 0.0
+			var right_screen: Vector3 = game.td_dir(Vector2(1, 0))
+			check(to.normalized().dot(right_screen) > 0.8 or game.gunplay.lock != null, "drag right: aims right (%.2f)" % to.normalized().dot(right_screen))
+			var fa := Vector3(-sin(f.facing), 0, -cos(f.facing))
+			check(fa.dot(right_screen) > 0.7, "and you turn to face it")
+			await snap("aim_right")
+			# and down-left
+			game.td_aim = Vector2(-90, 90)
+			await wait(0.5)
+			to = game.gunplay.aim_point - f.global_position
+			to.y = 0.0
+			check(to.normalized().dot(game.td_dir(Vector2(-1, 1))) > 0.8 or game.gunplay.lock != null, "drag down-left: aims there")
+			await snap("aim_downleft")
+			game.held["fire"] = false
+			game.td_aim = Vector2.ZERO
+			# a tap: where you're facing
+			game.held["fire"] = true
+			await wait(0.2)
+			game.held["fire"] = false
+			to = game.gunplay.aim_point - f.global_position
+			to.y = 0.0
+			fa = Vector3(-sin(f.facing), 0, -cos(f.facing))
+			check(to.normalized().dot(fa) > 0.5 or game.gunplay.lock != null, "a tap shoots the way you face")
+			# the soft lock: someone in front of you, a tap, and it's on them (the ring round them)
+			var who = null
+			var fp: Vector3 = f.global_position
+			for pr in game.island.people.list:
+				var pp: Vector3 = pr["pos"]
+				if not pr["gone"] and pp.distance_to(fp) > 4.0 and pp.distance_to(fp) < 18.0 and game.gunplay._clear(fp + Vector3(0, 1.3, 0), pp + Vector3(0, 0.85, 0)):
+					who = pr
+					break
+			if who != null:
+				var tw: Vector3 = (who["pos"] as Vector3) - fp
+				f.facing = atan2(-tw.x, -tw.z) + 0.5          # (not quite at them: the cone finds them)
+				game.held["fire"] = true
+				await wait(0.1)
+				check(game.gunplay.lock == who, "a tap with someone in front: locked on to them")
+				check(game.ui.aim_mark.visible, "the ring round them")
+				game.held["fire"] = false
+			else:
+				note("nobody about to lock on to")
+			# the blood: out the far side, onto the ground behind
+			var n0: int = game.fx.live_splats.size()
+			game.fx.exit_spray(fp + Vector3(0, 1.2, 0) + up_screen * 30.0, Vector3(1, 0, 0), 1.0)
+			await wait(1.0)
+			check(game.fx.live_splats.size() >= n0 + 3, "a hit leaves blood spattered behind (%d blots)" % (game.fx.live_splats.size() - n0))
+			# and up a wall, when there's one right behind
+			var space: PhysicsDirectSpaceState3D = game.get_world_3d().direct_space_state
+			var wall_d := Vector3.ZERO
+			var wall_p := Vector3.ZERO
+			for k in 24:
+				var dk := Vector3(sin(TAU * k / 24.0), 0, cos(TAU * k / 24.0))
+				var h := space.intersect_ray(PhysicsRayQueryParameters3D.create(fp + Vector3(0, 1.2, 0), fp + Vector3(0, 1.2, 0) + dk * 60.0, 1))
+				if not h.is_empty() and absf((h["normal"] as Vector3).y) < 0.3:
+					wall_d = dk
+					wall_p = (h["position"] as Vector3) - dk * 1.8
+					break
+			if wall_d != Vector3.ZERO:
+				game.fx.exit_spray(wall_p, wall_d, 1.0)
+				var on_wall: Array = game.fx.live_splats.filter(func(q): return q.get("local", false))
+				check(not on_wall.is_empty(), "a wall right behind them: blood up it")
+				await snap("blood_wall")
+			# the camera button: three distances, and that's all
+			var h0: float = game.cam.global_position.y - f.global_position.y
+			game.toggle_cam()
+			await wait(1.5)
+			var h1: float = game.cam.global_position.y - f.global_position.y
+			check(game.td_level == 2 and h1 > h0 + 2.0, "the camera button: further up (%.1f to %.1f m)" % [h0, h1])
+			game.toggle_cam()
+			await wait(1.5)
+			var h2: float = game.cam.global_position.y - f.global_position.y
+			check(game.td_level == 0 and h2 < h0 - 2.0, "then close (%.1f m)" % h2)
+			game.toggle_cam()
+			check(game.td_level == 1, "and round to the middle again")
+		"pacenotes":
+			# the co-driver's signs: a race's corners, called before you get there, the right way round
+			game.args["drive"] = true
+			game.start_drive()
+			game.save.data["settings"]["weather"] = false
+			await wait(1.0)
+			game.save.data["settings"]["race_diff"] = 0
+			game.args["raceauto"] = true
+			game.begin_challenge("race", String(game.args.get("race", "downtown")))
+			await wait_until(func(): return game.race != null and game.race.state == 1, 20.0)
+			var ph = game.pacenotes
+			await wait(0.5)
+			var signs: Array = ph.notes.map(func(nt): return String(nt["sign"]))
+			print("PACENOTES ", signs.size(), " notes: ", signs)
+			check(signs.size() >= 4, "a lap's worth of notes (%d)" % signs.size())
+			var plates := 0
+			var agree := 0
+			var asked := 0
+			var watching := {}
+			var snapped := false
+			for i in 900:
+				await wait(0.1)
+				if game.race == null or game.race.state != 1:
+					break
+				var c: Dictionary = ph.cur
+				if c.is_empty():
+					continue
+				if ph.plate_rect.modulate.a > 0.5 and ph.visible:
+					plates += 1
+				var nm := String(c["sign"])
+				if not snapped and float(c["d"]) < 120.0 and (nm.begins_with("L") or nm.begins_with("R")):
+					snapped = true
+					await wait(0.4)
+					await snap("note_%s" % String(ph.cur.get("sign", nm)))
+				# a corner coming: watch which way the car turns going through it
+				if float(c["d"]) < 8.0 and (nm.begins_with("L") or nm.begins_with("R") or nm.begins_with("uturn")) and not watching.has(c["s"]):
+					watching[c["s"]] = true
+					var yaw_sum := 0.0
+					for k in 20:
+						await wait(0.1)
+						yaw_sum += game.car.angular_velocity.y
+					var turned_left := yaw_sum > 0.0
+					var said_left := nm.begins_with("L") or nm == "uturn_l"
+					asked += 1
+					if turned_left == said_left:
+						agree += 1
+					else:
+						print("PACENOTES said %s, turned %s" % [nm, "left" if turned_left else "right"])
+				if asked >= 8:
+					break
+			check(plates > 0, "distance plates on them")
+			check(asked >= 3 and agree >= asked - 1, "the car turns the way the notes say (%d of %d)" % [agree, asked])
+			game.quit_challenge()
+			await wait(1.0)
+			check(not ph.visible, "gone after the race")
 		"radio":
 			# the radio: stations on a dial, each live (mid-song), the dial goes round to off and back
 			game.args["drive"] = true

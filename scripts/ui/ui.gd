@@ -1792,10 +1792,25 @@ func foot_hud(p: Vector3, yaw: float, clock: String, coins: int, near: bool) -> 
 		rl.set_meta("prog", prog)
 		rl.set_meta("empty", empty)
 		rl.queue_redraw()
-	# (no ring round whoever you're locked on to: the soft lock still works, and the dot goes red)
+	# the ring round whoever you're locked on to (top-down: the soft lock, so you can see who it's picked)
 	aim_mark.visible = false
+	if gp.aim_k > 0.05 and gp.lock_pos != Vector3.INF and not game.cam.is_position_behind(gp.lock_pos):
+		aim_mark.visible = true
+		aim_mark.position = game.cam.unproject_position(gp.lock_pos) - Vector2(36, 36)
+		aim_mark.rotation += get_process_delta_time() * 1.6
 	_hit_t = maxf(0.0, _hit_t - get_process_delta_time())
 	reticle.visible = gp.aim_k > 0.05 or _hit_t > 0.0
+	# top-down: the reticle's out where you're aiming, not in the middle of the screen
+	if game.topdown() and gp.aim_point != Vector3.INF and game.foot:
+		# (locked on: on them; otherwise a few steps out along the line you're shooting, where you can see it)
+		var rp: Vector3 = gp.aim_point
+		if gp.lock_pos == Vector3.INF:
+			var me: Vector3 = game.foot.global_position + Vector3(0, 1.2, 0)
+			rp = me + (rp - me).limit_length(7.0)
+		if not game.cam.is_position_behind(rp):
+			reticle.position = game.cam.unproject_position(rp) - get_viewport().get_visible_rect().size * 0.5 - Vector2(60, 60)
+	else:
+		reticle.position = Vector2(-60, -60)
 	reticle.modulate.a = clampf(gp.aim_k * 1.4, 0.0, 1.0) if _hit_t <= 0.0 else 1.0
 	reticle.queue_redraw()
 	_wanted_update(game.police.hud(), 0.0)        # (the stars and the searching line, on foot too)
@@ -3268,6 +3283,8 @@ func open_settings(from_pause := false) -> void:
 	g.add_child(_setting_toggle("gauge", "Show FPS", st.get("fps", false), func(v): game.set_setting("fps", v)))
 	g.add_child(_setting_toggle("lock", "Cap at 60 fps", st.get("fps60", false), func(v): game.set_setting("fps60", v)))
 	g.add_child(_setting_toggle("lock", "Cap at 30 fps (smoother on slower phones)", st.get("fps30", false), func(v): game.set_setting("fps30", v)))
+	g.add_child(_setting_toggle("flag", "Pace notes: the corners coming up, in races and trials", st.get("pacenotes", true), func(v): game.set_setting("pacenotes", v)))
+	g.add_child(_setting_toggle("trophy", "Ghost of your best run in trials, crawls and races", st.get("ghosts", true), func(v): game.set_setting("ghosts", v)))
 	g.add_child(_setting_toggle("flag", "Event markers from afar (off: only up close, or where your GPS is going)", st.get("markers", true), func(v): game.set_setting("markers", v)))
 	var reset := K.button("Reset progress", K.PAPER, K.LINE, 24, 0, 60)
 	reset.add_theme_color_override("font_color", K.CORAL_DK)
